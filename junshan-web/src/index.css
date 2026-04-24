@@ -1,0 +1,769 @@
+:root {
+  --bg: #0f1419;
+  --card: #151c24;
+  --border: #243041;
+  --text: #c8d0da;
+  --muted: #7a8799;
+  --head: #f2f5f9;
+  --accent: #3d9cf5;
+  --accent2: #5ad4a8;
+  --danger: #f07178;
+  --radius: 10px;
+  /** 薪水月表日期格／數字輸入 */
+  --payroll-cell-min: 88px;
+  --payroll-cell-max: 128px;
+  --payroll-input-font: 0.95rem;
+  --payroll-input-pad-y: 8px;
+  --payroll-input-pad-x: 10px;
+  font-family: 'Segoe UI', 'Noto Sans TC', system-ui, sans-serif;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+  min-height: 100vh;
+}
+
+.app {
+  text-align: left;
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 24px 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.topMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.firebaseSyncBar {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  font-size: 0.86rem;
+  color: var(--text);
+}
+
+.firebaseSyncBar--disabled {
+  opacity: 0.92;
+}
+
+.firebaseSyncBar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.firebaseSyncBar__user {
+  color: var(--head);
+  font-weight: 600;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.firebaseSyncBar__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.firebaseSyncBar__msg {
+  margin: 8px 0 0;
+  color: var(--accent2);
+  font-size: 0.84rem;
+}
+
+.firebaseSyncBar__fineprint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.firebaseSyncBar__hint code,
+.firebaseSyncBar__fineprint code {
+  font-size: 0.85em;
+}
+
+.brand h1 {
+  margin: 0 0 6px;
+  font-size: 1.45rem;
+  font-weight: 650;
+  color: var(--head);
+  letter-spacing: 0.02em;
+}
+
+.sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 52rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 16px 0;
+  flex-wrap: wrap;
+}
+
+.tab {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.tab.on {
+  border-color: var(--accent);
+  color: var(--head);
+  background: rgba(61, 156, 245, 0.12);
+}
+
+.main {
+  padding-bottom: 24px;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  color: var(--head);
+}
+
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.panelHead h2,
+.panelHead h3 {
+  margin: 0;
+}
+
+.btnRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inlinePair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.inlinePair input {
+  flex: 1;
+  min-width: 140px;
+}
+
+select.sitePick {
+  min-width: 160px;
+  max-width: 100%;
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--head);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+.emptySite {
+  border-color: rgba(61, 156, 245, 0.45);
+  background: rgba(61, 156, 245, 0.08);
+}
+
+.emptySite strong {
+  color: var(--head);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.warnBanner {
+  background: rgba(240, 113, 120, 0.12);
+  border: 1px solid rgba(240, 113, 120, 0.35);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  color: #ffd0d3;
+  font-size: 0.92rem;
+}
+
+.siteSumBox {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0b0f14;
+}
+
+.siteSumBox strong {
+  color: var(--head);
+  font-size: 0.9rem;
+}
+
+.siteSumList {
+  margin: 8px 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.siteSumList span {
+  color: var(--accent2);
+  font-weight: 600;
+}
+
+th.dtCol,
+td:has(> input.cellIn) {
+  min-width: var(--payroll-cell-min);
+  max-width: var(--payroll-cell-max);
+  width: var(--payroll-cell-min);
+}
+
+input.cellIn {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--payroll-input-pad-y) var(--payroll-input-pad-x);
+  font-size: var(--payroll-input-font);
+  line-height: 1.35;
+}
+
+/** 案場格線：數值 > 0 時紅字標示 */
+input.cellIn--work {
+  color: var(--danger);
+  font-weight: 600;
+  background: rgba(240, 113, 120, 0.1);
+  border-color: rgba(240, 113, 120, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28);
+}
+
+input.cellIn--meal {
+  color: var(--danger);
+  font-weight: 600;
+  background: rgba(240, 113, 120, 0.08);
+  border-color: rgba(240, 113, 120, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.22);
+}
+
+th.dtCol.dtCol--hasWork {
+  color: var(--danger);
+  background: rgba(240, 113, 120, 0.1);
+  border-bottom: 2px solid rgba(240, 113, 120, 0.45);
+}
+
+/** 總出工數等唯讀格：數值 > 0 */
+table.data.tight td.num.num--dayHasWork {
+  color: var(--danger);
+  font-weight: 600;
+  background: rgba(240, 113, 120, 0.1);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.3);
+}
+
+table.data.tight td.num.num--mealValue {
+  color: var(--danger);
+  font-weight: 600;
+  background: rgba(240, 113, 120, 0.08);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28);
+}
+
+/** 月表／分期表：總計列、合計欄醒目（與 Excel 總列對齊） */
+table.data.tight tr.payrollGrandRow th,
+table.data.tight tr.payrollGrandRow td {
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.22), rgba(61, 156, 245, 0.12));
+  border-top: 2px solid var(--accent2);
+  font-weight: 700;
+  color: var(--head);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+table.data.tight tr.payrollGrandRow th {
+  text-align: left;
+}
+
+table.data.tight th.payrollGrandHead,
+table.data.tight td.payrollGrandCell {
+  min-width: 4.75rem;
+  background: rgba(61, 156, 245, 0.16);
+  font-weight: 700;
+  color: var(--head);
+  border-left: 1px solid rgba(90, 212, 168, 0.45);
+}
+
+/** 員工總出工及薪水計算：多個 tbody 區塊，區與區之間加間距與分隔線 */
+table.data.tight.payrollSummaryTable tbody.payrollSummarySection tr td:first-child {
+  font-weight: 600;
+  color: var(--head);
+}
+
+table.data.tight.payrollSummaryTable tbody.payrollSummarySection tr:not(.payrollGrandRow) td:first-child {
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+}
+
+table.data.tight.payrollSummaryTable
+  tbody.payrollSummarySection
+  + tbody.payrollSummarySection
+  tr:first-child
+  > td,
+table.data.tight.payrollSummaryTable
+  tbody.payrollSummarySection
+  + tbody.payrollSummarySection
+  tr:first-child
+  > th {
+  border-top: 2px solid rgba(90, 212, 168, 0.35);
+  padding-top: 1rem;
+}
+
+/** 總表：游標旁浮動提示（金額拆解） */
+.payrollSummaryPopoverCell {
+  cursor: help;
+}
+
+.payrollSummaryTooltip {
+  position: fixed;
+  z-index: 20000;
+  pointer-events: auto;
+  min-width: 12rem;
+  max-width: min(22rem, calc(100vw - 24px));
+  max-height: min(70vh, 420px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #0b0f14;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.payrollSummaryTooltip--pinned {
+  border-color: rgba(90, 212, 168, 0.45);
+}
+
+.payrollSummaryTooltip__dragBar {
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: rgba(36, 48, 65, 0.55);
+  border-bottom: 1px solid var(--border);
+}
+
+.payrollSummaryTooltip__dragBar:active {
+  cursor: grabbing;
+}
+
+.payrollSummaryTooltip__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px;
+}
+
+.payrollSummaryTooltip__title {
+  font-weight: 600;
+  color: var(--head);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.payrollSummaryTooltip__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.payrollSummaryTooltip__line {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(36, 48, 65, 0.65);
+}
+
+.payrollSummaryTooltip__line:last-child {
+  border-bottom: none;
+}
+
+.payrollSummaryTooltip__label {
+  flex: 1;
+  color: var(--muted);
+  text-align: left;
+}
+
+.payrollSummaryTooltip__amount {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent2);
+  white-space: nowrap;
+}
+
+.payrollSummaryTooltip__amount--hidden {
+  color: var(--muted);
+}
+
+.payrollSummaryTooltip__footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.payrollSummaryTooltip__footer strong {
+  color: var(--head);
+}
+
+.payrollSummaryTooltip__footerTotals {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.payrollSummaryTooltip__pinHint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--accent2);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.payrollSummaryOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 12px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.payrollSummaryOptionRow input {
+  flex-shrink: 0;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.card h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: var(--head);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.feeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+input[type='text'],
+input[type='number'] {
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--head);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+}
+
+/**
+ * 薪水表 number 格：須蓋過上一段 input[type='number'] 的 color（同權重時後者勝）。
+ * -webkit-text-fill-color：避免 WebKit 內建樣式讓數字仍顯示預設色。
+ */
+table.data.tight input[type='number'].cellIn.cellIn--work,
+table.data.tight input[type='text'].cellIn.cellIn--work,
+table.data.tight input[type='number'].cellIn.cellIn--meal,
+table.data.tight input[type='text'].cellIn.cellIn--meal {
+  color: var(--danger);
+  -webkit-text-fill-color: var(--danger);
+}
+
+input.narrow {
+  max-width: 88px;
+}
+
+.titleInput {
+  font-size: 1rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 200px;
+}
+
+.btn {
+  border: 1px solid var(--border);
+  background: rgba(61, 156, 245, 0.2);
+  color: var(--head);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--text);
+}
+
+.btn.danger {
+  border-color: rgba(240, 113, 120, 0.45);
+  background: rgba(240, 113, 120, 0.12);
+  color: #ffd0d3;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.stat strong {
+  color: var(--accent2);
+  font-size: 1.1rem;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+/**
+ * 薪水月表／分期總表：
+ * - 橫向捲動：凍結第一欄（姓名、項目列等）
+ * - 垂直捲動：凍結表頭日期／分期列（sticky top），區塊高度上限避免整頁過長
+ * 僅在包住 table 的外層加上 .tableScrollSticky（與 Ledger／Quote 的 tableScroll 區隔）
+ */
+.tableScrollSticky {
+  overflow: auto;
+  max-height: min(78vh, 920px);
+  -webkit-overflow-scrolling: touch;
+}
+
+/** 表頭整列：捲動內容時留在區塊頂端，方便對照日期／分期 */
+.tableScrollSticky > table.data thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #0b0f14;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.tableScrollSticky > table.data thead th:not(:first-child) {
+  box-shadow:
+    0 1px 0 var(--border),
+    0 6px 12px -4px rgba(0, 0, 0, 0.35);
+}
+
+/** 左上角表頭：同時凍結列＋列 */
+.tableScrollSticky > table.data thead th:first-child {
+  left: 0;
+  z-index: 6;
+  box-shadow:
+    6px 0 14px -6px rgba(0, 0, 0, 0.75),
+    0 6px 12px -4px rgba(0, 0, 0, 0.35);
+}
+
+.tableScrollSticky > table.data tbody td:first-child,
+.tableScrollSticky > table.data tbody th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--card);
+  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+
+.tableScrollSticky > table.data tbody tr.payrollGrandRow > th:first-child,
+.tableScrollSticky > table.data tbody tr.payrollGrandRow > td:first-child {
+  z-index: 3;
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.28), rgba(61, 156, 245, 0.16));
+  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+table.data th,
+table.data td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+table.data thead th {
+  background: #0b0f14;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+table.data td.num,
+table.data th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.cen {
+  text-align: center;
+}
+
+table.data.tight input {
+  width: 100%;
+  min-width: 0;
+}
+
+/** 薪水月表：日期欄多時仍保持數字可讀 */
+table.data.tight th.dtCol {
+  font-size: 0.82rem;
+  padding: 8px 6px;
+}
+
+table.data.tight td:has(> input.cellIn) {
+  padding: 6px 5px;
+  vertical-align: middle;
+}
+
+table.data.tight td.num {
+  font-size: var(--payroll-input-font);
+  padding: 8px 10px;
+}
+
+table.data.tight th:first-child,
+table.data.tight td:first-child {
+  min-width: 4.75rem;
+  max-width: 8rem;
+}
+
+.summary .dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.summary .dl > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #0b0f14;
+}
+
+.summary dt {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.summary dd {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  color: var(--head);
+  font-weight: 600;
+}
+
+.foot {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+code {
+  background: #0b0f14;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
