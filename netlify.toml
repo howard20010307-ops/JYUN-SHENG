@@ -1,0 +1,11 @@
+# Netlify 會讀此檔，可覆寫網站上灰掉的 Publish directory 等設定。
+# 儲存庫根目錄在「鈞泩放樣工程行」，實際 Vite 專案在 junshan-web/。
+
+[build]
+  base = "junshan-web"
+  command = "npm ci && npm run build"
+  # 有設定 base 時，publish 為「相對於 junshan-web 資料夾」的路徑（Vite 預設輸出 dist）
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
