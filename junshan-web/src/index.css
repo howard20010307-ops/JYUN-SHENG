@@ -594,6 +594,93 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   color: var(--head);
 }
 
+/* 工作日誌 */
+.worklogForm .worklogFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+@media (max-width: 640px) {
+  .worklogForm .worklogFormGrid {
+    grid-template-columns: 1fr;
+  }
+}
+.worklogForm .worklogFormLabel .titleInput {
+  min-width: 0;
+  width: 100%;
+}
+input[type='date'].titleInput {
+  color-scheme: dark;
+}
+.worklogTextarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--head);
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  font-family: inherit;
+}
+.worklogList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.worklogListItem {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #0a1016;
+}
+.worklogListItemHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.worklogListDate {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--head);
+}
+.worklogSitePill {
+  color: var(--accent2);
+  font-weight: 500;
+}
+.worklogListActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.worklogListBody {
+  margin: 0;
+  font-family: ui-sans-serif, 'Segoe UI', 'Noto Sans TC', system-ui, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.worklogForm .titleInput:where(select) {
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--head);
+  padding: 8px 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

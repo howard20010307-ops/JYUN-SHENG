@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { QuotePanel } from './components/QuotePanel'
 import { PayrollPanel } from './components/PayrollPanel'
 import { LedgerPanel } from './components/LedgerPanel'
+import { WorkLogPanel } from './components/WorkLogPanel'
 import type { SalaryBook } from './domain/salaryExcelModel'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState } from './domain/appState'
@@ -105,9 +106,9 @@ export default function App() {
                   const text = String(reader.result ?? '')
                   const raw = rawDataFromBackupJson(text)
                   const next = migrateAppState(raw)
-                  if (
+                    if (
                     !window.confirm(
-                      '確定用此備份「完整取代」目前網頁內所有資料？\n（薪水、估價、公司帳皆會變成備份檔內容，且會寫入本機瀏覽器。）',
+                      '確定用此備份「完整取代」目前網頁內所有資料？\n（薪水、估價、公司帳、工作日誌皆會變成備份檔內容，且會寫入本機瀏覽器。）',
                     )
                   ) {
                     return
@@ -153,6 +154,7 @@ export default function App() {
             ['payroll', '薪水統計'],
             ['quote', '放樣估價'],
             ['ledger', '公司帳'],
+            ['worklog', '工作日誌'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -192,11 +194,23 @@ export default function App() {
             setMonths={(months) => patch({ months })}
           />
         )}
+        {state.tab === 'worklog' && (
+          <WorkLogPanel
+            workLog={state.workLog}
+            setWorkLog={(fn) =>
+              setState((s) => ({
+                ...s,
+                workLog: typeof fn === 'function' ? fn(s.workLog) : fn,
+              }))
+            }
+            siteOptions={quoteJobSites}
+          />
+        )}
       </main>
 
       <footer className="foot">
         若與您手邊 Excel 仍有細部差異，請告知要對齊的「工作表名稱＋儲存格公式」。本機與線上可選
-        <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；未用雲端時，各網址的瀏覽器資料仍互不共用。
+        <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；工作日誌一併含在內。未用雲端時，各網址的瀏覽器資料仍互不共用。
       </footer>
       </div>
 

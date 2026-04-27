@@ -5,8 +5,13 @@ import {
   normalizeSalaryBook,
   type SalaryBook,
 } from './salaryExcelModel'
+import {
+  initialWorkLogState,
+  migrateWorkLogState,
+  type WorkLogState,
+} from './workLogModel'
 
-export type Tab = 'quote' | 'payroll' | 'ledger'
+export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog'
 
 export type AppState = {
   tab: Tab
@@ -14,6 +19,7 @@ export type AppState = {
   site: QuoteSite
   quoteRows: QuoteRow[]
   months: MonthLine[]
+  workLog: WorkLogState
 }
 
 export function initialAppState(): AppState {
@@ -23,6 +29,7 @@ export function initialAppState(): AppState {
     site: { name: '', floors: [], fees: defaultSiteFees() },
     quoteRows: [],
     months: defaultLedger(),
+    workLog: initialWorkLogState(),
   }
 }
 
@@ -31,13 +38,18 @@ export function migrateAppState(loaded: unknown): AppState {
   if (!loaded || typeof loaded !== 'object') return init
   const d = loaded as Partial<AppState>
   const tab: Tab =
-    d.tab === 'quote' || d.tab === 'payroll' || d.tab === 'ledger'
+    d.tab === 'quote' || d.tab === 'payroll' || d.tab === 'ledger' || d.tab === 'worklog'
       ? d.tab
       : 'payroll'
+  const workLog =
+    d.workLog && typeof d.workLog === 'object' && d.workLog !== null
+      ? migrateWorkLogState(d.workLog)
+      : init.workLog
   return {
     ...init,
     ...d,
     tab,
+    workLog,
     salaryBook:
       d.salaryBook && Array.isArray(d.salaryBook.months)
         ? normalizeSalaryBook(d.salaryBook as SalaryBook)
