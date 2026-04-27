@@ -29,7 +29,8 @@ export function useJsonBinSync(
   )
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const skipNextUpload = useRef(false)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 瀏覽器 setTimeout 回傳 number；與 NodeJS.Timeout 分開，避免 tsc 在雲端建置失敗 */
+  const saveTimer = useRef<number | null>(null)
 
   useEffect(() => {
     if (keyErr) {

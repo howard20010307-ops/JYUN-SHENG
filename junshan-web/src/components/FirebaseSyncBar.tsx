@@ -27,7 +27,7 @@ export function FirebaseSyncBar({ state, setState }: Props) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [autoSync, setAutoSync] = useState(readAutoSyncPreference)
-  const autoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     const app = getFirebaseApp()
@@ -112,8 +112,8 @@ export function FirebaseSyncBar({ state, setState }: Props) {
 
   useEffect(() => {
     if (!user || !autoSync || !getFirebaseApp()) return
-    if (autoTimerRef.current) clearTimeout(autoTimerRef.current)
-    autoTimerRef.current = setTimeout(() => {
+    if (autoTimerRef.current != null) clearTimeout(autoTimerRef.current)
+    autoTimerRef.current = window.setTimeout(() => {
       uploadUserAppState(user.uid, state).catch((e) => {
         console.error(e)
         setMsg(e instanceof Error ? e.message : String(e))
