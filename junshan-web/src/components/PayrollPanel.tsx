@@ -127,8 +127,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
   const siteRenameSnapRef = useRef<{
     monthId: string
     bi: number
-    oldTrim: string
-    oldRaw: string
+    oldExact: string
   } | null>(null)
   const [newStaffName, setNewStaffName] = useState('')
   const [activeMonthId, setActiveMonthId] = useState(
@@ -520,8 +519,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                     siteRenameSnapRef.current = {
                       monthId: month.id,
                       bi,
-                      oldTrim: block.siteName.trim(),
-                      oldRaw: block.siteName,
+                      oldExact: block.siteName,
                     }
                   }}
                   onChange={(e) => {
@@ -539,7 +537,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                     if (!snap || snap.monthId !== month.id || snap.bi !== bi) return
                     const newT = e.target.value.trim()
                     setSalaryBook((prev) => {
-                      const r = renameSiteAcrossBook(prev, snap.oldTrim, newT, {
+                      const r = renameSiteAcrossBook(prev, snap.oldExact, newT, {
                         monthId: month.id,
                         blockIndex: bi,
                       })
@@ -553,7 +551,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                               : {
                                   ...m,
                                   blocks: m.blocks.map((b, j) =>
-                                    j === snap.bi ? { ...b, siteName: snap.oldRaw } : b,
+                                    j === snap.bi ? { ...b, siteName: snap.oldExact } : b,
                                   ),
                                 },
                           ),

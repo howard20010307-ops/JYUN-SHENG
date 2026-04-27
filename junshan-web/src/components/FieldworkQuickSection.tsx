@@ -60,8 +60,8 @@ export function FieldworkQuickSection({
     const s = new Set<string>([QUICK_SITE_TSAI_ADJUST, QUICK_SITE_JUN_ADJUST])
     for (const m of salaryBook.months) {
       for (const b of m.blocks) {
-        const n = b.siteName.trim()
-        if (n) s.add(n)
+        const n = b.siteName
+        if (n.trim()) s.add(n)
       }
     }
     return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))

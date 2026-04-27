@@ -681,6 +681,42 @@ input[type='date'].titleInput {
   font-weight: 500;
 }
 
+/* 放樣估價：避免欄位過寬被擠爛，維持橫捲＋凍結首欄可讀性 */
+table.data.quoteFloorTable {
+  min-width: 400px;
+}
+table.data.quoteCostTable,
+table.data.quoteCostTableExcel {
+  min-width: 2400px;
+}
+.quoteExcelTH {
+  min-width: 5.2rem;
+  max-width: 7.2rem;
+  vertical-align: bottom;
+  padding: 6px 5px !important;
+  line-height: 1.15;
+}
+.quoteExcelTH .excelLet {
+  display: block;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--accent2);
+  margin-bottom: 2px;
+  letter-spacing: 0.04em;
+}
+.quoteExcelTH .excelLbl {
+  display: block;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--muted);
+  hyphens: auto;
+  word-break: break-word;
+}
+.quoteExcelTHAct {
+  min-width: 3.2rem;
+  max-width: 4rem;
+}
+
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -787,6 +823,39 @@ input.narrow {
   margin: 0 0 12px;
 }
 
+label .subtleInLabel,
+.subtleInLabel {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+.checkPair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  min-height: 2.5rem;
+}
+
+label.rowCheck {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+td.emptyTableMsg {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.5rem 12px;
+  line-height: 1.5;
+}
+
 .tableScroll {
   overflow-x: auto;
 }
@@ -795,7 +864,7 @@ input.narrow {
  * 薪水月表／分期總表：
  * - 橫向捲動：凍結第一欄（姓名、項目列等）
  * - 垂直捲動：凍結表頭日期／分期列（sticky top），區塊高度上限避免整頁過長
- * 僅在包住 table 的外層加上 .tableScrollSticky（與 Ledger／Quote 的 tableScroll 區隔）
+ * 在包住 table 的外層加上 .tableScrollSticky（與僅橫捲的 .tableScroll 區隔）；放樣估價、薪水、分期表均可用
  */
 .tableScrollSticky {
   overflow: auto;

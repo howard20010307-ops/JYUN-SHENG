@@ -52,7 +52,7 @@ function totalWorkDaysForSiteInMonth(
   for (const b of month.blocks) {
     const isUnnamed = b.siteName.trim() === ''
     if (unnamed !== isUnnamed) continue
-    if (!unnamed && b.siteName.trim() !== siteKey) continue
+    if (!unnamed && b.siteName !== siteKey) continue
     total += siteBlockTotalWorkDays(b, staffOrder, n)
   }
   return total
@@ -79,7 +79,7 @@ function siteMonthStaffBreakdown(
   for (const b of month.blocks) {
     const isUnnamed = b.siteName.trim() === ''
     if (unnamed !== isUnnamed) continue
-    if (!unnamed && b.siteName.trim() !== siteKey) continue
+    if (!unnamed && b.siteName !== siteKey) continue
     for (const name of staffOrder) {
       byStaff[name] += staffTotalDays(padArray(b.grid[name], n))
     }
@@ -93,14 +93,13 @@ function siteMonthStaffBreakdown(
 type SitePivotRow = { key: string; label: string; unnamed: boolean }
 
 function collectSiteRows(book: SalaryBook): SitePivotRow[] {
-  /** 與快速登記一致：虛擬案名「蔡董調工」納入透視表（資料來自月表蔡董調工列） */
+  /** 案名列鍵為區塊 {@link SiteBlock.siteName} 逐字串（不以 trim 合併）；「蔡董調工」為虛擬列（資料來自月表該列） */
   const named = new Set<string>([QUICK_SITE_TSAI_ADJUST])
   let anyUnnamed = false
   for (const m of book.months) {
     for (const b of m.blocks) {
-      const t = b.siteName.trim()
-      if (t) named.add(t)
-      else anyUnnamed = true
+      if (b.siteName.trim() === '') anyUnnamed = true
+      else named.add(b.siteName)
     }
   }
   const rows: SitePivotRow[] = [...named]

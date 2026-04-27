@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
 import {
+  buildQuoteRowsFromLayout,
   computeQuote,
   defaultQuoteRows,
   exampleSite,
   m2ToPing,
+  TEMPLATE,
   type QuoteRow,
   type QuoteSite,
 } from '../domain/quoteEngine'
+import { QUOTE_TABLE_COLUMNS } from '../domain/quoteExcelColumns'
 type JobPick = { id: string; name: string }
 
 type Props = {
@@ -20,6 +23,12 @@ type Props = {
 function num(v: string): number {
   const n = parseFloat(v)
   return Number.isFinite(n) ? n : 0
+}
+
+function intNonNeg(v: string, max: number): number {
+  const n = parseInt(v, 10)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(max, n)
 }
 
 export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
@@ -79,6 +88,37 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
     setRows(defaultQuoteRows())
   }
 
+  function patchLayout(
+    p: Partial<{
+      basementFloors: number
+      hasMezzanine: boolean
+      typicalStartFloor: number
+      typicalFloors: number
+      rfCount: number
+    }>,
+  ) {
+    setSite({ ...site, layout: { ...site.layout, ...p } })
+  }
+
+  const typicalRangeHint = useMemo(() => {
+    const c = site.layout.typicalFloors
+    const s = site.layout.typicalStartFloor
+    if (c <= 0) return '標準層數為 0 時不產生「正常樓」區塊'
+    const end = s + c - 1
+    return `約 ${s}F～${end}F；『正常樓』區塊各列「相同樓層數」(欄 C)＝${c}`
+  }, [site.layout.typicalFloors, site.layout.typicalStartFloor])
+
+  function applyLayoutToRows() {
+    if (
+      !window.confirm(
+        '將依「專案樓層」重建成本估算列（區塊／欄 C 與試算表同一套）。目前表格會被覆寫。確定嗎？',
+      )
+    ) {
+      return
+    }
+    setRows(buildQuoteRowsFromLayout(site.layout))
+  }
+
   return (
     <div className="panel">
       <div className="panelHead">
@@ -87,6 +127,96 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
           載入範例（對齊試算表結構）
         </button>
       </div>
+      <p className="hint" style={{ marginTop: -4, marginBottom: 8 }}>
+        單次估價＝一個新案場。請先定<strong>專案樓層</strong>，再依固定工項產生成本表；可再微調欄內單層工數、儀器、雜項。樓層面積表與下表可捲動、表頭與首欄凍結便於對照《估價表》。
+      </p>
+
+      <section className="card">
+        <div className="panelHead">
+          <h3>專案樓層</h3>
+          <button type="button" className="btn" onClick={applyLayoutToRows}>
+            依專案樓層產生（覆寫）估價列
+          </button>
+        </div>
+        <p className="hint">
+          與 Excel《估價表》左區相同順序：<strong>基礎工程</strong> {TEMPLATE.foundation.length} 項 →{' '}
+          <strong>地下室(除B1F以外)</strong>（欄 C＝地下層數−1）→ <strong>B1F</strong> →{' '}
+          <strong>1F</strong>（{TEMPLATE.firstFloor.length} 細項）→ <strong>夾層／正常樓／RF</strong>
+          （標準層與 RF 各 {TEMPLATE.above.length} 細項；『正常樓』整區共用同一「相同樓層數」）。
+        </p>
+        <div className="grid2" style={{ marginBottom: 12 }}>
+          <label>
+            地下幾層
+            <input
+              type="number"
+              min={0}
+              max={30}
+              value={site.layout.basementFloors}
+              onChange={(e) =>
+                patchLayout({ basementFloors: intNonNeg(e.target.value, 30) })
+              }
+            />
+            <span className="subtleInLabel">0＝無；1＝僅 B1；2＝B1+B2… 非 B1 各層各展開一批 8 項</span>
+          </label>
+          <div className="checkPair">
+            <label className="rowCheck">
+              <input
+                type="checkbox"
+                checked={site.layout.hasMezzanine}
+                onChange={(e) => patchLayout({ hasMezzanine: e.target.checked })}
+              />
+              有夾層
+            </label>
+          </div>
+        </div>
+        <div className="grid2">
+          <label>
+            正常樓自第幾層起
+            <input
+              type="number"
+              min={2}
+              max={99}
+              value={site.layout.typicalStartFloor}
+              onChange={(e) =>
+                patchLayout({
+                  typicalStartFloor: Math.max(
+                    2,
+                    Math.min(99, intNonNeg(e.target.value, 99)),
+                  ),
+                })
+              }
+            />
+            <span className="subtleInLabel">2＝自 2F 起；3＝自 3F 起（1F 已單獨列出）</span>
+          </label>
+          <label>
+            正常樓連續幾層
+            <input
+              type="number"
+              min={0}
+              value={site.layout.typicalFloors}
+              onChange={(e) =>
+                patchLayout({ typicalFloors: intNonNeg(e.target.value, 200) })
+              }
+            />
+            <span className="subtleInLabel">{typicalRangeHint}</span>
+          </label>
+        </div>
+        <div className="grid2">
+          <label>
+            RF 層數
+            <input
+              type="number"
+              min={0}
+              value={site.layout.rfCount}
+              onChange={(e) =>
+                patchLayout({ rfCount: intNonNeg(e.target.value, 50) })
+              }
+            />
+            <span className="subtleInLabel">『RF』區塊各列欄 C＝此數（整區相同）</span>
+          </label>
+          <div />
+        </div>
+      </section>
 
       <section className="card">
         <h3>案場與費率</h3>
@@ -152,8 +282,8 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
             新增樓層
           </button>
         </div>
-        <div className="tableScroll">
-          <table className="data">
+        <div className="tableScroll tableScrollSticky">
+          <table className="data quoteFloorTable">
             <thead>
               <tr>
                 <th>樓層</th>
@@ -202,30 +332,30 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
             新增列
           </button>
         </div>
-        <p className="hint">
-          基礎總工數 = 單層基準 × 相同樓層數；計價工數 = 基礎 ×（1＋風險％）；列金額 =
-          計價工數總和 × 單工成本 ＋ 儀器（依樓層數）＋ 雜項（每樓層固定 × 樓層數）。
-        </p>
-        <div className="tableScroll">
-          <table className="data tight">
+        <div className="tableScroll tableScrollSticky">
+          <table className="data tight quoteCostTableExcel">
             <thead>
               <tr>
-                <th>區域</th>
-                <th>細項</th>
-                <th>樓層數</th>
-                <th>基準／層</th>
-                <th>風險％</th>
-                <th>測</th>
-                <th>雷</th>
-                <th>墨</th>
-                <th>雜項／樓</th>
-                <th>基礎工數</th>
-                <th>計價工數</th>
-                <th>列成本</th>
-                <th />
+                {QUOTE_TABLE_COLUMNS.map((col) => (
+                  <th key={col.key} scope="col" className="quoteExcelTH">
+                    <span className="excelLet">{col.letter}</span>
+                    <span className="excelLbl">{col.label}</span>
+                  </th>
+                ))}
+                <th scope="col" className="quoteExcelTH quoteExcelTHAct">
+                  <span className="excelLet">　</span>
+                  <span className="excelLbl">操作</span>
+                </th>
               </tr>
             </thead>
             <tbody>
+              {result.computed.length === 0 ? (
+                <tr>
+                  <td colSpan={18} className="emptyTableMsg">
+                    尚無列。請於上方「專案樓層」設定後按「依專案樓層產生（覆寫）估價列」，或按「新增列」。
+                  </td>
+                </tr>
+              ) : null}
               {result.computed.map((r, i) => (
                 <tr key={r.id}>
                   <td>
@@ -260,6 +390,7 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                       }
                     />
                   </td>
+                  <td className="num">{r.baseTotal.toFixed(2)}</td>
                   <td>
                     <input
                       type="number"
@@ -270,6 +401,8 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                       }
                     />
                   </td>
+                  <td className="num">{r.pricingPerFloor.toFixed(2)}</td>
+                  <td className="num">{r.pricingTotal.toFixed(2)}</td>
                   <td className="cen">
                     <input
                       type="checkbox"
@@ -307,8 +440,10 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                       }
                     />
                   </td>
-                  <td className="num">{r.baseTotal.toFixed(2)}</td>
-                  <td className="num">{r.pricingTotal.toFixed(2)}</td>
+                  <td className="num">{Math.round(r.miscModule)}</td>
+                  <td className="num">{Math.round(r.instrumentPerFloor)}</td>
+                  <td className="num">{Math.round(r.instrumentModule)}</td>
+                  <td className="num">{Math.round(r.floorStageQuote)}</td>
                   <td className="num">{Math.round(r.regionCost)}</td>
                   <td>
                     <button

@@ -68,12 +68,13 @@ export function applyFieldworkQuick(
   payload: FieldworkQuickPayload,
 ): { book: SalaryBook; months: MonthLine[]; ok: boolean; message: string } {
   const iso = payload.isoDate.trim()
-  const siteName = payload.siteName.trim()
+  /** 案場與書內區塊 **逐字相等**（不以 trim 視為同一） */
+  const siteNameIn = payload.siteName
   const workers = payload.workers.map((w) => w.trim()).filter(Boolean)
   /** 0 即不加該日出工／調工；非有限數字視為 0（不再預設為 1） */
   const dayVal = Number.isFinite(payload.dayValue) ? payload.dayValue : 0
 
-  if (!iso || !siteName || workers.length === 0) {
+  if (!iso || !siteNameIn.trim() || workers.length === 0) {
     return { book, months, ok: false, message: '請填日期、地點，並至少選一位人員。' }
   }
 
@@ -93,8 +94,8 @@ export function applyFieldworkQuick(
   let m = bookWithStaff.months[mi]
   const len = m.dates.length
 
-  const isTsaiAdjustSite = siteName === QUICK_SITE_TSAI_ADJUST
-  const isJunAdjustSite = siteName === QUICK_SITE_JUN_ADJUST
+  const isTsaiAdjustSite = siteNameIn === QUICK_SITE_TSAI_ADJUST
+  const isJunAdjustSite = siteNameIn === QUICK_SITE_JUN_ADJUST
 
   let newBook: SalaryBook
   let msg: string
@@ -121,10 +122,10 @@ export function applyFieldworkQuick(
         ? `已登記：${iso}、${workers.join('、')} → 月表「${label}」該日各 +${dayVal} 天（與案場格線分開）。`
         : `出工天數為 0：未變更月表「${label}」該日天數（${iso}、${workers.join('、')}）。`
   } else {
-    let bi = m.blocks.findIndex((b) => b.siteName.trim() === siteName)
+    let bi = m.blocks.findIndex((b) => b.siteName === siteNameIn)
     let blocks = [...m.blocks]
     if (bi < 0) {
-      blocks = [...blocks, emptyBlock(siteName, len, staffKeysForMonthDisplay(m))]
+      blocks = [...blocks, emptyBlock(siteNameIn, len, staffKeysForMonthDisplay(m))]
       bi = blocks.length - 1
     }
 
@@ -145,8 +146,8 @@ export function applyFieldworkQuick(
     newBook = { ...bookWithStaff, months: newMonthsData }
     msg =
       dayVal !== 0
-        ? `已登記：${iso}、${siteName}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
-        : `出工天數為 0：未變更案場「${siteName}」該日格線（${iso}、${workers.join('、')}）。`
+        ? `已登記：${iso}、${siteNameIn}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
+        : `出工天數為 0：未變更案場「${siteNameIn}」該日格線（${iso}、${workers.join('、')}）。`
   }
   let newLedger = months
 

@@ -1,4 +1,4 @@
-import { defaultSiteFees, type QuoteSite, type QuoteRow } from './quoteEngine'
+import { migrateQuoteSite, type QuoteSite, type QuoteRow } from './quoteEngine'
 import { defaultLedger, type MonthLine } from './ledgerEngine'
 import {
   defaultSalaryBook,
@@ -26,7 +26,7 @@ export function initialAppState(): AppState {
   return {
     tab: 'payroll',
     salaryBook: defaultSalaryBook(),
-    site: { name: '', floors: [], fees: defaultSiteFees() },
+    site: migrateQuoteSite({}),
     quoteRows: [],
     months: defaultLedger(),
     workLog: initialWorkLogState(),
@@ -54,7 +54,7 @@ export function migrateAppState(loaded: unknown): AppState {
       d.salaryBook && Array.isArray(d.salaryBook.months)
         ? normalizeSalaryBook(d.salaryBook as SalaryBook)
         : init.salaryBook,
-    site: d.site && typeof d.site === 'object' ? d.site : init.site,
+    site: d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site,
     quoteRows: Array.isArray(d.quoteRows) ? d.quoteRows : init.quoteRows,
     months: Array.isArray(d.months)
       ? (d.months as MonthLine[]).map((m) => ({

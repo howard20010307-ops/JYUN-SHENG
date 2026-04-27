@@ -592,12 +592,13 @@ export function renameWorkerInBook(
 /** 與快速登記「蔡董調工／鈞泩調工」專用案名衝突時拒絕更名（避免誤用保留字） */
 const RESERVED_SITE_NAMES_FOR_QUICK = new Set(['蔡董調工', '鈞泩調工'])
 
+/** 同一月內「完整案名字串」重複（不以 trim 等同視為同一） */
 function monthLabelWithDuplicateSiteName(book: SalaryBook): string | null {
   for (const m of book.months) {
     const seen = new Set<string>()
     for (const b of m.blocks) {
-      const k = b.siteName.trim()
-      if (!k) continue
+      const k = b.siteName
+      if (!k.trim()) continue
       if (seen.has(k)) return m.label
       seen.add(k)
     }
@@ -609,17 +610,16 @@ function monthLabelWithDuplicateSiteName(book: SalaryBook): string | null {
 export type SiteRenameEditedRef = { monthId: string; blockIndex: number }
 
 /**
- * 全書案場更名：各月凡 `siteName` 去空白後等於 `oldTrimmed` 的區塊，一併改為 `newNameRaw` 去空白後的字串。
- * 另會強制更新 `edited` 所指區塊（解決僅當月先改字、與舊名已不一致時仍要連動的情況）。
- * 若任一月出現兩個以上相同非空白案名則拒絕。
+ * 全書案場更名：凡 `siteName` **字元完全等於**焦點時之 `oldExact` 的區塊改為 `newNameRaw` 去頭尾空白後的字串。
+ * （不以 trim 視為等同：「甲」與「甲 」視為不同案名，應分別更名。）
+ * 另會強制更新 `edited` 所指區塊。
  */
 export function renameSiteAcrossBook(
   book: SalaryBook,
-  oldTrimmed: string,
+  oldExact: string,
   newNameRaw: string,
   edited?: SiteRenameEditedRef,
 ): { book: SalaryBook; ok: boolean; message: string } {
-  const oldT = oldTrimmed.trim()
   const newT = newNameRaw.trim()
   if (!newT) {
     return { book, ok: false, message: '案場名稱不可為空白。' }
@@ -631,14 +631,14 @@ export function renameSiteAcrossBook(
       message: `「${newT}」為快速登記保留案名，請改用其他名稱。`,
     }
   }
-  if (oldT === newT) {
+  if (oldExact === newT) {
     return { book, ok: true, message: '名稱相同，無需變更。' }
   }
 
   const nextMonths = book.months.map((m) => ({
     ...m,
     blocks: m.blocks.map((b, j) => {
-      const matchOld = oldT !== '' && b.siteName.trim() === oldT
+      const matchOld = oldExact !== '' && b.siteName === oldExact
       const matchEdited =
         edited !== undefined && m.id === edited.monthId && j === edited.blockIndex
       if (matchOld || matchEdited) return { ...b, siteName: newT }
@@ -686,10 +686,11 @@ export function renameSiteAcrossBook(
     if (hit) monthsTouched.add(book.months[i].label)
   }
 
+  const oldLabel = oldExact.trim() ? oldExact : '（原為空白或僅空白字元）'
   const msg =
     changedBlocks === 0
       ? '無需變更。'
-      : `已將案場「${oldT ? oldT : '（原為空白）'}」同步為「${newT}」（${monthsTouched.size} 張月表、共 ${changedBlocks} 個區塊）。`
+      : `已將與「${oldLabel}」完全相同的案名，同步為「${newT}」（${monthsTouched.size} 張月表、共 ${changedBlocks} 個區塊）。`
 
   return { book: trial, ok: true, message: msg }
 }
