@@ -58,63 +58,6 @@ body {
   width: 100%;
 }
 
-.firebaseSyncBar {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: #0b0f14;
-  font-size: 0.86rem;
-  color: var(--text);
-}
-
-.firebaseSyncBar--disabled {
-  opacity: 0.92;
-}
-
-.firebaseSyncBar__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.firebaseSyncBar__user {
-  color: var(--head);
-  font-weight: 600;
-  max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.firebaseSyncBar__check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.84rem;
-}
-
-.firebaseSyncBar__msg {
-  margin: 8px 0 0;
-  color: var(--accent2);
-  font-size: 0.84rem;
-}
-
-.firebaseSyncBar__fineprint {
-  margin: 8px 0 0;
-  font-size: 0.78rem;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.firebaseSyncBar__hint code,
-.firebaseSyncBar__fineprint code {
-  font-size: 0.85em;
-}
-
 .jsonbinSyncBar {
   width: 100%;
   margin-top: 8px;

@@ -6,7 +6,6 @@ import type { SalaryBook } from './domain/salaryExcelModel'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState } from './domain/appState'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
-import { FirebaseSyncBar } from './components/FirebaseSyncBar'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { useJsonBinSync } from './hooks/useJsonBinSync'
 import { clearPersistentState, usePersistentStateWithUndo } from './hooks/usePersistentState'
@@ -135,7 +134,6 @@ export default function App() {
           </button>
           </div>
         </div>
-        <FirebaseSyncBar state={state} setState={setState} />
         <JsonBinSyncBar
           active={jsonBin.active}
           ready={jsonBin.ready}
@@ -193,7 +191,7 @@ export default function App() {
 
       <footer className="foot">
         若與您手邊 Excel 仍有細部差異，請告知要對齊的「工作表名稱＋儲存格公式」。本機與線上可選
-        <strong> Google 雲端（Firebase）</strong>、<strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>同步；未用雲端時，各網址的瀏覽器資料仍互不共用。
+        <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；未用雲端時，各網址的瀏覽器資料仍互不共用。
       </footer>
     </div>
   )

@@ -31,7 +31,7 @@ async function gzipTextToB64(text: string): Promise<string> {
   const C = (globalThis as unknown as { CompressionStream?: new (f: string) => TransformStream }).CompressionStream
   if (!C) {
     throw new Error(
-      '此瀏覽器不支援 Gzip 壓縮；請改用最新 Chrome／Edge 或匯出備份改用 Firebase／付費方案。',
+      '此瀏覽器不支援 Gzip 壓縮；請改用最新 Chrome／Edge 或以「匯出／匯入備份」同步，或更換可支援的瀏覽器／方案。',
     )
   }
   const enc = new TextEncoder().encode(text)
@@ -187,7 +187,7 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<void> {
   const body = JSON.stringify(wrapper)
   if (body.length > JSONBIN_FREE_MAX_BYTES) {
     throw new Error(
-      '壓縮後仍超過 JSONBin 免費版單筆大小上限。請刪減歷史月表／備份內容、匯出備份後減量，或改用 Pro／Firebase。',
+      '壓縮後仍超過 JSONBin 免費版單筆大小上限。請刪減歷史月表／備份內容、匯出備份後減量，或升級 Pro／改用其他雲端方案。',
     )
   }
   const res = await fetch(`${BASE}/${id}`, {
