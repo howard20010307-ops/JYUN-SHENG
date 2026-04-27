@@ -36,9 +36,6 @@ export function JsonBinSyncBar({ active, ready, line, lastSavedAt }: Props) {
           {line.text}
         </p>
       ) : null}
-      <p className="jsonbinSyncBar__fineprint">
-        Master Key 會內含在前端專用於私密 Bin，不適合正式對外網站；可搭配僅有您知道的 Bin、或自架後端代理。
-      </p>
     </div>
   )
 }

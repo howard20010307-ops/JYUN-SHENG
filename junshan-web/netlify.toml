@@ -1,0 +1,14 @@
+# Netlify：此檔在「專案 Base directory = junshan-web」時由 Netlify 讀取（勿再設根目錄的 base）。
+
+[build]
+  command = "npm install && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# 單頁應用：避免直接打網址子路徑時 404
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

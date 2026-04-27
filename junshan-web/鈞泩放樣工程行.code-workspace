@@ -1,0 +1,7 @@
+{
+  "folders": [{ "path": ".", "name": "鈞泩放樣" }],
+  "settings": {
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true
+  }
+}

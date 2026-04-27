@@ -102,13 +102,6 @@ body {
   color: var(--danger);
 }
 
-.jsonbinSyncBar__fineprint {
-  margin: 8px 0 0;
-  font-size: 0.78rem;
-  color: var(--muted);
-  line-height: 1.4;
-}
-
 .brand h1 {
   margin: 0 0 6px;
   font-size: 1.45rem;
