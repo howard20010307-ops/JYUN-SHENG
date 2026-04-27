@@ -17,8 +17,6 @@ import {
   renameWorkerInBook,
   addWorkerToBook,
   removeWorkerFromBook,
-  ensureStandardYearMonthSheets,
-  migrateSalaryBookEnsureTwelveMonths,
   reconcileSalaryBookPeriodColumns,
   renameSiteAcrossBook,
   payrollSummaryTooltipFooterTotals,
@@ -100,6 +98,15 @@ function colHasPositiveInGrid(
   })
 }
 
+/** 月表單一案場：該員此列出工天數合計為 0 則不顯示（人員仍保留於日薪／他案場／新增列等） */
+function staffHasBlockWork(
+  block: { grid: Record<string, number[]> },
+  name: string,
+  dateLen: number,
+): boolean {
+  return staffTotalDays(padArray(block.grid[name], dateLen)) !== 0
+}
+
 export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   /** 案場名 blur 時全書連動更名：記錄焦點當下之舊字串 */
@@ -115,7 +122,6 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     () => salaryBook.months[0]?.id ?? '',
   )
   const [sub, setSub] = useState<'month' | 'summary'>('month')
-  const [fillYear, setFillYear] = useState(2026)
 
   useEffect(() => {
     if (!salaryBook.months.some((m) => m.id === activeMonthId)) {
@@ -206,9 +212,8 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
             await new Promise<void>((r) => setTimeout(r, 0))
             try {
               const book = await importSalaryExcelToBook(f)
-              const migrated = migrateSalaryBookEnsureTwelveMonths(book)
               startTransition(() => {
-                setSalaryBook(() => migrated)
+                setSalaryBook(() => book)
               })
             } catch (err) {
               alert(err instanceof Error ? err.message : String(err))
@@ -340,30 +345,6 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                 ))}
               </select>
             </label>
-            <label>
-              補齊年份
-              <input
-                type="number"
-                min={2000}
-                max={2100}
-                step={1}
-                value={fillYear}
-                onChange={(e) => {
-                  const y = parseInt(e.target.value, 10)
-                  setFillYear(Number.isFinite(y) ? y : 2026)
-                }}
-                style={{ maxWidth: '5.5rem', marginLeft: 6 }}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() =>
-                setSalaryBook((b) => ensureStandardYearMonthSheets(b, fillYear))
-              }
-            >
-              補齊 1～12 月（只新增尚缺「n月」，不覆寫已有表）
-            </button>
             <button
               type="button"
               className="btn danger ghost"
@@ -373,9 +354,6 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
               刪除此月
             </button>
           </div>
-          <p className="hint" style={{ margin: '0 0 12px' }}>
-            書裡已有「1月」～「12月」任一表時，重新開啟或從 Excel 匯入後會<strong>自動補齊缺的月份</strong>到「目前月表」選單（不覆寫內容）。若整本皆為自訂表名則不會新增空白月。
-          </p>
 
           <section className="card">
             <h3>鈞泩／蔡董日薪（本表）</h3>
@@ -597,6 +575,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
               <p className="hint">
                 區塊合計(P)：{Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
                 ；數值大於 0 的出工／餐費格與該日欄標頭以紅字標示。
+                全月出工天數合計為 0 者，不顯示人員列；可從「快速登記」寫入格線後即出現。
                 案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步全書各月所有同名區塊（放樣估價案名選單亦跟著更新）。
               </p>
               <div className="tableScroll tableScrollSticky">
@@ -623,41 +602,45 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                     </tr>
                   </thead>
                   <tbody>
-                    {staffOrder.map((name) => {
-                      const row = padArray(block.grid[name], month.dates.length)
-                      const days = staffTotalDays(row)
-                      const pay = staffTotalPay(days, month.rateJun[name] ?? 0)
-                      return (
-                        <tr key={name}>
-                          <td>{name}</td>
-                          {month.dates.map((_, j) => {
-                            const cell = row[j] ?? 0
-                            const hasWork = cell > 0 && Number.isFinite(cell)
-                            return (
-                              <td key={j}>
-                                <PayrollNumberInput
-                                  className={`cellIn${hasWork ? ' cellIn--work' : ''}`}
-                                  value={row[j] ?? 0}
-                                  onCommit={(nv) =>
-                                    patchMonth(month.id, (m) => ({
-                                      ...m,
-                                      blocks: m.blocks.map((b, k) => {
-                                        if (k !== bi) return b
-                                        const g = { ...b.grid, [name]: [...row] }
-                                        g[name][j] = nv
-                                        return { ...b, grid: g }
-                                      }),
-                                    }))
-                                  }
-                                />
-                              </td>
-                            )
-                          })}
-                          <td className="num payrollGrandCell">{days}</td>
-                          <td className="num payrollGrandCell">{Math.round(pay)}</td>
-                        </tr>
+                    {staffOrder
+                      .filter((name) =>
+                        staffHasBlockWork(block, name, month.dates.length),
                       )
-                    })}
+                      .map((name) => {
+                        const row = padArray(block.grid[name], month.dates.length)
+                        const days = staffTotalDays(row)
+                        const pay = staffTotalPay(days, month.rateJun[name] ?? 0)
+                        return (
+                          <tr key={name}>
+                            <td>{name}</td>
+                            {month.dates.map((_, j) => {
+                              const cell = row[j] ?? 0
+                              const hasWork = cell > 0 && Number.isFinite(cell)
+                              return (
+                                <td key={j}>
+                                  <PayrollNumberInput
+                                    className={`cellIn${hasWork ? ' cellIn--work' : ''}`}
+                                    value={row[j] ?? 0}
+                                    onCommit={(nv) =>
+                                      patchMonth(month.id, (m) => ({
+                                        ...m,
+                                        blocks: m.blocks.map((b, k) => {
+                                          if (k !== bi) return b
+                                          const g = { ...b.grid, [name]: [...row] }
+                                          g[name][j] = nv
+                                          return { ...b, grid: g }
+                                        }),
+                                      }))
+                                    }
+                                  />
+                                </td>
+                              )
+                            })}
+                            <td className="num payrollGrandCell">{days}</td>
+                            <td className="num payrollGrandCell">{Math.round(pay)}</td>
+                          </tr>
+                        )
+                      })}
                     <tr>
                       <td>餐</td>
                       {month.dates.map((_, j) => {

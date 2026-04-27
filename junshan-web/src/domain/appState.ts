@@ -2,7 +2,7 @@ import { defaultSiteFees, type QuoteSite, type QuoteRow } from './quoteEngine'
 import { defaultLedger, type MonthLine } from './ledgerEngine'
 import {
   defaultSalaryBook,
-  migrateSalaryBookEnsureTwelveMonths,
+  normalizeSalaryBook,
   type SalaryBook,
 } from './salaryExcelModel'
 
@@ -40,7 +40,7 @@ export function migrateAppState(loaded: unknown): AppState {
     tab,
     salaryBook:
       d.salaryBook && Array.isArray(d.salaryBook.months)
-        ? migrateSalaryBookEnsureTwelveMonths(d.salaryBook as SalaryBook)
+        ? normalizeSalaryBook(d.salaryBook as SalaryBook)
         : init.salaryBook,
     site: d.site && typeof d.site === 'object' ? d.site : init.site,
     quoteRows: Array.isArray(d.quoteRows) ? d.quoteRows : init.quoteRows,

@@ -115,6 +115,56 @@ body {
   font-size: 0.85em;
 }
 
+.jsonbinSyncBar {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #0a1018;
+  font-size: 0.86rem;
+  color: var(--text);
+}
+
+.jsonbinSyncBar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.jsonbinSyncBar__row strong {
+  color: var(--accent2);
+  font-size: 0.9rem;
+}
+
+.jsonbinSyncBar__msg {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.jsonbinSyncBar__ok {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.jsonbinSyncBar__hint {
+  margin: 8px 0 0;
+  color: var(--accent2);
+  font-size: 0.84rem;
+}
+
+.jsonbinSyncBar__hint--err {
+  color: var(--danger);
+}
+
+.jsonbinSyncBar__fineprint {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .brand h1 {
   margin: 0 0 6px;
   font-size: 1.45rem;

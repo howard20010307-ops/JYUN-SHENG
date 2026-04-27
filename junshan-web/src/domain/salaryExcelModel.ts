@@ -924,62 +924,13 @@ export function allDaysInMonth(year: number, month1to12: number): string[] {
   })
 }
 
-const STANDARD_MONTH_LABEL_RE = /^([1-9]|1[0-2])月$/
-
-export function matchStandardMonthLabel(label: string): number | null {
-  const m = label.trim().match(STANDARD_MONTH_LABEL_RE)
-  return m ? parseInt(m[1], 10) : null
-}
-
 /** 建立「n月」新表時的日期欄：2026 年 2 月沿用範例檔工作日集合，其餘為當月曆日 */
 export function defaultDatesForStandardMonth(year: number, month1to12: number): string[] {
   if (year === 2026 && month1to12 === 2) return defaultFebruary2026Dates()
   return allDaysInMonth(year, month1to12)
 }
 
-/**
- * 標題為「1月」…「12月」的月表補齊為 12 張，並依月份排序置前；
- * 非此格式的月表（例如匯入自訂名）維持在原順序並排在最後。
- * 已存在的「n月」不覆寫內容與日期欄。
- */
-export function ensureStandardYearMonthSheets(book: SalaryBook, year: number): SalaryBook {
-  const standardByNum = new Map<number, MonthSheetData>()
-  const extras: MonthSheetData[] = []
-
-  for (const sheet of book.months) {
-    const n = matchStandardMonthLabel(sheet.label)
-    if (n == null) {
-      extras.push(sheet)
-      continue
-    }
-    if (!standardByNum.has(n)) standardByNum.set(n, sheet)
-    else extras.push(sheet)
-  }
-
-  let seq = 0
-  for (let mo = 1; mo <= 12; mo++) {
-    if (standardByNum.has(mo)) continue
-    const label = `${mo}月`
-    const sheet = newMonthSheet(label, defaultDatesForStandardMonth(year, mo))
-    standardByNum.set(mo, {
-      ...sheet,
-      id: `${sheet.id}-fill-${year}-${mo}-${++seq}`,
-    })
-  }
-
-  const ordered: MonthSheetData[] = []
-  for (let mo = 1; mo <= 12; mo++) {
-    const s = standardByNum.get(mo)
-    if (s) ordered.push(s)
-  }
-  return {
-    ...book,
-    months: [...ordered, ...extras],
-    periodColumns: autoPayrollPeriodColumns(year),
-  }
-}
-
-/** 從既有月表日期欄推斷年份（供補齊缺月）；無有效日期時預設 2026 */
+/** 從既有月表日期欄推斷年份；無有效日期時預設 2026 */
 export function inferPayrollYearFromBook(book: SalaryBook): number {
   for (const m of book.months) {
     for (const iso of m.dates) {
@@ -989,20 +940,6 @@ export function inferPayrollYearFromBook(book: SalaryBook): number {
     }
   }
   return 2026
-}
-
-/**
- * 載入本機存檔時：若曾使用「n月」標題，則補齊 1～12 月（不覆寫已有表）；
- * 若沒有任何「1月」…「12月」格式（例如整本皆為匯入自訂工作表名），則不新增月表。
- */
-export function migrateSalaryBookEnsureTwelveMonths(book: SalaryBook): SalaryBook {
-  const normalized = normalizeSalaryBook(book)
-  const hasStandard = normalized.months.some(
-    (m) => matchStandardMonthLabel(m.label) != null,
-  )
-  if (!hasStandard) return normalized
-  const y = inferPayrollYearFromBook(normalized)
-  return ensureStandardYearMonthSheets(normalized, y)
 }
 
 export function advanceSumInPeriod(
