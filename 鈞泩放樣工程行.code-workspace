@@ -1,0 +1,7 @@
+{
+  "folders": [{ "path": ".", "name": "鈞泩放樣工程行" }],
+  "settings": {
+    "typescript.tsdk": "junshan-web/node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true
+  }
+}
