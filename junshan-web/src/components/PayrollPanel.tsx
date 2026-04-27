@@ -4,7 +4,6 @@ import {
   useState,
   useCallback,
   useEffect,
-  startTransition,
   Fragment,
 } from 'react'
 import {
@@ -31,7 +30,6 @@ import {
   payrollSummaryTooltipFooterTotals,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
-import { importSalaryExcelToBook } from '../domain/salaryExcelImport'
 import { FieldworkQuickSection } from './FieldworkQuickSection'
 import { PayrollNumberInput } from './PayrollNumberInput'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
@@ -124,7 +122,6 @@ function staffHasBlockWork(
 }
 
 export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null)
   /** 案場名 blur 時全書連動更名：記錄焦點當下之舊字串 */
   const siteRenameSnapRef = useRef<{
     monthId: string
@@ -132,7 +129,6 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     oldTrim: string
     oldRaw: string
   } | null>(null)
-  const [importBusy, setImportBusy] = useState(false)
   const [newStaffName, setNewStaffName] = useState('')
   const [activeMonthId, setActiveMonthId] = useState(
     () => salaryBook.months[0]?.id ?? '',
@@ -197,7 +193,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     [setSalaryBook],
   )
 
-  /** 必須在任一 early return 之前呼叫，否則匯入後月表 id 切換瞬間會觸發「Rendered fewer hooks than expected」 */
+  /** 必須在任一 early return 之前呼叫，否則會觸發「Rendered fewer hooks than expected」 */
   const staffOrder = useMemo(
     () => (month ? staffKeysForMonthDisplay(month) : []),
     [month],
@@ -229,37 +225,6 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
       <h2>薪水統計（對齊 Excel 結構）</h2>
 
       <div className="btnRow" style={{ marginBottom: 12 }}>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx,.xls"
-          hidden
-          onChange={async (e) => {
-            const f = e.target.files?.[0]
-            e.target.value = ''
-            if (!f) return
-            setImportBusy(true)
-            await new Promise<void>((r) => setTimeout(r, 0))
-            try {
-              const book = await importSalaryExcelToBook(f)
-              startTransition(() => {
-                setSalaryBook(() => book)
-              })
-            } catch (err) {
-              alert(err instanceof Error ? err.message : String(err))
-            } finally {
-              setImportBusy(false)
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="btn"
-          disabled={importBusy}
-          onClick={() => fileRef.current?.click()}
-        >
-          {importBusy ? '匯入中…' : '從 Excel 匯入整本薪水（總表＋各月格線）'}
-        </button>
         <button
           type="button"
           className={`tab ${sub === 'month' ? 'on' : ''}`}
