@@ -1,4 +1,12 @@
-import { useMemo, useRef, useState, useCallback, useEffect, startTransition } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  startTransition,
+  Fragment,
+} from 'react'
 import {
   type MonthSheetData,
   type SalaryBook,
@@ -11,6 +19,7 @@ import {
   mealTotalPay,
   emptyBlock,
   buildStaffSummaryRows,
+  NET_TAKE_HOME_ROW_PREFIX,
   type SummaryBlockRow,
   staffKeysForMonthDisplay,
   staffKeysAcrossBook,
@@ -81,6 +90,13 @@ function groupStaffSummaryRows(rows: SummaryBlockRow[]): SummaryBlockRow[][] {
   return out
 }
 
+/** 總表列「鈞泩出工數·姓名」→ 區塊名「鈞泩出工數」；無 `·` 則用整行字。 */
+function summaryGroupSectionTitle(group: SummaryBlockRow[]): string {
+  const l = group[0]?.label ?? ''
+  const d = l.indexOf('·')
+  return d >= 0 ? l.slice(0, d) : l
+}
+
 /** 與案場出工格線一致：數值大於 0 則紅字（預支、調工天數、加班時數等） */
 function cellNeedsWorkHighlight(v: number): boolean {
   return Number.isFinite(v) && v > 0
@@ -147,6 +163,11 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
 
   const [showDailyMoney, setShowDailyMoney] = usePayrollSummaryShowDailyMoney()
 
+  /** 總表可收合區塊；預設只展開實領列（與 {@link NET_TAKE_HOME_ROW_PREFIX} 同字串） */
+  const [openSummarySections, setOpenSummarySections] = useState<Set<string>>(
+    () => new Set([NET_TAKE_HOME_ROW_PREFIX]),
+  )
+
   const summaryRows = useMemo(
     () => buildStaffSummaryRows(salaryBook, { showDailyMoney }),
     [salaryBook, showDailyMoney],
@@ -156,6 +177,15 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     () => groupStaffSummaryRows(summaryRows),
     [summaryRows],
   )
+
+  const toggleSummarySection = useCallback((title: string) => {
+    setOpenSummarySections((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      return next
+    })
+  }, [])
 
   const patchMonth = useCallback(
     (monthId: string, fn: (m: MonthSheetData) => MonthSheetData) => {
@@ -279,51 +309,77 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
                   ))}
                 </tr>
               </thead>
-              {summaryRowGroups.map((group) => (
-                <tbody key={group[0]?.key ?? 'g'} className="payrollSummarySection">
-                  {group.map((r) => (
-                    <tr
-                      key={r.key}
-                      className={
-                        r.label.includes('總計') ? 'payrollGrandRow' : undefined
-                      }
-                    >
-                      <PayrollSummaryPopoverCell
-                        cellContent={r.label}
-                        breakdownLines={salaryBook.periodColumns.map((p, i) => ({
-                          label: p.label,
-                          amount: r.cols[i] ?? 0,
-                        }))}
-                        hintTitle={`${r.label}（各分期金額）`}
-                        showValueFooter={false}
-                      />
-                      {r.cols.map((v, i) => {
-                        const rounded = Math.round(v * 100) / 100
-                        const period = salaryBook.periodColumns[i]
-                        return (
-                          <PayrollSummaryPopoverCell
-                            key={i}
-                            className="num"
-                            cellContent={rounded}
-                            summaryAmount={rounded}
-                            breakdownLines={r.cellBreakdowns?.[i]}
-                            footerTotalsLines={
-                              r.key.startsWith('net-') && period
-                                ? payrollSummaryTooltipFooterTotals(
-                                    salaryBook,
-                                    period,
-                                    r.key,
-                                  )
-                                : undefined
+              {summaryRowGroups.map((group) => {
+                const sectionTitle = summaryGroupSectionTitle(group)
+                const isOpen = openSummarySections.has(sectionTitle)
+                const colCount = 1 + salaryBook.periodColumns.length
+                return (
+                  <Fragment key={group[0]?.key ?? sectionTitle}>
+                    <tbody className="payrollSummarySectionHeader">
+                      <tr>
+                        <td colSpan={colCount} className="payrollSectionHeadBar">
+                          <button
+                            type="button"
+                            className="payrollSectionHeadBtn"
+                            onClick={() => toggleSummarySection(sectionTitle)}
+                            aria-expanded={isOpen}
+                          >
+                            <span className="payrollSectionHeadChev" aria-hidden>
+                              {isOpen ? '▼' : '▶'}
+                            </span>
+                            {sectionTitle}
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                    {isOpen && (
+                      <tbody className="payrollSummarySection" key={`${group[0]?.key}-body`}>
+                        {group.map((r) => (
+                          <tr
+                            key={r.key}
+                            className={
+                              r.label.includes('總計') ? 'payrollGrandRow' : undefined
                             }
-                            hintTitle={`${r.label} — ${period?.label ?? `欄${i + 1}`}`}
-                          />
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
+                          >
+                            <PayrollSummaryPopoverCell
+                              cellContent={r.label}
+                              breakdownLines={salaryBook.periodColumns.map((p, i) => ({
+                                label: p.label,
+                                amount: r.cols[i] ?? 0,
+                              }))}
+                              hintTitle={`${r.label}（各分期金額）`}
+                              showValueFooter={false}
+                            />
+                            {r.cols.map((v, i) => {
+                              const rounded = Math.round(v * 100) / 100
+                              const period = salaryBook.periodColumns[i]
+                              return (
+                                <PayrollSummaryPopoverCell
+                                  key={i}
+                                  className="num"
+                                  cellContent={rounded}
+                                  summaryAmount={rounded}
+                                  breakdownLines={r.cellBreakdowns?.[i]}
+                                  footerTotalsLines={
+                                    r.key.startsWith('net-') && period
+                                      ? payrollSummaryTooltipFooterTotals(
+                                          salaryBook,
+                                          period,
+                                          r.key,
+                                        )
+                                      : undefined
+                                  }
+                                  hintTitle={`${r.label} — ${period?.label ?? `欄${i + 1}`}`}
+                                />
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    )}
+                  </Fragment>
+                )
+              })}
             </table>
           </div>
         </section>

@@ -319,7 +319,48 @@ table.data.tight td.payrollGrandCell {
   border-left: 1px solid rgba(90, 212, 168, 0.45);
 }
 
-/** 員工總出工及薪水計算：多個 tbody 區塊，區與區之間加間距與分隔線 */
+/** 總表：可收合區塊之標題列 */
+table.data.tight.payrollSummaryTable tbody.payrollSummarySectionHeader td.payrollSectionHeadBar {
+  padding: 0.35rem 0.5rem 0.4rem;
+  background: rgba(8, 14, 22, 0.88);
+  border-top: 2px solid rgba(90, 212, 168, 0.35);
+}
+
+table.data.tight.payrollSummaryTable thead + tbody.payrollSummarySectionHeader td.payrollSectionHeadBar {
+  border-top: 0;
+}
+
+table.data.tight.payrollSummaryTable .payrollSectionHeadBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--head);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+table.data.tight.payrollSummaryTable .payrollSectionHeadBtn:hover {
+  color: #c8e6ff;
+}
+
+table.data.tight.payrollSummaryTable .payrollSectionHeadChev {
+  display: inline-block;
+  width: 1.1rem;
+  flex: none;
+  font-size: 0.65rem;
+  color: var(--accent2);
+  line-height: 1;
+}
+
+/** 員工總出工及薪水計算：多個 tbody 資料區塊 */
 table.data.tight.payrollSummaryTable tbody.payrollSummarySection tr td:first-child {
   font-weight: 600;
   color: var(--head);
@@ -331,17 +372,12 @@ table.data.tight.payrollSummaryTable tbody.payrollSummarySection tr:not(.payroll
 }
 
 table.data.tight.payrollSummaryTable
-  tbody.payrollSummarySection
+  tbody.payrollSummarySectionHeader
   + tbody.payrollSummarySection
   tr:first-child
-  > td,
-table.data.tight.payrollSummaryTable
-  tbody.payrollSummarySection
-  + tbody.payrollSummarySection
-  tr:first-child
-  > th {
-  border-top: 2px solid rgba(90, 212, 168, 0.35);
-  padding-top: 1rem;
+  > td {
+  border-top: 1px solid rgba(90, 212, 168, 0.2);
+  padding-top: 0.55rem;
 }
 
 /** 總表：游標旁浮動提示（金額拆解） */

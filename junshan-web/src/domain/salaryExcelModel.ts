@@ -1209,6 +1209,9 @@ export type SummaryBlockRow = {
   cellBreakdowns?: (SummaryCellBreakdownLine[] | undefined)[]
 }
 
+/** 總表實領列區塊名稱；與 {@link netTakeHomePayInPeriod} 一致（鈞泩薪水等 − 本分期預支 ＋ 加班與調工等）。 */
+export const NET_TAKE_HOME_ROW_PREFIX = '實領薪水（已扣預支）'
+
 /**
  * Excel「員工總出工及薪水計算」工作表：各資料區塊標題列（不含姓名列、不含「·總計」）。
  * 橫向第一列另有分期標題（如 3/11~3/25、3/26~4/10）；匯入時另會掃到「鈞泩薪／蔡董薪」表頭列（月表日薪，非此處數字區塊）。
@@ -1227,7 +1230,7 @@ export const PAYROLL_SUMMARY_SHEET_SECTION_TITLES = [
   '蔡董調工薪水',
   '蔡董加班時數',
   '蔡董加班費',
-  '實領薪水',
+  NET_TAKE_HOME_ROW_PREFIX,
 ] as const
 
 const SUMMARY_ROW_PREFIXES = [
@@ -2078,13 +2081,13 @@ export function buildStaffSummaryRows(
   for (const name of staff) {
     rows.push({
       key: `net-${name}`,
-      label: `實領薪水·${name}`,
+      label: `${NET_TAKE_HOME_ROW_PREFIX}·${name}`,
       cols: pc.map((p) => netTakeHomePayInPeriod(book, name, p)),
     })
   }
   rows.push({
     key: 'net-total',
-    label: '實領薪水·總計',
+    label: `${NET_TAKE_HOME_ROW_PREFIX}·總計`,
     cols: pc.map((p) =>
       staff.reduce((s, name) => s + netTakeHomePayInPeriod(book, name, p), 0),
     ),
