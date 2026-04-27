@@ -29,6 +29,17 @@ export function stringifyAppBackup(state: AppState): string {
   return JSON.stringify(payload, null, 2)
 }
 
+/** 不換行、供 JSONBin 上傳（減小體積） */
+export function stringifyAppBackupCompact(state: AppState): string {
+  const payload: BackupFileV1 = {
+    app: BACKUP_APP_ID,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: state,
+  }
+  return JSON.stringify(payload)
+}
+
 export function downloadAppBackup(state: AppState): void {
   const text = stringifyAppBackup(state)
   const blob = new Blob([text], { type: 'application/json;charset=utf-8' })

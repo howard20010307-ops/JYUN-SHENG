@@ -1,7 +1,65 @@
 import { migrateAppState, type AppState } from '../domain/appState'
-import { stringifyAppBackup } from '../domain/appStateBackup'
+import { stringifyAppBackupCompact } from '../domain/appStateBackup'
 
 const BASE = 'https://api.jsonbin.io/v3/b'
+
+/** 免費帳戶單一 Bin 約 100KB 上限；壓縮後仍超過則建議升級或刪減本機月表內容 */
+const JSONBIN_FREE_MAX_BYTES = 99_000
+
+const JUNSHAN_GZIP = 1 as const
+
+type JsonBinRecordGzipV1 = {
+  junshanJsonBin: typeof JUNSHAN_GZIP
+  /** 備份 JSON（UTF-8）經 Gzip 後的 Base64 */
+  g: string
+}
+
+function bytesToB64(bytes: Uint8Array): string {
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+  return btoa(s)
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64)
+  const u = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i)
+  return u
+}
+
+async function gzipTextToB64(text: string): Promise<string> {
+  const C = (globalThis as unknown as { CompressionStream?: new (f: string) => TransformStream }).CompressionStream
+  if (!C) {
+    throw new Error(
+      '此瀏覽器不支援 Gzip 壓縮；請改用最新 Chrome／Edge 或匯出備份改用 Firebase／付費方案。',
+    )
+  }
+  const enc = new TextEncoder().encode(text)
+  const stream = new Blob([enc]).stream().pipeThrough(new C('gzip'))
+  const buf = await new Response(stream).arrayBuffer()
+  return bytesToB64(new Uint8Array(buf))
+}
+
+async function gunzipB64ToText(b64: string): Promise<string> {
+  const D = (globalThis as unknown as { DecompressionStream?: new (f: string) => TransformStream }).DecompressionStream
+  if (!D) {
+    throw new Error('此瀏覽器不支援 Gzip 解壓。')
+  }
+  const u = b64ToBytes(b64)
+  const stream = new Blob([u as BlobPart]).stream().pipeThrough(new D('gzip'))
+  return new Response(stream).text()
+}
+
+/** 將雲端 record 還原成與匯出備份相同的根物件，或舊式直接內容 */
+async function jsonBinRecordToRootObject(record: unknown): Promise<unknown> {
+  if (record == null || typeof record !== 'object') return record
+  const o = record as Record<string, unknown>
+  if (o.junshanJsonBin === JUNSHAN_GZIP && typeof o.g === 'string') {
+    const text = await gunzipB64ToText(o.g)
+    return JSON.parse(text) as unknown
+  }
+  return record
+}
 
 function binId(): string {
   return (import.meta.env.VITE_JSONBIN_BIN_ID ?? '').trim()
@@ -113,7 +171,8 @@ export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
   }
   const j = (await res.json()) as { record?: unknown }
   const record = j.record !== undefined ? j.record : (j as unknown)
-  const payload = extractAppStatePayload(record)
+  const root = await jsonBinRecordToRootObject(record)
+  const payload = extractAppStatePayload(root)
   if (payload == null || !isUsableAppPayload(payload)) return null
   return migrateAppState(payload)
 }
@@ -122,7 +181,15 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<void> {
   if (!isJsonBinConfigured()) return
   const id = binId()
   const key = masterKey()
-  const body = stringifyAppBackup(state)
+  const raw = stringifyAppBackupCompact(state)
+  const g = await gzipTextToB64(raw)
+  const wrapper: JsonBinRecordGzipV1 = { junshanJsonBin: JUNSHAN_GZIP, g }
+  const body = JSON.stringify(wrapper)
+  if (body.length > JSONBIN_FREE_MAX_BYTES) {
+    throw new Error(
+      '壓縮後仍超過 JSONBin 免費版單筆大小上限。請刪減歷史月表／備份內容、匯出備份後減量，或改用 Pro／Firebase。',
+    )
+  }
   const res = await fetch(`${BASE}/${id}`, {
     method: 'PUT',
     headers: {
