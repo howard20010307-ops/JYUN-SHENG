@@ -31,6 +31,7 @@ import {
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import { FieldworkQuickSection } from './FieldworkQuickSection'
+import { PayrollSitesByMonthReadonly } from './PayrollSitesByMonthReadonly'
 import { PayrollNumberInput } from './PayrollNumberInput'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 import { usePayrollSummaryShowDailyMoney } from '../hooks/usePayrollSummaryShowDailyMoney'
@@ -133,7 +134,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
   const [activeMonthId, setActiveMonthId] = useState(
     () => salaryBook.months[0]?.id ?? '',
   )
-  const [sub, setSub] = useState<'month' | 'summary'>('month')
+  const [sub, setSub] = useState<'month' | 'summary' | 'sites'>('month')
 
   useEffect(() => {
     if (!salaryBook.months.some((m) => m.id === activeMonthId)) {
@@ -239,7 +240,16 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
         >
           員工總出工及薪水計算
         </button>
+        <button
+          type="button"
+          className={`tab ${sub === 'sites' ? 'on' : ''}`}
+          onClick={() => setSub('sites')}
+        >
+          案場出工明細
+        </button>
       </div>
+
+      {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBook} />}
 
       {sub === 'month' && (
         <FieldworkQuickSection

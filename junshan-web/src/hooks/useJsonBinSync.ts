@@ -19,11 +19,21 @@ const SAVE_MS = 700
 export function useJsonBinSync(
   state: AppState,
   setState: React.Dispatch<React.SetStateAction<AppState>>,
-): { active: boolean; ready: boolean; line: JsonBinLine; lastSavedAt: Date | null } {
+): {
+  active: boolean
+  ready: boolean
+  line: JsonBinLine
+  lastSavedAt: Date | null
+  /** 已設定有效 JSONBin、且尚未完成首次雲端讀取：應鎖定操作避免與即將覆寫之雲端資料打架 */
+  cloudBootstrapPending: boolean
+} {
   const envIntent = hasJsonBinEnvIntent()
   const keyErr = getJsonBinKeyErrorMessage()
   const canUse = isJsonBinConfigured()
-  const [ready, setReady] = useState(!envIntent || Boolean(keyErr))
+  /** 無意用雲端、金鑰錯誤、或設定不完整時不等待下載，避免畫面鎖一幀 */
+  const [ready, setReady] = useState(
+    () => !envIntent || Boolean(keyErr) || !canUse,
+  )
   const [line, setLine] = useState<JsonBinLine>(() =>
     keyErr ? { text: keyErr, isError: true } : null,
   )
@@ -95,5 +105,7 @@ export function useJsonBinSync(
     }
   }, [state, ready, canUse, keyErr])
 
-  return { active: envIntent, ready, line, lastSavedAt }
+  const cloudBootstrapPending = Boolean(envIntent && canUse && !keyErr && !ready)
+
+  return { active: envIntent, ready, line, lastSavedAt, cloudBootstrapPending }
 }

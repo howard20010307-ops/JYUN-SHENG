@@ -36,6 +36,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (jsonBin.cloudBootstrapPending) return
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return
       const el = e.target as HTMLElement | null
       if (el?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -45,7 +46,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, canUndo])
+  }, [undo, canUndo, jsonBin.cloudBootstrapPending])
 
   const setTab = useCallback(
     (tab: Tab) => setState((s) => ({ ...s, tab })),
@@ -64,6 +65,10 @@ export default function App() {
 
   return (
     <div className="app">
+      <div
+        className="appShell"
+        inert={jsonBin.cloudBootstrapPending ? true : undefined}
+      >
       <header className="top">
         <div className="topMain">
           <div className="brand">
@@ -193,6 +198,30 @@ export default function App() {
         若與您手邊 Excel 仍有細部差異，請告知要對齊的「工作表名稱＋儲存格公式」。本機與線上可選
         <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；未用雲端時，各網址的瀏覽器資料仍互不共用。
       </footer>
+      </div>
+
+      {jsonBin.cloudBootstrapPending ? (
+        <div
+          className="appCloudGate"
+          role="dialog"
+          aria-modal="true"
+          aria-busy="true"
+          aria-labelledby="appCloudGateTitle"
+          aria-describedby="appCloudGateDesc"
+        >
+          <div className="appCloudGate__panel">
+            <h2 id="appCloudGateTitle" className="appCloudGate__title">
+              正在載入雲端資料
+            </h2>
+            <p id="appCloudGateDesc" className="appCloudGate__desc">
+              已啟用 JSONBin 同步，系統正在向雲端取得最新資料。完成前請勿操作畫面，以免與即將載入的內容不一致。
+            </p>
+            <p className="appCloudGate__hint muted">
+              若久未結束，請檢查網路或 JSONBin 服務狀態；未設定雲端時不會出現此畫面。
+            </p>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
