@@ -7,12 +7,71 @@ function binId(): string {
   return (import.meta.env.VITE_JSONBIN_BIN_ID ?? '').trim()
 }
 
+/** 官方顯示的 X-MASTER-KEY 為完整 bcrypt 字串（約 60 字、以 $2a$10$ 等開頭） */
+function looksLikeJsonBinMasterKey(s: string): boolean {
+  if (s.length < 50) return false
+  return /^\$2[aby]\$\d{2}\$/.test(s)
+}
+
+/** 優先讀 Base64，避免 .env 內 $ 被展開、也避免 O/0 手誤。 */
 function masterKey(): string {
-  return (import.meta.env.VITE_JSONBIN_X_MASTER_KEY ?? '').trim()
+  const b64 = (import.meta.env.VITE_JSONBIN_X_MASTER_KEY_B64 ?? '')
+    .replace(/[\r\n\t ]/g, '')
+    .trim()
+  if (b64) {
+    try {
+      const raw = atob(b64)
+      if (!looksLikeJsonBinMasterKey(raw)) {
+        return ''
+      }
+      return raw
+    } catch {
+      return ''
+    }
+  }
+  const plain = (import.meta.env.VITE_JSONBIN_X_MASTER_KEY ?? '').trim()
+  if (plain) {
+    return looksLikeJsonBinMasterKey(plain) ? plain : ''
+  }
+  return ''
 }
 
 export function isJsonBinConfigured(): boolean {
   return Boolean(binId() && masterKey())
+}
+
+function rawB64(): string {
+  return (import.meta.env.VITE_JSONBIN_X_MASTER_KEY_B64 ?? '').replace(/[\r\n\t ]/g, '').trim()
+}
+function rawPlainKey(): string {
+  return (import.meta.env.VITE_JSONBIN_X_MASTER_KEY ?? '').trim()
+}
+
+/** 有填 Bin id 與金鑰欄位，即顯示 JSONBin 列（金鑰格式錯也顯示，以便露錯誤） */
+export function hasJsonBinEnvIntent(): boolean {
+  return Boolean(binId() && (rawB64() || rawPlainKey()))
+}
+
+/**
+ * 有填寫欄但無法得到合法 X-MASTER-KEY 時的說明：常見為 Base64 只轉了半條、漏了 $2a$10$ 前綴。
+ */
+export function getJsonBinKeyErrorMessage(): string | null {
+  if (!hasJsonBinEnvIntent() || isJsonBinConfigured()) return null
+  if (rawB64()) {
+    let dec: string
+    try {
+      dec = atob(rawB64())
+    } catch {
+      return 'VITE_JSONBIN_X_MASTER_KEY_B64 不是有效的 Base64。'
+    }
+    if (!looksLikeJsonBinMasterKey(dec)) {
+      return `金鑰 Base64 內容不對。常見原因：\n(1) 只轉了半條、漏了 $2a$10$ 前綴。\n(2) PowerShell 用「雙引號」包住金鑰：雙引號內的 $ 會被當變數展開，金鑰就壞了。請改用「單引號」整段包住官網複製的一行，例如：\n[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('從官網貼在單引號內，含$也原樣保留'))`
+    }
+  }
+  if (rawPlainKey() && !looksLikeJsonBinMasterKey(rawPlainKey())) {
+    return 'VITE_JSONBIN_X_MASTER_KEY 不是完整一條（需像官網顯示的約 60 字、$2a$10$ 開頭）。'
+  }
+  return '金鑰無法使用，請檢查 .env。'
 }
 
 /**

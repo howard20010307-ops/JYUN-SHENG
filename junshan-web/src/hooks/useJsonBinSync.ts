@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { AppState } from '../domain/appState'
 import {
   downloadAppStateFromJsonBin,
+  getJsonBinKeyErrorMessage,
+  hasJsonBinEnvIntent,
   isJsonBinConfigured,
   uploadAppStateToJsonBin,
 } from '../services/jsonbin'
@@ -18,15 +20,26 @@ export function useJsonBinSync(
   state: AppState,
   setState: React.Dispatch<React.SetStateAction<AppState>>,
 ): { active: boolean; ready: boolean; line: JsonBinLine; lastSavedAt: Date | null } {
-  const configured = isJsonBinConfigured()
-  const [ready, setReady] = useState(!configured)
-  const [line, setLine] = useState<JsonBinLine>(null)
+  const envIntent = hasJsonBinEnvIntent()
+  const keyErr = getJsonBinKeyErrorMessage()
+  const canUse = isJsonBinConfigured()
+  const [ready, setReady] = useState(!envIntent || Boolean(keyErr))
+  const [line, setLine] = useState<JsonBinLine>(() =>
+    keyErr ? { text: keyErr, isError: true } : null,
+  )
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
   const skipNextUpload = useRef(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!configured) return
+    if (keyErr) {
+      setReady(true)
+      return
+    }
+    if (!envIntent || !canUse) {
+      if (envIntent) setReady(true)
+      return
+    }
     let dead = false
     ;(async () => {
       try {
@@ -51,10 +64,10 @@ export function useJsonBinSync(
     return () => {
       dead = true
     }
-  }, [configured, setState])
+  }, [envIntent, canUse, keyErr, setState])
 
   useEffect(() => {
-    if (!configured || !ready) return
+    if (keyErr || !canUse || !ready) return
     if (skipNextUpload.current) {
       skipNextUpload.current = false
       return
@@ -79,7 +92,7 @@ export function useJsonBinSync(
         saveTimer.current = null
       }
     }
-  }, [state, ready, configured])
+  }, [state, ready, canUse, keyErr])
 
-  return { active: configured, ready, line, lastSavedAt }
+  return { active: envIntent, ready, line, lastSavedAt }
 }
