@@ -237,8 +237,14 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
   }
 }
 
+/**
+ * 總坪數（用於作圖總額、每坪成本）：樓層㎡換算後加總，**不含**名稱為「基礎工程」之列（該列不計入坪數）。
+ */
 export function sumPing(site: QuoteSite): number {
-  return site.floors.reduce((s, f) => s + m2ToPing(f.m2), 0)
+  return site.floors.reduce((s, f) => {
+    if (f.name.trim() === EXCEL_STAGE.foundation) return s
+    return s + m2ToPing(f.m2)
+  }, 0)
 }
 
 export function computeQuote(site: QuoteSite, rows: QuoteRow[]) {

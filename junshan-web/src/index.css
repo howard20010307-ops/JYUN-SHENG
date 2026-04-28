@@ -741,8 +741,8 @@ table.data.quoteItemPricingTable {
 table.data.quoteCostTable,
 table.data.quoteCostTableExcel {
   min-width: 2400px;
-  /** 與 A 欄寬一致，供 B 欄 sticky `left` 對齊 */
-  --quote-sticky-col-a: 2.85rem;
+  /** 與 A 欄寬一致，供 B 欄 sticky `left` 對齊（橫式工程模組名需較寬） */
+  --quote-sticky-col-a: 8rem;
 }
 .quoteExcelTH {
   min-width: 5.2rem;
@@ -795,14 +795,13 @@ table.data.quoteCostTableExcel {
 }
 
 /**
- * 成本估算：A「樓層／階段」＋ B「細項」兩欄左凍結（B 用 .quoteStickyItemCol 標記，避免與 nth 脫鉤）。
- * A 欄 z-index 高於 B，兩欄接縫處陰影正確。區段標題列勿 sticky；操作欄不右凍。
+ * 成本估算：A「樓層／階段」＋ B「細項」兩欄左凍結（B 用 .quoteStickyItemCol 標記）。
+ * 目前工程模組名稱顯示於表頭第二列（sticky，top 用 --quote-cost-head-row1-h）；tbody 之 .quoteZoneSep 為區段細線與捲動偵測用。
  */
 .tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
   position: sticky;
   left: var(--quote-sticky-col-a);
   top: 0;
-  z-index: 5;
   min-width: 8rem;
   max-width: 13rem;
   background: #0b0f14;
@@ -830,70 +829,86 @@ table.data.quoteCostTableExcel {
 }
 
 .tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
-  min-width: 2.6rem;
-  max-width: 3.1rem;
-  width: 2.85rem;
+  min-width: 7rem;
+  max-width: 11rem;
+  width: 8rem;
   vertical-align: middle;
-  padding: 10px 5px !important;
+  padding: 10px 6px !important;
 }
 .tableScrollSticky > table.quoteCostTableExcel thead th:first-child .excelLbl {
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  margin: 0 auto;
-  letter-spacing: 0.1em;
-  line-height: 1.35;
+  display: block;
+  margin: 0;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  word-break: break-word;
 }
 .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child {
-  min-width: 2.6rem;
-  max-width: 3.1rem;
-  width: 2.85rem;
+  min-width: 7rem;
+  max-width: 11rem;
+  width: 8rem;
   vertical-align: middle;
-  padding: 6px 5px !important;
+  padding: 6px 6px !important;
 }
 .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child input {
   width: 100%;
-  min-height: 5.5rem;
+  min-height: 2.5rem;
   box-sizing: border-box;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  text-align: center;
-  padding: 8px 4px;
+  text-align: left;
+  padding: 8px 6px;
 }
-.tableScrollSticky > table.quoteCostTableExcel tr.quoteZoneSep td:first-child {
-  position: static;
-  left: auto;
-  z-index: auto;
-  box-shadow: none;
-  width: auto;
-  max-width: none;
-  min-width: 0;
-}
-
-tr.quoteZoneSep td {
-  background: rgba(56, 139, 253, 0.08);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 10px !important;
+/**
+ * 表頭第二列：垂直捲動時顯示目前所屬工程模組（z-index 低於第一列表頭，避免蓋住欄名）。
+ */
+.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneTh {
+  position: sticky;
+  top: var(--quote-cost-head-row1-h, 44px);
+  z-index: 5;
+  padding: 8px 12px !important;
   vertical-align: middle;
+  text-align: left;
+  background: rgba(56, 139, 253, 0.16);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.45);
 }
-.quoteZoneSepInner {
+.quoteCostActiveZoneInner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 12px;
-  width: 100%;
+}
+.quoteCostActiveZoneTitle {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--head);
+}
+.quoteCostActiveZoneSub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/**
+ * tbody 工程模組區段分隔：細線＋捲動偵測錨點（不 sticky）。
+ */
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneSep td.quoteZoneSepMark {
+  height: 5px;
+  padding: 0 !important;
+  vertical-align: middle;
+  background: rgba(56, 139, 253, 0.1);
+  border-top: 1px solid var(--accent);
+  border-bottom: none;
+}
+
+tr.quoteZoneSep td {
+  border-top: 1px solid var(--border);
 }
 .quoteZoneRenameBtn {
   flex-shrink: 0;
-  font-size: 0.78rem;
-  padding: 4px 10px;
-}
-.quoteZoneSepTitle {
-  font-weight: 700;
-  color: var(--head);
-  flex: 1;
-  min-width: 0;
+  font-size: 0.72rem;
+  padding: 3px 6px;
+  white-space: nowrap;
+  align-self: center;
 }
 
 table.data.quoteCostTableExcel tbody tr.quoteRowHilite td {
@@ -1086,6 +1101,17 @@ td.emptyTableMsg {
   box-shadow:
     6px 0 14px -6px rgba(0, 0, 0, 0.75),
     0 6px 12px -4px rgba(0, 0, 0, 0.35);
+}
+
+/** 成本估算：表頭疊在 tbody 凍結欄之上（z-index 高於 tbody 之 3～4） */
+.tableScrollSticky > table.quoteCostTableExcel thead th {
+  z-index: 7;
+}
+.tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
+  z-index: 8;
+}
+.tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
+  z-index: 9;
 }
 
 .tableScrollSticky > table.data tbody td:first-child,

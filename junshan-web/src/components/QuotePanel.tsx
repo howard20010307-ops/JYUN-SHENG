@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   buildQuoteRowsFromLayout,
   computeFloorPricingTable,
@@ -157,10 +157,90 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
   const [renameZoneOpen, setRenameZoneOpen] = useState<string | null>(null)
   const [renameZoneDraft, setRenameZoneDraft] = useState('')
 
+  /** 成本估算：捲動區塊目前所屬工程模組（表頭第二列顯示） */
+  const [activeCostZone, setActiveCostZone] = useState('')
+
+  /** 成本估算：表頭高度 → CSS 變數 */
+  const quoteCostScrollRef = useRef<HTMLDivElement>(null)
+
   /** 放樣估價內工作表（對齊薪水「月表」分頁用法） */
   const [quoteSheet, setQuoteSheet] = useState<
     'setup' | 'cost' | 'floorPricing' | 'itemPricing' | 'summary'
   >('setup')
+
+  const syncActiveCostZoneFromScroll = useCallback(() => {
+    const root = quoteCostScrollRef.current
+    if (!root || quoteSheet !== 'cost') return
+    const heads = [...root.querySelectorAll<HTMLTableRowElement>('tbody tr.quoteZoneSep[data-zone]')]
+    if (heads.length === 0) {
+      setActiveCostZone((z) => (zoneOptions[0] ?? z))
+      return
+    }
+    const row1 = root.querySelector('table.quoteCostTableExcel thead tr:first-child')
+    const lineY = row1
+      ? root.getBoundingClientRect().top + row1.getBoundingClientRect().height
+      : root.getBoundingClientRect().top + 48
+    let chosen = ''
+    for (const tr of heads) {
+      const r = tr.getBoundingClientRect()
+      if (r.top <= lineY + 2) chosen = tr.dataset.zone ?? ''
+    }
+    const fallback = heads[0]?.dataset.zone ?? zoneOptions[0] ?? ''
+    const next = chosen || fallback
+    setActiveCostZone((prev) => (prev === next ? prev : next))
+  }, [quoteSheet, zoneOptions])
+
+  useLayoutEffect(() => {
+    if (quoteSheet !== 'cost') return
+    const root = quoteCostScrollRef.current
+    if (!root) return
+    const apply = () => {
+      const row1 = root.querySelector('table.quoteCostTableExcel thead tr:first-child')
+      if (!row1) {
+        root.style.removeProperty('--quote-cost-head-row1-h')
+        return
+      }
+      const h1 = Math.ceil(row1.getBoundingClientRect().height)
+      root.style.setProperty('--quote-cost-head-row1-h', `${h1}px`)
+    }
+    const run = () => {
+      apply()
+      syncActiveCostZoneFromScroll()
+    }
+    run()
+    const ro = new ResizeObserver(() => run())
+    ro.observe(root)
+    const theadEl = root.querySelector('table.quoteCostTableExcel thead')
+    if (theadEl) ro.observe(theadEl)
+    window.addEventListener('resize', run)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', run)
+    }
+  }, [quoteSheet, rows.length, result.computed.length, syncActiveCostZoneFromScroll])
+
+  useEffect(() => {
+    if (quoteSheet !== 'cost') return
+    const root = quoteCostScrollRef.current
+    if (!root) return
+    let ticking = false
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(() => {
+        ticking = false
+        syncActiveCostZoneFromScroll()
+      })
+    }
+    root.addEventListener('scroll', onScroll, { passive: true })
+    syncActiveCostZoneFromScroll()
+    return () => root.removeEventListener('scroll', onScroll)
+  }, [quoteSheet, syncActiveCostZoneFromScroll, result.computed.length, rows])
+
+  useLayoutEffect(() => {
+    if (quoteSheet !== 'cost' || zoneOptions.length === 0) return
+    setActiveCostZone((z) => (z && zoneOptions.includes(z) ? z : zoneOptions[0]!))
+  }, [quoteSheet, zoneOptions])
 
   useEffect(() => {
     if (!quickAddOpen && !addModuleOpen && renameZoneOpen === null) return
@@ -494,7 +574,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
             />
           </label>
           <div className="stat">
-            <span>總坪數（由面積加總）</span>
+            <span>總坪數（㎡換算；不含「基礎工程」列）</span>
             <strong>{result.ping.toFixed(4)} 坪</strong>
           </div>
         </div>
@@ -586,9 +666,9 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           </div>
         </div>
         <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-          依工程模組分組；區段標題旁可「改名」（整個模組一併換名）。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄直向／橫向並<strong>鎖在左側</strong>，橫向捲動時仍可對照細項所屬工程模組（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
+          依工程模組分組；表頭第二列會依<strong>垂直捲動</strong>顯示目前所在工程模組，與欄位小標題一併鎖定。區塊內細分隔線僅供對位；「改名」請用表頭該列按鈕。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄皆橫式並<strong>鎖在左側</strong>（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
         </p>
-        <div className="tableScroll tableScrollSticky">
+        <div ref={quoteCostScrollRef} className="tableScroll tableScrollSticky">
           <table className="data tight quoteCostTableExcel">
             <thead>
               <tr>
@@ -605,6 +685,29 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                   <span className="excelLbl">操作</span>
                 </th>
               </tr>
+              {result.computed.length > 0 ? (
+                <tr className="quoteCostActiveZoneHead">
+                  <th colSpan={QUOTE_DATA_COLS} scope="colgroup" className="quoteCostActiveZoneTh">
+                    <div className="quoteCostActiveZoneInner">
+                      <span className="quoteCostActiveZoneTitle">
+                        {activeCostZone || zoneOptions[0] || '—'}
+                      </span>
+                      <span className="quoteCostActiveZoneSub">目前區塊</span>
+                      <button
+                        type="button"
+                        className="btn secondary ghost quoteZoneRenameBtn"
+                        title="此模組底下所有列一併換區名"
+                        disabled={!(activeCostZone || zoneOptions[0])}
+                        onClick={() =>
+                          openRenameZone(activeCostZone || zoneOptions[0] || '')
+                        }
+                      >
+                        改名
+                      </button>
+                    </div>
+                  </th>
+                </tr>
+              ) : null}
             </thead>
             <tbody>
               {result.computed.length === 0 ? (
@@ -621,20 +724,8 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                 return (
                   <Fragment key={r.id}>
                     {showZoneHead ? (
-                      <tr className="quoteZoneSep">
-                        <td colSpan={QUOTE_DATA_COLS}>
-                          <div className="quoteZoneSepInner">
-                            <span className="quoteZoneSepTitle">{r.zone}</span>
-                            <button
-                              type="button"
-                              className="btn secondary ghost quoteZoneRenameBtn"
-                              title="此模組底下所有列一併換區名"
-                              onClick={() => openRenameZone(r.zone)}
-                            >
-                              改名
-                            </button>
-                          </div>
-                        </td>
+                      <tr className="quoteZoneSep" data-zone={r.zone}>
+                        <td colSpan={QUOTE_DATA_COLS} className="quoteZoneSepMark" aria-hidden />
                       </tr>
                     ) : null}
                     <tr
@@ -994,6 +1085,9 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
       {quoteSheet === 'summary' && (
       <section className="card summary">
         <h3>總結</h3>
+        <p className="hint" style={{ marginTop: -6, marginBottom: 10 }}>
+          作圖總額與每坪成本所依<strong>總坪</strong>不含樓層面積「<strong>基礎工程</strong>」列；該列㎡仍會出現在樓層面積與每層計價表。
+        </p>
         <dl className="dl">
           <div>
             <dt>基礎總工數加總</dt>
