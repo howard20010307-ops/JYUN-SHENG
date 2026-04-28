@@ -4,17 +4,30 @@ import type { MonthKey, MonthLine } from '../domain/ledgerEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import type { WorkLogEntry, WorkLogState } from '../domain/workLogModel'
 import {
-  newWorkLogEntry,
-  nowIso,
-  sortWorkLogEntries,
   todayYmdLocal,
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
-  buildWorkLogContentSummary,
   mergedWorkItemOptions,
-  entriesForDate,
-  datesWithEntriesInMonth,
+  getDayDocument,
+  replaceDayDocument,
+  summarizeWorkLogDayDocument,
+  effectiveEntriesForCalendar,
+  datesWithAnyLogInMonth,
+  newSiteBlock,
+  countDistinctNamedSites,
+  newWorkLogEntityId,
+  newWorkLogSiteWorkLine,
+  WORK_LOG_INSTRUMENT_OPTIONS,
+  instrumentQtyAnyPositive,
+  parseInstrumentQtyFromDraftStrings,
 } from '../domain/workLogModel'
+import {
+  buildLinkedDayDraftFromState,
+  linkedDayDraftToDayDocument,
+  type LinkedDayBlockDraft,
+  type LinkedDayDraft,
+  type LinkedDayStaffLineDraft,
+} from '../domain/workLogPayrollLink'
 import {
   buildPayrollDaySnapshot,
   datesWithPayrollActivityInCalendarMonth,
@@ -22,10 +35,7 @@ import {
   payrollStaffMealForFormSite,
   prefillFromPayrollDaySnapshot,
 } from '../domain/payrollDayForWorkLog'
-import {
-  QUICK_SITE_JUN_ADJUST,
-  QUICK_SITE_TSAI_ADJUST,
-} from '../domain/fieldworkQuickApply'
+import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 
 const EMPTY_SITE = ''
 
@@ -35,31 +45,19 @@ type Props = {
   siteOptions: readonly { id: string; name: string }[]
   quoteRows: readonly QuoteRow[]
   staffOptions: readonly string[]
-  /** 薪水月表：與日曆／表單連動 */
   salaryBook: SalaryBook
-  /** 公司帳月度列（2–12 月）；與選定日期所屬月份對齊（無選日時依月曆檢視月） */
   ledgerMonths?: readonly MonthLine[]
 }
 
-type DraftForm = {
-  id: string | null
-  logDate: string
-  staffNames: string[]
-  timeStart: string
-  timeEnd: string
-  siteName: string
-  workItem: string
-  equipment: string
-  mealCost: string
-  miscCost: string
-  remark: string
-}
+type StaffLineDraft = LinkedDayStaffLineDraft
+type BlockDraft = LinkedDayBlockDraft
+/** 表單狀態：餐費／雜項為整日；工作內容／儀器／備註與人員在案場區塊；案場／人員與月表連動 */
+type DayDraft = LinkedDayDraft
 
 function daysInMonth(year: number, month1to12: number): number {
   return new Date(year, month1to12, 0).getDate()
 }
 
-/** 週日為第一欄，共 6 列 × 7 欄 */
 function calendarDayCells(year: number, month1to12: number): (number | null)[] {
   const firstDow = new Date(year, month1to12 - 1, 1).getDay()
   const dim = daysInMonth(year, month1to12)
@@ -85,7 +83,6 @@ function ymd(year: number, month1to12: number, day: number): string {
   return `${year}-${String(month1to12).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-/** 顯示用：2026-04-27 → 2026年4月27日 */
 function formatYmdChinese(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso || '').trim())
   if (!m) return iso || '—'
@@ -101,7 +98,6 @@ function partsFromYmdStrict(iso: string): { y: number; m: number; d: number } | 
   return { y: parseInt(m[1], 10), m: parseInt(m[2], 10), d: parseInt(m[3], 10) }
 }
 
-/** 月表帶入人員：先依主選單順序，其餘附後 */
 function orderStaffNamesForForm(
   staffOptionsOrdered: readonly string[],
   payrollStaff: readonly string[],
@@ -118,6 +114,10 @@ type DayCellSummary = {
   staffLabel: string
   workLabel: string
   source: 'worklog' | 'payroll'
+  /** 月表僅預支：月曆格不顯示地點／人數／人員／工作列（仍顯示黃色月表圓點與「預」角標） */
+  advanceOnlyMinimalCell?: boolean
+  /** 月表該日「預支」列有非零（與出工／日誌分開標示） */
+  hasPayrollAdvance?: boolean
 }
 
 function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummary, 'source'> {
@@ -126,7 +126,7 @@ function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummar
   const works = new Set<string>()
   for (const e of list) {
     if (e.siteName.trim()) sites.add(e.siteName.trim())
-    for (const n of e.staffNames) {
+    for (const n of e.staffNames ?? []) {
       if (n.trim()) staff.add(n.trim())
     }
     if (e.workItem.trim()) works.add(e.workItem.trim())
@@ -135,12 +135,12 @@ function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummar
   const workArr = [...works].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   let workLabel = workArr.join('、') || '—'
   if (list.length > 1) {
-    workLabel = workLabel === '—' ? `（${list.length} 筆日誌）` : `${workLabel}（${list.length} 筆）`
+    workLabel = workLabel === '—' ? `（${list.length} 筆）` : `${workLabel}（${list.length} 筆）`
   }
-
   let staffLabel: string
   let staffCount: number
-  if (list.length > 1) {
+  const distinctSiteKeys = new Set(list.map((e) => e.siteName.trim() || '（無案場）'))
+  if (distinctSiteKeys.size > 1) {
     const bySite = new Map<string, Set<string>>()
     for (const e of list) {
       const key = e.siteName.trim() || '（無案場）'
@@ -149,7 +149,7 @@ function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummar
         set = new Set()
         bySite.set(key, set)
       }
-      for (const n of e.staffNames) {
+      for (const n of e.staffNames ?? []) {
         if (n.trim()) set.add(n.trim())
       }
     }
@@ -164,69 +164,11 @@ function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummar
     staffLabel = staffArr.join('、') || '—'
     staffCount = staffArr.length
   }
-
   return {
     siteLabel: [...sites].join('、') || '—',
     staffCount,
     staffLabel,
     workLabel,
-  }
-}
-
-function parseMoney(s: string): number {
-  const n = parseFloat(s.trim())
-  return Number.isFinite(n) ? n : 0
-}
-
-function emptyDraft(logDate: string): DraftForm {
-  return {
-    id: null,
-    logDate,
-    staffNames: [],
-    timeStart: DEFAULT_WORK_START,
-    timeEnd: DEFAULT_WORK_END,
-    siteName: '',
-    workItem: '',
-    equipment: '',
-    mealCost: '',
-    miscCost: '',
-    remark: '',
-  }
-}
-
-function entryToDraft(e: WorkLogEntry): DraftForm {
-  return {
-    id: e.id,
-    logDate: e.logDate,
-    staffNames: [...e.staffNames],
-    timeStart: e.timeStart,
-    timeEnd: e.timeEnd,
-    siteName: e.siteName,
-    workItem: e.workItem,
-    equipment: e.equipment,
-    mealCost: e.mealCost === 0 ? '' : String(e.mealCost),
-    miscCost: e.miscCost === 0 ? '' : String(e.miscCost),
-    remark: e.remark,
-  }
-}
-
-/** 新增一筆：以月表該日為基準（人員、餐費加總、案場）；備註預設空白；無該日於月表則空白欄 */
-function newDraftWithPayrollForDay(
-  book: SalaryBook,
-  ymd: string,
-  staffOptionsOrdered: readonly string[],
-): DraftForm {
-  const base = emptyDraft(ymd)
-  const snap = buildPayrollDaySnapshot(book, ymd)
-  if (!snap) return base
-  const p = prefillFromPayrollDaySnapshot(snap)
-  const ordered = orderStaffNamesForForm(staffOptionsOrdered, p.staffNames)
-  return {
-    ...base,
-    staffNames: ordered,
-    mealCost: p.mealCost === 0 ? '' : String(p.mealCost),
-    siteName: p.siteName,
-    remark: '',
   }
 }
 
@@ -249,26 +191,49 @@ export function WorkLogPanel({
     return m
   })
   const [selectedYmd, setSelectedYmd] = useState<string | null>(today)
-  const [draft, setDraft] = useState<DraftForm>(() =>
-    newDraftWithPayrollForDay(salaryBook, today, staffOptions),
+  const [dayDraft, setDayDraft] = useState<DayDraft>(() =>
+    buildLinkedDayDraftFromState(today, workLog, salaryBook, staffOptions),
   )
-  const [newCustomItem, setNewCustomItem] = useState('')
-  /** 預設鎖定：解鎖後才可改欄位與儲存 */
+  /** 各工作列「加入選項」輸入暫存（key = block.id:workLine.id） */
+  const [blockCustomWorkLine, setBlockCustomWorkLine] = useState<Record<string, string>>({})
   const [formUnlocked, setFormUnlocked] = useState(false)
+  /** 全螢幕編輯：月曆格顯示摘要，完整內容於 overlay（可捲、不截斷） */
+  const [dayOverlayOpen, setDayOverlayOpen] = useState(false)
 
   useEffect(() => {
     setFormUnlocked(false)
   }, [selectedYmd])
 
-  /** 與表單「記錄幾月幾號」同日之月表帶入（多案場提示、案場選單合併用） */
-  const payrollDayPrefill = useMemo(() => {
-    const ymd = (draft.logDate || '').trim()
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null
-    const snap = buildPayrollDaySnapshot(salaryBook, ymd)
-    return snap ? prefillFromPayrollDaySnapshot(snap) : null
-  }, [salaryBook, draft.logDate])
+  useEffect(() => {
+    if (!dayOverlayOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDayOverlayOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [dayOverlayOpen])
 
-  /** 案場下拉：估價／月表累積案名 ＋ 本選定日格線有出工之案名（同日多場必出現在選單） */
+  useEffect(() => {
+    if (!selectedYmd || formUnlocked) return
+    setDayDraft(buildLinkedDayDraftFromState(selectedYmd, workLog, salaryBook, staffOptions))
+  }, [salaryBook, selectedYmd, staffOptions, formUnlocked, workLog])
+
+  const payrollFromMonthSheet = useMemo(() => {
+    const y = (dayDraft.logDate || '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(y)) return null
+    const snapshot = buildPayrollDaySnapshot(salaryBook, y)
+    if (!snapshot) return null
+    return { snapshot, prefill: prefillFromPayrollDaySnapshot(snapshot) }
+  }, [salaryBook, dayDraft.logDate])
+
+  const payrollDayPrefill = payrollFromMonthSheet?.prefill ?? null
+  const payrollSnapshotForWorkLogDay = payrollFromMonthSheet?.snapshot ?? null
+
   const siteChoices = useMemo(() => {
     const s = new Set<string>()
     s.add(QUICK_SITE_TSAI_ADJUST)
@@ -282,10 +247,12 @@ export function WorkLogPanel({
         if (t) s.add(t)
       }
     }
-    const draftSite = draft.siteName.trim()
-    if (draftSite) s.add(draftSite)
+    for (const b of dayDraft.blocks) {
+      const t = b.siteName.trim()
+      if (t) s.add(t)
+    }
     return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-  }, [siteOptions, payrollDayPrefill, draft.siteName])
+  }, [siteOptions, payrollDayPrefill, dayDraft.blocks])
 
   const workItemOptions = useMemo(
     () => mergedWorkItemOptions(quoteRows, workLog.customWorkItemLabels ?? []),
@@ -299,15 +266,15 @@ export function WorkLogPanel({
 
   const ledgerDisplayMonth = useMemo(() => {
     const iso =
-      draft.logDate && /^\d{4}-\d{2}-\d{2}$/.test(draft.logDate.trim())
-        ? draft.logDate.trim()
+      dayDraft.logDate && /^\d{4}-\d{2}-\d{2}$/.test(dayDraft.logDate.trim())
+        ? dayDraft.logDate.trim()
         : selectedYmd
     if (iso) {
       const p = partsFromYmdStrict(iso)
       if (p) return p.m
     }
     return viewMonth
-  }, [draft.logDate, selectedYmd, viewMonth])
+  }, [dayDraft.logDate, selectedYmd, viewMonth])
 
   const ledgerRowForContext = useMemo(() => {
     if (!ledgerMonths?.length || ledgerDisplayMonth < 2 || ledgerDisplayMonth > 12) return null
@@ -316,28 +283,34 @@ export function WorkLogPanel({
   }, [ledgerMonths, ledgerDisplayMonth])
 
   const datesWithLog = useMemo(
-    () => datesWithEntriesInMonth(workLog.entries, viewYear, viewMonth),
-    [workLog.entries, viewYear, viewMonth],
+    () => datesWithAnyLogInMonth(workLog, viewYear, viewMonth),
+    [workLog, viewYear, viewMonth],
   )
 
-  const calCells = useMemo(
-    () => calendarDayCells(viewYear, viewMonth),
-    [viewYear, viewMonth],
-  )
+  const calCells = useMemo(() => calendarDayCells(viewYear, viewMonth), [viewYear, viewMonth])
+
+  const multiSiteMode = countDistinctNamedSites(dayDraft.blocks) >= 2
 
   const dayCellSummaries = useMemo(() => {
     const p = `${viewYear}-${String(viewMonth).padStart(2, '0')}-`
+    const m = new Map<string, DayCellSummary>()
+    for (const doc of workLog.dayDocuments ?? []) {
+      if (!doc.logDate.startsWith(p)) continue
+      const a = summarizeWorkLogDayDocument(doc)
+      m.set(doc.logDate, { ...a, source: 'worklog' })
+    }
     const byDate = new Map<string, WorkLogEntry[]>()
-    for (const e of workLog.entries) {
+    for (const e of effectiveEntriesForCalendar(workLog)) {
       if (!e.logDate.startsWith(p)) continue
+      if (getDayDocument(workLog, e.logDate)) continue
       const arr = byDate.get(e.logDate) ?? []
       arr.push(e)
       byDate.set(e.logDate, arr)
     }
-    const m = new Map<string, DayCellSummary>()
-    for (const [ymd, list] of byDate) {
+    for (const [iso, list] of byDate) {
+      if (m.has(iso)) continue
       const a = aggregateWorkLogEntriesForDay(list)
-      m.set(ymd, { ...a, source: 'worklog' })
+      m.set(iso, { ...a, source: 'worklog' })
     }
     const dim = daysInMonth(viewYear, viewMonth)
     for (let day = 1; day <= dim; day++) {
@@ -347,23 +320,18 @@ export function WorkLogPanel({
       const sn = buildPayrollDaySnapshot(salaryBook, iso)
       if (!sn) continue
       const pSum = payrollCalendarCellSummary(sn)
-      m.set(iso, { ...pSum, source: 'payroll' })
+      const hasPayrollAdvance = sn.advances.some((x) => x.value !== 0)
+      m.set(iso, { ...pSum, source: 'payroll', hasPayrollAdvance })
+    }
+    for (let day = 1; day <= dim; day++) {
+      const iso = ymd(viewYear, viewMonth, day)
+      const sn = buildPayrollDaySnapshot(salaryBook, iso)
+      if (!sn || !sn.advances.some((x) => x.value !== 0)) continue
+      const cur = m.get(iso)
+      if (cur && !cur.hasPayrollAdvance) m.set(iso, { ...cur, hasPayrollAdvance: true })
     }
     return m
-  }, [workLog.entries, viewYear, viewMonth, datesWithPayroll, salaryBook])
-
-  const dayEntries = useMemo(() => {
-    if (!selectedYmd) return []
-    return sortWorkLogEntries(entriesForDate(workLog.entries, selectedYmd))
-  }, [workLog.entries, selectedYmd])
-
-  const dayEntriesForPicker = useMemo(() => {
-    if (!draft.id) return dayEntries
-    if (dayEntries.some((e) => e.id === draft.id)) return dayEntries
-    const saved = workLog.entries.find((e) => e.id === draft.id)
-    if (!saved) return dayEntries
-    return sortWorkLogEntries([saved, ...dayEntries])
-  }, [dayEntries, draft.id, workLog.entries])
+  }, [workLog, viewYear, viewMonth, datesWithPayroll, salaryBook])
 
   const selectedInCalendarView = useMemo(() => {
     if (!selectedYmd) return true
@@ -372,14 +340,12 @@ export function WorkLogPanel({
     return p.y === viewYear && p.m === viewMonth
   }, [selectedYmd, viewYear, viewMonth])
 
-  const isEditing = draft.id != null
-
   const resetDraftForDay = useCallback(
-    (ymd: string) => {
-      setDraft(newDraftWithPayrollForDay(salaryBook, ymd, staffOptions))
+    (ymdStr: string) => {
+      setDayDraft(buildLinkedDayDraftFromState(ymdStr, workLog, salaryBook, staffOptions))
       setFormUnlocked(false)
     },
-    [salaryBook, staffOptions],
+    [workLog, salaryBook, staffOptions],
   )
 
   const prevMonth = useCallback(() => {
@@ -403,110 +369,231 @@ export function WorkLogPanel({
     setViewMonth(p.m)
   }, [])
 
-  const toggleStaff = useCallback((name: string) => {
-    setDraft((d) => {
-      const set = new Set(d.staffNames)
-      if (set.has(name)) set.delete(name)
-      else set.add(name)
-      const ordered = staffOptions.filter((n) => set.has(n))
-      const extras = d.staffNames.filter((n) => !staffOptions.includes(n))
-      return { ...d, staffNames: [...ordered, ...extras] }
-    })
-  }, [staffOptions])
-
-  /** 解鎖後切換案場：依月表重算該案場格線人員與餐費（同日多場不混人） */
-  const onWorkLogSiteChange = useCallback(
-    (nextRaw: string) => {
-      const nextSite = nextRaw === EMPTY_SITE ? '' : nextRaw
-      setDraft((d) => {
+  const fixApplyBlockSite = useCallback(
+    (blockIndex: number, siteRaw: string) => {
+      const site = siteRaw === EMPTY_SITE ? '' : siteRaw
+      setDayDraft((d) => {
         const snap = buildPayrollDaySnapshot(salaryBook, d.logDate)
-        if (!snap) return { ...d, siteName: nextSite }
-        const scoped = payrollStaffMealForFormSite(snap, nextSite)
-        if (!scoped) return { ...d, siteName: nextSite }
-        return {
-          ...d,
-          siteName: nextSite,
-          staffNames: orderStaffNamesForForm(staffOptions, scoped.staffNames),
-          mealCost: scoped.mealCost === 0 ? '' : String(scoped.mealCost),
-        }
+        const scoped = snap ? payrollStaffMealForFormSite(snap, site) : null
+        const blocks = d.blocks.map((b, i) => {
+          if (i !== blockIndex) return b
+          if (!snap) return { ...b, siteName: site }
+          const lines: StaffLineDraft[] =
+            scoped && scoped.staffNames.length > 0
+              ? orderStaffNamesForForm(staffOptions, scoped.staffNames).map((name) => ({
+                  name,
+                  timeStart: DEFAULT_WORK_START,
+                  timeEnd: DEFAULT_WORK_END,
+                }))
+              : b.staffLines.length
+                ? b.staffLines
+                : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }]
+          return { ...b, siteName: site, staffLines: lines }
+        })
+        const mealCost =
+          blockIndex === 0 && scoped ? (scoped.mealCost === 0 ? '' : String(scoped.mealCost)) : d.mealCost
+        return { ...d, blocks, mealCost }
       })
     },
     [salaryBook, staffOptions],
   )
 
+  const syncTimesInBlock = useCallback((blockIndex: number) => {
+    setDayDraft((d) => {
+      const blocks = d.blocks.map((b, i) => {
+        if (i !== blockIndex || b.staffLines.length === 0) return b
+        const t0 = toHhmm24(b.staffLines[0].timeStart, DEFAULT_WORK_START)
+        const t1 = toHhmm24(b.staffLines[0].timeEnd, DEFAULT_WORK_END)
+        return {
+          ...b,
+          staffLines: b.staffLines.map((ln) => ({ ...ln, timeStart: t0, timeEnd: t1 })),
+        }
+      })
+      return { ...d, blocks }
+    })
+  }, [])
+
+  const syncTimesAllDay = useCallback(() => {
+    setDayDraft((d) => {
+      let t0 = DEFAULT_WORK_START
+      let t1 = DEFAULT_WORK_END
+      for (const b of d.blocks) {
+        if (b.staffLines.length) {
+          t0 = toHhmm24(b.staffLines[0].timeStart, DEFAULT_WORK_START)
+          t1 = toHhmm24(b.staffLines[0].timeEnd, DEFAULT_WORK_END)
+          break
+        }
+      }
+      const blocks = d.blocks.map((b) => ({
+        ...b,
+        staffLines: b.staffLines.map((ln) => ({ ...ln, timeStart: t0, timeEnd: t1 })),
+      }))
+      return { ...d, blocks }
+    })
+  }, [])
+
   const onSave = useCallback(() => {
     if (!formUnlocked) return
-    const t = nowIso()
-    if (!draft.logDate) {
-      window.alert('請選擇日期。')
+    if (!dayDraft.logDate || !/^\d{4}-\d{2}-\d{2}$/.test(dayDraft.logDate)) {
+      window.alert('請選擇有效日期。')
       return
     }
-    const meal = parseMoney(draft.mealCost)
-    const misc = parseMoney(draft.miscCost)
-    const base = {
-      logDate: draft.logDate,
-      siteName: draft.siteName.trim(),
-      staffNames: draft.staffNames.filter(Boolean),
-      timeStart: toHhmm24(draft.timeStart, DEFAULT_WORK_START),
-      timeEnd: toHhmm24(draft.timeEnd, DEFAULT_WORK_END),
-      workItem: draft.workItem.trim(),
-      equipment: draft.equipment.trim(),
-      mealCost: meal,
-      miscCost: misc,
-      remark: draft.remark.trim(),
+    const namedLines: { blockIdx: number; name: string }[] = []
+    for (let bi = 0; bi < dayDraft.blocks.length; bi++) {
+      for (const ln of dayDraft.blocks[bi].staffLines) {
+        if (ln.name.trim()) namedLines.push({ blockIdx: bi, name: ln.name.trim() })
+      }
     }
-    const content = buildWorkLogContentSummary({
-      staffNames: base.staffNames,
-      siteName: base.siteName,
-      workItem: base.workItem,
-      remark: base.remark,
+    if (namedLines.length === 0) {
+      window.alert('請至少於某一案場區塊新增一位施工人員（姓名）。')
+      return
+    }
+    const seen = new Set<string>()
+    for (const { blockIdx, name } of namedLines) {
+      const site = dayDraft.blocks[blockIdx].siteName.trim() || ''
+      const key = `${site}\0${name}`
+      if (seen.has(key)) {
+        window.alert(`案場「${site || '（未填）'}」內，${name} 重複；同人同場請併成一列。`)
+        return
+      }
+      seen.add(key)
+    }
+    const existing = getDayDocument(workLog, dayDraft.logDate)
+    const doc = linkedDayDraftToDayDocument(dayDraft, existing)
+    setWorkLog((w) => {
+      const next = replaceDayDocument(w, doc)
+      queueMicrotask(() =>
+        setDayDraft(buildLinkedDayDraftFromState(doc.logDate, next, salaryBook, staffOptions)),
+      )
+      return next
     })
-    if (draft.id) {
-      setWorkLog((w) => ({
-        ...w,
-        entries: w.entries.map((x) =>
-          x.id === draft.id
+    setFormUnlocked(false)
+  }, [dayDraft, formUnlocked, setWorkLog, workLog])
+
+  const addCustomWorkItemForBlock = useCallback(
+    (blockIdx: number, lineIdx: number) => {
+      const block = dayDraft.blocks[blockIdx]
+      if (!block) return
+      const wl = block.workLines[lineIdx]
+      if (!wl) return
+      const key = `${block.id}:${wl.id}`
+      const v = (blockCustomWorkLine[key] ?? '').trim()
+      if (!v) return
+      setWorkLog((w) => {
+        const cur = w.customWorkItemLabels ?? []
+        if (cur.includes(v)) return w
+        return { ...w, customWorkItemLabels: [...cur, v].sort((a, b) => a.localeCompare(b, 'zh-Hant')) }
+      })
+      setDayDraft((d) => ({
+        ...d,
+        blocks: d.blocks.map((b, i) =>
+          i === blockIdx
             ? {
-                ...x,
-                ...base,
-                content,
-                updatedAt: t,
+                ...b,
+                workLines: b.workLines.map((w, j) => (j !== lineIdx ? w : { ...w, label: v })),
               }
-            : x,
+            : b,
         ),
       }))
-    } else {
-      setWorkLog((w) => ({
-        ...w,
-        entries: [
-          ...w.entries,
-          newWorkLogEntry({
-            ...base,
-            content,
-          }),
-        ],
-      }))
-    }
-    resetDraftForDay(draft.logDate)
-  }, [draft, formUnlocked, setWorkLog, resetDraftForDay])
+      setBlockCustomWorkLine((m) => {
+        const next = { ...m }
+        delete next[key]
+        return next
+      })
+    },
+    [blockCustomWorkLine, dayDraft.blocks, setWorkLog],
+  )
 
-  const addCustomWorkItem = useCallback(() => {
-    const v = newCustomItem.trim()
-    if (!v) return
-    setWorkLog((w) => {
-      const cur = w.customWorkItemLabels ?? []
-      if (cur.includes(v)) return w
-      return { ...w, customWorkItemLabels: [...cur, v].sort((a, b) => a.localeCompare(b, 'zh-Hant')) }
+  const addWorkLine = useCallback((blockIdx: number) => {
+    setDayDraft((d) => ({
+      ...d,
+      blocks: d.blocks.map((b, i) =>
+        i === blockIdx
+          ? {
+              ...b,
+              workLines: [
+                ...(b.workLines?.length ? b.workLines : [newWorkLogSiteWorkLine()]),
+                { id: newWorkLogEntityId(), label: '' },
+              ],
+            }
+          : b,
+      ),
+    }))
+  }, [])
+
+  const removeWorkLine = useCallback((blockIdx: number, lineIdx: number) => {
+    setDayDraft((d) => ({
+      ...d,
+      blocks: d.blocks.map((b, i) => {
+        if (i !== blockIdx) return b
+        const lines = b.workLines?.length ? b.workLines : [newWorkLogSiteWorkLine()]
+        if (lines.length <= 1) return { ...b, workLines: [newWorkLogSiteWorkLine()] }
+        return { ...b, workLines: lines.filter((_, j) => j !== lineIdx) }
+      }),
+    }))
+  }, [])
+
+  const addBlock = useCallback(() => {
+    const nb = newSiteBlock()
+    setDayDraft((d) => ({
+      ...d,
+      blocks: [
+        ...d.blocks,
+        {
+          id: nb.id,
+          siteName: nb.siteName,
+          workLines: nb.workLines.map((x) => ({ ...x })),
+          instrumentTotalStation: '',
+          instrumentRotatingLaser: '',
+          instrumentLineLaser: '',
+          equipment: '',
+          remark: nb.remark,
+          staffLines: nb.staffLines.map((x) => ({ ...x })),
+        },
+      ],
+    }))
+  }, [])
+
+  const removeBlock = useCallback((idx: number) => {
+    setDayDraft((d) => {
+      if (d.blocks.length <= 1) return d
+      return { ...d, blocks: d.blocks.filter((_, i) => i !== idx) }
     })
-    setDraft((d) => ({ ...d, workItem: v }))
-    setNewCustomItem('')
-  }, [newCustomItem, setWorkLog])
+  }, [])
+
+  const addStaffLine = useCallback((blockIdx: number) => {
+    setDayDraft((d) => ({
+      ...d,
+      blocks: d.blocks.map((b, i) =>
+        i === blockIdx
+          ? {
+              ...b,
+              staffLines: [
+                ...b.staffLines,
+                { name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END },
+              ],
+            }
+          : b,
+      ),
+    }))
+  }, [])
+
+  const removeStaffLine = useCallback((blockIdx: number, lineIdx: number) => {
+    setDayDraft((d) => ({
+      ...d,
+      blocks: d.blocks.map((b, i) => {
+        if (i !== blockIdx) return b
+        if (b.staffLines.length <= 1) return b
+        return { ...b, staffLines: b.staffLines.filter((_, j) => j !== lineIdx) }
+      }),
+    }))
+  }, [])
 
   return (
     <div className="panel">
       <h2>工作日誌</h2>
       <p className="hint" style={{ marginBottom: 14 }}>
-        依<strong>月曆</strong>選日並編輯日誌；選日後欄位依<strong>薪水月表該日</strong>帶入（<strong>案場</strong>與該場<strong>格線人員／餐費</strong>；同日多案場請<strong>分筆</strong>，一人跑多場亦請分筆；備註空白）。表單預設<strong>鎖定</strong>，請用月曆列右側「<strong>解鎖編輯</strong>」後再改。與<strong>公司帳</strong>、<strong>快速登記</strong>、<strong>估價細項</strong>連動。
+        <strong>月曆</strong>顯示當日摘要（地點／人數／人員／工作）；格內過長可<strong>上下捲動</strong>，完整編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／<strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器、備註</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
       </p>
 
       <section className="card worklogCalendarCard">
@@ -522,19 +609,6 @@ export function WorkLogPanel({
               下個月 →
             </button>
           </div>
-          {selectedYmd ? (
-            <div className="worklogMonthNavLock">
-              <span
-                className={`worklogLockPill${formUnlocked ? ' worklogLockPill--on' : ''}`}
-                title={formUnlocked ? '可修改欄位與儲存' : '僅能檢視；請先解鎖再改'}
-              >
-                {formUnlocked ? '已解鎖' : '已鎖定'}
-              </span>
-              <button type="button" className="btn secondary" onClick={() => setFormUnlocked((u) => !u)}>
-                {formUnlocked ? '鎖定' : '解鎖編輯'}
-              </button>
-            </div>
-          ) : null}
         </div>
         <div className="worklogCalGrid" role="grid" aria-label="月曆">
           {['日', '一', '二', '三', '四', '五', '六'].map((w) => (
@@ -556,10 +630,12 @@ export function WorkLogPanel({
               <button
                 key={cellYmd}
                 type="button"
-                className={`worklogDayCell${hasLog ? ' worklogDayCell--hasLog' : ''}${hasPayroll ? ' worklogDayCell--hasPayroll' : ''}${isSel ? ' worklogDayCell--selected' : ''}${isToday ? ' worklogDayCell--today' : ''}`}
+                className={`worklogDayCell${hasLog ? ' worklogDayCell--hasLog' : ''}${hasPayroll ? ' worklogDayCell--hasPayroll' : ''}${cellSum?.hasPayrollAdvance ? ' worklogDayCell--hasAdvance' : ''}${isSel ? ' worklogDayCell--selected' : ''}${isToday ? ' worklogDayCell--today' : ''}`}
                 onClick={() => {
                   setSelectedYmd(cellYmd)
                   resetDraftForDay(cellYmd)
+                  setFormUnlocked(false)
+                  setDayOverlayOpen(true)
                 }}
               >
                 <div className="worklogDayCellTop">
@@ -569,29 +645,31 @@ export function WorkLogPanel({
                     {hasPayroll ? (
                       <span className="worklogDayDot worklogDayDot--payroll" title="月表有資料" />
                     ) : null}
+                    {cellSum?.hasPayrollAdvance ? (
+                      <span className="worklogDayAdvanceMark" title="月表該日有預支（非零）">
+                        預
+                      </span>
+                    ) : null}
                   </span>
                 </div>
-                {cellSum ? (
+                {cellSum && !cellSum.advanceOnlyMinimalCell ? (
                   <div
                     className={`worklogDayCellBody${cellSum.source === 'payroll' ? ' worklogDayCellBody--payroll' : ''}`}
                   >
-                    <div className="worklogDayCellLine" title={`地點：${cellSum.siteLabel}`}>
+                    <div className="worklogDayCellLine">
                       <span className="worklogDayCellK">地點</span>
                       <span className="worklogDayCellV">{cellSum.siteLabel}</span>
                     </div>
-                    <div
-                      className="worklogDayCellLine worklogDayCellLine--count"
-                      title={`施工人數（不重複人數）：${cellSum.staffCount}`}
-                    >
+                    <div className="worklogDayCellLine worklogDayCellLine--count">
                       <span className="worklogDayCellK">人數</span>
                       <span className="worklogDayCellV">{cellSum.staffCount}</span>
                     </div>
-                    <div className="worklogDayCellLine" title={`施工人員：${cellSum.staffLabel}`}>
+                    <div className="worklogDayCellLine">
                       <span className="worklogDayCellK">人員</span>
                       <span className="worklogDayCellV">{cellSum.staffLabel}</span>
                     </div>
-                    <div className="worklogDayCellLine" title={`工作內容：${cellSum.workLabel}`}>
-                      <span className="worklogDayCellK">工作內容</span>
+                    <div className="worklogDayCellLine">
+                      <span className="worklogDayCellK">工作</span>
                       <span className="worklogDayCellV">{cellSum.workLabel}</span>
                     </div>
                   </div>
@@ -604,53 +682,76 @@ export function WorkLogPanel({
           <span className="worklogDayDot worklogDayDot--log" /> 有日誌
           <span style={{ width: 8, display: 'inline-block' }} />
           <span className="worklogDayDot worklogDayDot--payroll" /> 薪水月表當日有紀錄
+          <span style={{ width: 8, display: 'inline-block' }} />
+          <span className="worklogDayAdvanceMark worklogDayAdvanceMark--legend" aria-hidden>
+            預
+          </span>
+          月表該日有預支（非零）
+          <span style={{ width: 8, display: 'inline-block' }} />
+          格內摘要可捲；點日期 → 全螢幕編輯（全文）
         </p>
         {selectedYmd && !selectedInCalendarView ? (
           <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
             目前選取為 <strong>{formatYmdChinese(selectedYmd)}</strong>，不在此月曆月份。{' '}
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() => jumpCalendarToYmd(selectedYmd)}
-            >
+            <button type="button" className="btn secondary" onClick={() => jumpCalendarToYmd(selectedYmd)}>
               切到此月
             </button>
           </p>
         ) : null}
       </section>
 
-      {selectedYmd ? (
-        <section className="card worklogForm worklogDayInfoCard">
-          <h3 className="sr-only">日誌欄位</h3>
-          <label className="worklogFormLabel worklogDayInfoField worklogDayInfoField--picker">
-            <span className="sr-only">此日記錄（選擇一筆或新增）</span>
-            <select
-              className="titleInput"
-              aria-label="此日記錄，選擇一筆或新增"
-              value={draft.id ?? '__new__'}
-              onChange={(e) => {
-                const v = e.target.value
-                if (v === '__new__') resetDraftForDay(selectedYmd)
-                else {
-                  const ent = dayEntriesForPicker.find((x) => x.id === v)
-                  if (ent) {
-                    setDraft(entryToDraft(ent))
-                    setSelectedYmd(ent.logDate)
-                    jumpCalendarToYmd(ent.logDate)
-                  }
-                }
-                setFormUnlocked(false)
-              }}
-            >
-              <option value="__new__">新增一筆</option>
-              {sortWorkLogEntries(dayEntriesForPicker).map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.timeStart}–{e.timeEnd} · {e.siteName.trim() || '無案場'} · {e.staffNames.length} 人
-                  {e.workItem.trim() ? ` · ${e.workItem.trim().slice(0, 12)}${e.workItem.trim().length > 12 ? '…' : ''}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
+      {selectedYmd && !dayOverlayOpen ? (
+        <section className="card worklogCalendarReopenHint">
+          <p className="hint" style={{ margin: 0 }}>
+            已選取 <strong>{formatYmdChinese(selectedYmd)}</strong>（{selectedYmd}）。再點該日格或下方按鈕以全螢幕編輯。
+          </p>
+          <div className="btnRow" style={{ marginTop: 10 }}>
+            <button type="button" className="btn" onClick={() => setDayOverlayOpen(true)}>
+              開啟當日編輯
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {dayOverlayOpen && selectedYmd ? (
+        <div
+          className="worklogDayOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="worklog-day-overlay-title"
+        >
+          <div
+            className="worklogDayOverlayBackdrop"
+            onClick={() => setDayOverlayOpen(false)}
+            aria-hidden
+          />
+          <div className="worklogDayOverlayPanel">
+            <header className="worklogDayOverlayHeader">
+              <button type="button" className="btn secondary" onClick={() => setDayOverlayOpen(false)}>
+                關閉
+              </button>
+              <div className="worklogDayOverlayTitleGroup">
+                <h3 className="worklogDayOverlayTitle" id="worklog-day-overlay-title">
+                  編輯整日工作日誌
+                </h3>
+                <p className="worklogDayOverlayDate muted">
+                  {formatYmdChinese(selectedYmd)} · {selectedYmd}
+                </p>
+              </div>
+              <div className="worklogMonthNavLock worklogDayOverlayLock">
+                <span
+                  className={`worklogLockPill${formUnlocked ? ' worklogLockPill--on' : ''}`}
+                  title={formUnlocked ? '可修改欄位與儲存' : '僅能檢視；請先解鎖再改'}
+                >
+                  {formUnlocked ? '已解鎖' : '已鎖定'}
+                </span>
+                <button type="button" className="btn secondary" onClick={() => setFormUnlocked((u) => !u)}>
+                  {formUnlocked ? '鎖定' : '解鎖編輯'}
+                </button>
+              </div>
+            </header>
+            <div className="worklogDayOverlayScroll">
+              <section className="card worklogForm worklogDayInfoCard worklogDayOverlayCard">
 
           <div className="worklogDayInfoField">
             <span className="worklogDayInfoLabel">
@@ -660,221 +761,428 @@ export function WorkLogPanel({
               記錄幾月幾號
             </span>
             <p className="worklogDayInfoZhDate">
-              {formatYmdChinese(draft.logDate)}
-              <span className="muted">（{draft.logDate}）</span>
+              {formatYmdChinese(dayDraft.logDate)}
+              <span className="muted">（{dayDraft.logDate}）</span>
             </p>
             <input
               type="date"
               className="titleInput"
               disabled={!formUnlocked}
-              value={draft.logDate}
+              value={dayDraft.logDate}
               onChange={(e) => {
                 const v = e.target.value
                 if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                  setDraft((d) => ({ ...d, logDate: v }))
+                  setDayDraft((d) => ({ ...d, logDate: v }))
                   return
                 }
                 setSelectedYmd(v)
                 jumpCalendarToYmd(v)
                 setFormUnlocked(false)
-                setDraft((d) => {
-                  if (d.id != null) return { ...d, logDate: v }
-                  return newDraftWithPayrollForDay(salaryBook, v, staffOptions)
-                })
+                setDayDraft(buildLinkedDayDraftFromState(v, workLog, salaryBook, staffOptions))
               }}
             />
           </div>
 
-          <div className="worklogDayInfoField worklogStaffBlock">
-            <span className="worklogDayInfoLabel">
-              <span className="worklogDayInfoNum" aria-hidden>
-                2
-              </span>
-              施工人員有誰，總共幾個
-              <span className="worklogDayInfoCount">（共 {draft.staffNames.length} 人）</span>
-            </span>
-            <div className="worklogStaffChecks">
-              {staffOptions.map((name) => (
-                <label key={name} className="rowCheck">
-                  <input
-                    type="checkbox"
-                    disabled={!formUnlocked}
-                    checked={draft.staffNames.includes(name)}
-                    onChange={() => toggleStaff(name)}
-                  />
-                  {name}
-                </label>
-              ))}
+          <datalist id="worklog-workitem-list">
+            {workItemOptions.map((o) => (
+              <option key={o} value={o} />
+            ))}
+          </datalist>
+
+          <div className={`worklogSharedDayFields${multiSiteMode ? ' worklogSharedDayFields--multi' : ''}`}>
+            <p className="worklogSharedDayFieldsTitle">當日共用（餐費、雜項）</p>
+            <div className="worklogFormGrid" style={{ marginTop: 4 }}>
+              <label className="worklogFormLabel">
+                <span className="worklogDayInfoLabel">
+                  <span className="worklogDayInfoNum" aria-hidden>
+                    2
+                  </span>
+                  餐費（元）
+                </span>
+                <input
+                  type="number"
+                  className="titleInput"
+                  disabled={!formUnlocked}
+                  value={dayDraft.mealCost}
+                  onChange={(e) => setDayDraft((d) => ({ ...d, mealCost: e.target.value }))}
+                  placeholder="0"
+                />
+              </label>
+              <label className="worklogFormLabel">
+                <span className="worklogDayInfoLabel">
+                  <span className="worklogDayInfoNum" aria-hidden>
+                    3
+                  </span>
+                  雜項支出（元）
+                </span>
+                <input
+                  type="number"
+                  className="titleInput"
+                  disabled={!formUnlocked}
+                  value={dayDraft.miscCost}
+                  onChange={(e) => setDayDraft((d) => ({ ...d, miscCost: e.target.value }))}
+                  placeholder="0"
+                />
+              </label>
             </div>
           </div>
 
-          <div className="worklogDayInfoField">
-            <span className="worklogDayInfoLabel">
-              <span className="worklogDayInfoNum" aria-hidden>
-                3
-              </span>
-              幾點上班（預設 7:30）、幾點下班（預設 16:30）
-            </span>
-            <span className="worklogTimePair">
-              <input
-                type="time"
-                disabled={!formUnlocked}
-                value={toHhmm24(draft.timeStart, DEFAULT_WORK_START)}
-                onChange={(e) => setDraft((d) => ({ ...d, timeStart: e.target.value }))}
-              />
-              <span className="muted">～</span>
-              <input
-                type="time"
-                disabled={!formUnlocked}
-                value={toHhmm24(draft.timeEnd, DEFAULT_WORK_END)}
-                onChange={(e) => setDraft((d) => ({ ...d, timeEnd: e.target.value }))}
-              />
-            </span>
-          </div>
-
-          <div className="worklogDayInfoField">
-            <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
-              <span className="worklogDayInfoLabel">
-                <span className="worklogDayInfoNum" aria-hidden>
-                  4
-                </span>
-                案場地點（月表多場時人員／餐費依本案場；一般案場、調工支援、蔡董調工）
-              </span>
-              <select
-                className="titleInput"
-                disabled={!formUnlocked}
-                value={draft.siteName ? draft.siteName : EMPTY_SITE}
-                onChange={(e) => onWorkLogSiteChange(e.target.value)}
-              >
-                <option value={EMPTY_SITE}>請選擇</option>
-                {siteChoices.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {payrollDayPrefill && payrollDayPrefill.siteNamesWithWork.length > 1 ? (
-              <p className="hint muted" style={{ marginTop: 8, marginBottom: 0 }}>
-                月表<strong>本日</strong>有 {payrollDayPrefill.siteNamesWithWork.length}{' '}
-                個案場出工（{payrollDayPrefill.siteNamesWithWork.join('、')}）。日誌請<strong>依案場分筆儲存</strong>
-                （一案場一筆；不同人去不同場、或同一人跑多場，皆建議分筆）。預選第一案場；<strong>解鎖後改選案場</strong>
-                會依月表<strong>重算該場施工人員與餐費</strong>。完成一筆後用「新增一筆」再選下一案場即可。
-              </p>
-            ) : null}
-            {payrollDayPrefill?.hasUnnamedSiteWork ? (
-              <p className="hint muted" style={{ marginTop: 8, marginBottom: 0 }}>
-                月表含<strong>未命名案場</strong>格線有出工，請至月表補案名，或於此手動選擇／輸入地點（必要時先將該案名加入估價或案場清單）。
-              </p>
-            ) : null}
-          </div>
-
-          <div className="worklogDayInfoField">
-            <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
-              <span className="worklogDayInfoLabel">
-                <span className="worklogDayInfoNum" aria-hidden>
-                  5
-                </span>
-                工作內容（選項來自放樣估價細項，可另新增選項）
-              </span>
-              <input
-                className="titleInput"
-                disabled={!formUnlocked}
-                list="worklog-workitem-list"
-                value={draft.workItem}
-                onChange={(e) => setDraft((d) => ({ ...d, workItem: e.target.value }))}
-                placeholder="選擇或輸入"
-              />
-              <datalist id="worklog-workitem-list">
-                {workItemOptions.map((o) => (
-                  <option key={o} value={o} />
-                ))}
-              </datalist>
-            </label>
-          </div>
-          <div className="worklogCustomItemRow">
-            <input
-              type="text"
-              className="titleInput"
-              disabled={!formUnlocked}
-              placeholder="新增自訂選項到清單"
-              value={newCustomItem}
-              onChange={(e) => setNewCustomItem(e.target.value)}
-            />
-            <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={addCustomWorkItem}>
-              加入選項
+          <div className="worklogDayBlockActionsGlobal btnRow" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+            <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={syncTimesAllDay}>
+              全日人員時間一致（跨案場）
+            </button>
+            <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={addBlock}>
+              新增案場區塊
             </button>
           </div>
 
-          <div className="worklogDayInfoField">
-            <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
-              <span className="worklogDayInfoLabel">
-                <span className="worklogDayInfoNum" aria-hidden>
-                  6
+          {dayDraft.blocks.map((block, bi) => (
+            <div
+              key={block.id}
+              className={`worklogSiteBlock${multiSiteMode ? ' worklogSiteBlock--multi' : ''}`}
+            >
+              <div className="worklogSiteBlockHead">
+                <span className="worklogSiteBlockTitle">
+                  案場區塊 {bi + 1}
+                  {multiSiteMode ? <span className="muted">（多案場模式）</span> : null}
                 </span>
-                使用儀器
-              </span>
-              <input
-                className="titleInput"
-                disabled={!formUnlocked}
-                value={draft.equipment}
-                onChange={(e) => setDraft((d) => ({ ...d, equipment: e.target.value }))}
-                placeholder="例如：全站、墨線儀…"
-              />
-            </label>
-          </div>
+                {dayDraft.blocks.length > 1 ? (
+                  <button
+                    type="button"
+                    className="btn secondary ghost"
+                    disabled={!formUnlocked}
+                    onClick={() => removeBlock(bi)}
+                  >
+                    移除此區塊
+                  </button>
+                ) : null}
+              </div>
+              <label className="worklogFormLabel" style={{ margin: '0 0 10px', width: '100%' }}>
+                <span className="worklogDayInfoLabel">案場地點</span>
+                <select
+                  className="titleInput"
+                  disabled={!formUnlocked}
+                  value={block.siteName ? block.siteName : EMPTY_SITE}
+                  onChange={(e) => fixApplyBlockSite(bi, e.target.value)}
+                >
+                  <option value={EMPTY_SITE}>請選擇</option>
+                  {siteChoices.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {payrollDayPrefill && payrollDayPrefill.siteNamesWithWork.length > 1 ? (
+                <p className="hint muted" style={{ marginTop: 0, marginBottom: 8 }}>
+                  月表本日多案場：{payrollDayPrefill.siteNamesWithWork.join('、')}。可「新增案場區塊」後各選一案場；同人不同場請分區塊登記。
+                </p>
+              ) : null}
+              <div className="btnRow" style={{ flexWrap: 'wrap', marginBottom: 8 }}>
+                <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={() => syncTimesInBlock(bi)}>
+                  本案場人員時間一致
+                </button>
+                <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={() => addStaffLine(bi)}>
+                  新增人員列
+                </button>
+              </div>
+              <div className="worklogStaffLineTableWrap">
+                <table className="worklogStaffLineTable data tight">
+                  <thead>
+                    <tr>
+                      <th>施工人員</th>
+                      <th>上班</th>
+                      <th>下班</th>
+                      <th aria-label="操作" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.staffLines.map((ln, li) => (
+                      <tr key={`${block.id}-${li}`}>
+                        <td>
+                          <input
+                            type="text"
+                            className="titleInput"
+                            disabled={!formUnlocked}
+                            list={`worklog-staff-dl-${bi}`}
+                            value={ln.name}
+                            onChange={(e) =>
+                              setDayDraft((d) => ({
+                                ...d,
+                                blocks: d.blocks.map((b, i) =>
+                                  i !== bi
+                                    ? b
+                                    : {
+                                        ...b,
+                                        staffLines: b.staffLines.map((s, j) =>
+                                          j !== li ? s : { ...s, name: e.target.value },
+                                        ),
+                                      },
+                                ),
+                              }))
+                            }
+                            placeholder="姓名"
+                          />
+                          <datalist id={`worklog-staff-dl-${bi}`}>
+                            {staffOptions.map((n) => (
+                              <option key={n} value={n} />
+                            ))}
+                          </datalist>
+                        </td>
+                        <td>
+                          <input
+                            type="time"
+                            disabled={!formUnlocked}
+                            value={toHhmm24(ln.timeStart, DEFAULT_WORK_START)}
+                            onChange={(e) =>
+                              setDayDraft((d) => ({
+                                ...d,
+                                blocks: d.blocks.map((b, i) =>
+                                  i !== bi
+                                    ? b
+                                    : {
+                                        ...b,
+                                        staffLines: b.staffLines.map((s, j) =>
+                                          j !== li ? s : { ...s, timeStart: e.target.value },
+                                        ),
+                                      },
+                                ),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="time"
+                            disabled={!formUnlocked}
+                            value={toHhmm24(ln.timeEnd, DEFAULT_WORK_END)}
+                            onChange={(e) =>
+                              setDayDraft((d) => ({
+                                ...d,
+                                blocks: d.blocks.map((b, i) =>
+                                  i !== bi
+                                    ? b
+                                    : {
+                                        ...b,
+                                        staffLines: b.staffLines.map((s, j) =>
+                                          j !== li ? s : { ...s, timeEnd: e.target.value },
+                                        ),
+                                      },
+                                ),
+                              }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn secondary ghost"
+                            disabled={!formUnlocked || block.staffLines.length <= 1}
+                            onClick={() => removeStaffLine(bi, li)}
+                          >
+                            刪列
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="worklogDayInfoField" style={{ marginTop: 12 }}>
+                <span className="worklogDayInfoLabel">
+                  工作內容（本案場，可多列）
+                </span>
+                <p className="hint muted" style={{ margin: '6px 0 8px', fontSize: 13 }}>
+                  選項清單來自放樣估價各列「細項」字串與下方自訂選項，僅供挑選填入；儲存為純文字，不與估價列連動。
+                </p>
+                <div className="btnRow" style={{ marginTop: 8, marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={!formUnlocked}
+                    onClick={() => addWorkLine(bi)}
+                  >
+                    新增工作列
+                  </button>
+                </div>
+                {(block.workLines?.length ? block.workLines : [newWorkLogSiteWorkLine()]).map((wl, li) => {
+                  const customKey = `${block.id}:${wl.id}`
+                  return (
+                    <div
+                      key={wl.id}
+                      className="worklogWorkLineBlock"
+                      style={{
+                        marginBottom: 12,
+                        paddingBottom: 12,
+                        borderBottom: '1px solid var(--border, #e8e8e8)',
+                      }}
+                    >
+                      <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
+                        <span className="muted" style={{ fontSize: 13 }}>
+                          工作描述
+                        </span>
+                        <input
+                          className="titleInput"
+                          disabled={!formUnlocked}
+                          list="worklog-workitem-list"
+                          value={wl.label}
+                          onChange={(e) =>
+                            setDayDraft((d) => ({
+                              ...d,
+                              blocks: d.blocks.map((b, i) =>
+                                i !== bi
+                                  ? b
+                                  : {
+                                      ...b,
+                                      workLines: b.workLines.map((w, j) =>
+                                        j !== li ? w : { ...w, label: e.target.value },
+                                      ),
+                                    },
+                              ),
+                            }))
+                          }
+                          placeholder="從清單選或自填"
+                        />
+                      </label>
+                      <div className="worklogCustomItemRow" style={{ marginTop: 8 }}>
+                        <input
+                          type="text"
+                          className="titleInput"
+                          disabled={!formUnlocked}
+                          placeholder="新增自訂選項到清單"
+                          value={blockCustomWorkLine[customKey] ?? ''}
+                          onChange={(e) =>
+                            setBlockCustomWorkLine((m) => ({ ...m, [customKey]: e.target.value }))
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          disabled={!formUnlocked}
+                          onClick={() => addCustomWorkItemForBlock(bi, li)}
+                        >
+                          加入選項
+                        </button>
+                      </div>
+                      <div className="btnRow" style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          className="btn secondary ghost"
+                          disabled={!formUnlocked}
+                          onClick={() => removeWorkLine(bi, li)}
+                        >
+                          刪除此工作列
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="worklogDayInfoField">
+                <span className="worklogDayInfoLabel">使用儀器（本案場）</span>
+                <p className="hint muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>
+                  僅三種：全站儀、旋轉雷射、墨線儀。請填<strong>台數</strong>（0 或空白＝未使用）；有使用才填數量。
+                </p>
+                {(() => {
+                  const q = parseInstrumentQtyFromDraftStrings(
+                    block.instrumentTotalStation ?? '',
+                    block.instrumentRotatingLaser ?? '',
+                    block.instrumentLineLaser ?? '',
+                  )
+                  const showLegacy =
+                    (block.equipment ?? '').trim() && !instrumentQtyAnyPositive(q)
+                  return showLegacy ? (
+                    <p className="hint" style={{ marginBottom: 10 }}>
+                      舊資料（自由文字）：<strong>{block.equipment}</strong>
+                      — 請改填下方台數後儲存，以轉成新格式。
+                    </p>
+                  ) : null
+                })()}
+                <div className="worklogFormGrid" style={{ gap: 10 }}>
+                  {WORK_LOG_INSTRUMENT_OPTIONS.map(({ key, label }) => {
+                    const field =
+                      key === 'totalStation'
+                        ? 'instrumentTotalStation'
+                        : key === 'rotatingLaser'
+                          ? 'instrumentRotatingLaser'
+                          : 'instrumentLineLaser'
+                    const val =
+                      field === 'instrumentTotalStation'
+                        ? block.instrumentTotalStation ?? ''
+                        : field === 'instrumentRotatingLaser'
+                          ? block.instrumentRotatingLaser ?? ''
+                          : block.instrumentLineLaser ?? ''
+                    return (
+                      <label key={key} className="worklogFormLabel" style={{ margin: 0 }}>
+                        <span className="muted" style={{ fontSize: 13 }}>
+                          {label}（台）
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          step={1}
+                          className="titleInput"
+                          disabled={!formUnlocked}
+                          value={val}
+                          onChange={(e) =>
+                            setDayDraft((d) => ({
+                              ...d,
+                              blocks: d.blocks.map((b, i) =>
+                                i !== bi ? b : { ...b, [field]: e.target.value },
+                              ),
+                            }))
+                          }
+                          placeholder="0"
+                        />
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+              <label className="worklogFormLabel worklogDayInfoField" style={{ marginTop: 8 }}>
+                <span className="worklogDayInfoLabel">備註（本案場）</span>
+                <textarea
+                  className="worklogTextarea"
+                  disabled={!formUnlocked}
+                  value={block.remark}
+                  onChange={(e) =>
+                    setDayDraft((d) => ({
+                      ...d,
+                      blocks: d.blocks.map((b, i) =>
+                        i !== bi ? b : { ...b, remark: e.target.value },
+                      ),
+                    }))
+                  }
+                  rows={4}
+                  placeholder="現場狀況、待辦、交接…"
+                />
+              </label>
+            </div>
+          ))}
 
-          <div className="worklogFormGrid" style={{ marginTop: 4 }}>
-            <label className="worklogFormLabel">
-              <span className="worklogDayInfoLabel">
-                <span className="worklogDayInfoNum" aria-hidden>
-                  7
-                </span>
-                餐費（元）
+          {payrollSnapshotForWorkLogDay && payrollSnapshotForWorkLogDay.advances.length > 0 ? (
+            <div className="worklogPayrollAdvanceSection">
+              <span className="worklogDayInfoLabel" style={{ marginBottom: 8 }}>
+                月表預支（本日明細）
               </span>
-              <input
-                type="number"
-                className="titleInput"
-                disabled={!formUnlocked}
-                value={draft.mealCost}
-                onChange={(e) => setDraft((d) => ({ ...d, mealCost: e.target.value }))}
-                placeholder="0"
-              />
-            </label>
-            <label className="worklogFormLabel">
-              <span className="worklogDayInfoLabel">
-                <span className="worklogDayInfoNum" aria-hidden>
-                  8
-                </span>
-                雜項支出（元）
-              </span>
-              <input
-                type="number"
-                className="titleInput"
-                disabled={!formUnlocked}
-                value={draft.miscCost}
-                onChange={(e) => setDraft((d) => ({ ...d, miscCost: e.target.value }))}
-                placeholder="0"
-              />
-            </label>
-          </div>
-
-          <label className="worklogFormLabel worklogDayInfoField" style={{ marginTop: 8 }}>
-            <span className="worklogDayInfoLabel">
-              <span className="worklogDayInfoNum" aria-hidden>
-                9
-              </span>
-              備註資訊（紀錄詳細內容）
-            </span>
-            <textarea
-              className="worklogTextarea"
-              disabled={!formUnlocked}
-              value={draft.remark}
-              onChange={(e) => setDraft((d) => ({ ...d, remark: e.target.value }))}
-              rows={5}
-              placeholder="現場狀況、待辦、交接…"
-            />
-          </label>
+              <p className="hint muted worklogPayrollAdvanceHint">
+                來自月表「{payrollSnapshotForWorkLogDay.sheetLabel}」當日預支欄（非案場出工）。若要修改金額請至「薪水」頁同一月表編輯。
+              </p>
+              <ul className="worklogPayrollAdvanceList">
+                {payrollSnapshotForWorkLogDay.advances.map((a) => (
+                  <li key={a.name}>
+                    <span className="worklogPayrollAdvanceName">{a.name}</span>
+                    <span className="muted"> — 預支 </span>
+                    <span className="worklogPayrollAdvanceAmount">
+                      {Number(a.value).toLocaleString('zh-TW')}
+                    </span>
+                    <span className="muted"> 元</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {ledgerRowForContext ? (
             <p className="hint worklogLedgerHint" style={{ marginTop: 10 }}>
@@ -892,27 +1200,30 @@ export function WorkLogPanel({
 
           <div className="btnRow" style={{ marginTop: 12 }}>
             <button type="button" className="btn" disabled={!formUnlocked} onClick={onSave}>
-              {isEditing ? '儲存變更' : '新增儲存'}
+              儲存當日日誌
             </button>
-            {isEditing ? (
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={() => resetDraftForDay(draft.logDate)}
-              >
-                取消編輯
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={!formUnlocked}
+              onClick={() => selectedYmd && resetDraftForDay(selectedYmd)}
+            >
+              還原未儲存
+            </button>
           </div>
-        </section>
-      ) : (
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {!selectedYmd ? (
         <section className="card worklogForm worklogDayInfoCard">
-          <p className="hint" style={{ margin: '0 0 8px' }}>
-            請先在月曆選擇日期；選日後可於此編輯日誌。
+          <p className="hint" style={{ margin: 0 }}>
+            請在月曆選擇日期。
           </p>
         </section>
-      )}
-
+      ) : null}
     </div>
   )
 }

@@ -12,9 +12,15 @@ import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
   mergedWorkItemOptions,
-  newWorkLogEntry,
+  formatInstrumentQty,
+  instrumentQtyAnyPositive,
+  parseInstrumentQtyFromDraftStrings,
   type WorkLogState,
 } from '../domain/workLogModel'
+import {
+  reconcileDayDocumentWithPayrollBook,
+  type QuickApplyTextOverlay,
+} from '../domain/workLogPayrollLink'
 
 type Props = {
   staffPickerKeys: readonly string[]
@@ -108,7 +114,9 @@ export function FieldworkQuickSection({
   const [timeStart, setTimeStart] = useState(DEFAULT_WORK_START)
   const [timeEnd, setTimeEnd] = useState(DEFAULT_WORK_END)
   const [workItem, setWorkItem] = useState('')
-  const [equipment, setEquipment] = useState('')
+  const [instrumentTotalStation, setInstrumentTotalStation] = useState('')
+  const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
+  const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
   const [remarkQuick, setRemarkQuick] = useState('')
   const [mealAmount, setMealAmount] = useState('')
   const [miscLedger, setMiscLedger] = useState('')
@@ -185,39 +193,40 @@ export function FieldworkQuickSection({
     if (remarkQuick.trim()) remarkParts.push(remarkQuick.trim())
 
     const wi = workItem.trim()
+    const iq = parseInstrumentQtyFromDraftStrings(
+      instrumentTotalStation,
+      instrumentRotatingLaser,
+      instrumentLineLaser,
+    )
+    const equipStr = instrumentQtyAnyPositive(iq) ? formatInstrumentQty(iq) : ''
+    const quickOverlay: QuickApplyTextOverlay = {
+      siteName: site.trim(),
+      workItem: wi,
+      equipment: equipStr,
+      remark: remarkParts.join('\n'),
+      miscCost: miscN,
+      timeStart: padHhmm(timeStart, DEFAULT_WORK_START),
+      timeEnd: padHhmm(timeEnd, DEFAULT_WORK_END),
+    }
+
     setWorkLog((w) => {
       let custom = [...(w.customWorkItemLabels ?? [])]
       const opts = mergedWorkItemOptions(quoteRows, custom)
       if (wi && !opts.includes(wi)) {
         custom = [...custom, wi].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
       }
-      const entry = newWorkLogEntry({
-        logDate: iso,
-        siteName: site.trim(),
-        staffNames: workers,
-        timeStart: padHhmm(timeStart, DEFAULT_WORK_START),
-        timeEnd: padHhmm(timeEnd, DEFAULT_WORK_END),
-        workItem: wi,
-        equipment: equipment.trim(),
-        mealCost: num(mealAmount),
-        miscCost: miscN,
-        remark: remarkParts.join('\n'),
-      })
-      return {
-        ...w,
-        customWorkItemLabels: custom,
-        entries: [...w.entries, entry],
-      }
+      const w1 = { ...w, customWorkItemLabels: custom }
+      return reconcileDayDocumentWithPayrollBook(w1, iso, r.book, staffPickerKeys, quickOverlay)
     })
 
-    alert(`${r.message}\n已同步寫入「工作日誌」一筆（${iso}）。`)
+    alert(`${r.message}\n已依月表同步「整日工作日誌」（${iso}）；案場／人員以月表為準，表單內容已併入本次登記。`)
   }
 
   return (
     <section className="card">
       <h3>快速登記（出工＋公司帳＋工作日誌）</h3>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並新增一則<strong>工作日誌</strong>。地點選「調工支援」或「蔡董調工」與月表調工列連動。工作內容選項與「放樣估價」細項及日誌自訂清單合併。
+        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容與備註等會併入本次登記）。
       </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -301,7 +310,7 @@ export function FieldworkQuickSection({
         </label>
       </div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
-        <span>工作內容（估價細項／可自填；新字會加入日誌自訂選項）</span>
+        <span>工作內容（可自填；選項含放樣估價「細項」字串；新字會加入日誌自訂選項）</span>
         <input
           type="text"
           value={workItem}
@@ -315,15 +324,50 @@ export function FieldworkQuickSection({
           ))}
         </datalist>
       </label>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
-        <span>使用儀器</span>
-        <input
-          type="text"
-          value={equipment}
-          onChange={(e) => setEquipment(e.target.value)}
-          placeholder="例如：全站、墨線儀…"
-        />
-      </label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+        <span>使用儀器（全站儀／旋轉雷射／墨線儀；填台數，0 或空白＝未使用）</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
+            <span>全站儀（台）</span>
+            <input
+              type="number"
+              min={0}
+              max={999}
+              step={1}
+              className="narrow"
+              value={instrumentTotalStation}
+              onChange={(e) => setInstrumentTotalStation(e.target.value)}
+              placeholder="0"
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
+            <span>旋轉雷射（台）</span>
+            <input
+              type="number"
+              min={0}
+              max={999}
+              step={1}
+              className="narrow"
+              value={instrumentRotatingLaser}
+              onChange={(e) => setInstrumentRotatingLaser(e.target.value)}
+              placeholder="0"
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
+            <span>墨線儀（台）</span>
+            <input
+              type="number"
+              min={0}
+              max={999}
+              step={1}
+              className="narrow"
+              value={instrumentLineLaser}
+              onChange={(e) => setInstrumentLineLaser(e.target.value)}
+              placeholder="0"
+            />
+          </label>
+        </div>
+      </div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
         <span>備註（寫入日誌；可補現場說明）</span>
         <textarea
