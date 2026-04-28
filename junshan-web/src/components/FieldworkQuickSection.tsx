@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FocusEvent } from 'react'
 import {
   applyFieldworkQuick,
   QUICK_SITE_JUN_ADJUST,
@@ -27,6 +27,12 @@ function todayIso(): string {
 function num(v: string): number {
   const n = parseFloat(v)
   return Number.isFinite(n) ? n : 0
+}
+
+/** 受控字串數字欄若目前顯示為單一 0，進焦點即清空（與 PayrollNumberInput 一致） */
+function clearSingleZeroOnFocus(e: FocusEvent<HTMLInputElement>, set: (s: string) => void) {
+  const v = e.target.value.trim()
+  if (v === '0' || v === '-0') set('')
 }
 
 /** 臨時人員：換行、逗號／頓號／分號／斜線／空白等皆可分隔多人 */
@@ -168,6 +174,7 @@ export function FieldworkQuickSection({
             min={0}
             className="narrow"
             value={dayVal}
+            onFocus={(e) => clearSingleZeroOnFocus(e, setDayVal)}
             onChange={(e) => setDayVal(e.target.value)}
           />
         </label>
@@ -210,6 +217,7 @@ export function FieldworkQuickSection({
               type="number"
               className="narrow"
               value={mealAmount}
+              onFocus={(e) => clearSingleZeroOnFocus(e, setMealAmount)}
               onChange={(e) => setMealAmount(e.target.value)}
               placeholder="0"
             />
@@ -250,6 +258,7 @@ export function FieldworkQuickSection({
                 min={0}
                 className="narrow"
                 value={otHoursPerPerson}
+                onFocus={(e) => clearSingleZeroOnFocus(e, setOtHoursPerPerson)}
                 onChange={(e) => setOtHoursPerPerson(e.target.value)}
                 placeholder="例：2，0 則改用手動"
               />
@@ -260,6 +269,7 @@ export function FieldworkQuickSection({
                 type="number"
                 className="narrow"
                 value={otManualAmount}
+                onFocus={(e) => clearSingleZeroOnFocus(e, setOtManualAmount)}
                 onChange={(e) => setOtManualAmount(e.target.value)}
                 placeholder="0"
               />

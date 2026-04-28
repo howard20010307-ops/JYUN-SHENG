@@ -5,7 +5,7 @@ import { LedgerPanel } from './components/LedgerPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import type { SalaryBook } from './domain/salaryExcelModel'
 import type { AppState, Tab } from './domain/appState'
-import { initialAppState, migrateAppState } from './domain/appState'
+import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { useJsonBinSync } from './hooks/useJsonBinSync'
@@ -185,8 +185,9 @@ export default function App() {
             site={state.site}
             setSite={(site) => patch({ site })}
             rows={state.quoteRows}
-            setRows={(quoteRows) => patch({ quoteRows })}
-            jobSites={quoteJobSites}
+            setRows={(quoteRows) =>
+              patch({ quoteRows, quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION })
+            }
           />
         )}
         {state.tab === 'ledger' && (

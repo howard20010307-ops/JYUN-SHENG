@@ -15,7 +15,8 @@ type Props = {
 }
 
 /**
- * 薪水表用數字輸入：焦點內以字串編輯（可暫時出現「00」「0300」等），移開焦點才寫回數字。
+ * 全站數字輸入（薪水格線、公司帳等）：焦點內以字串編輯，移開焦點才寫回數字。
+ * 若目前值為 0，一進入焦點即清空，不必先刪 0。
  * 避免 `type="number"` + 受控 value 在刪字時被 parse 吃掉、無法刪除前導 0 的問題。
  */
 export function PayrollNumberInput({
@@ -29,7 +30,7 @@ export function PayrollNumberInput({
   const display = draft !== null ? draft : stringifyNumber(value)
 
   const onFocus = useCallback(() => {
-    setDraft(stringifyNumber(value))
+    setDraft(value === 0 ? '' : stringifyNumber(value))
   }, [value])
 
   const flush = useCallback(

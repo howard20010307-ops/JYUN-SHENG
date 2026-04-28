@@ -1,6 +1,6 @@
 /**
- * 與手邊《鈞泩估價表》Excel 左兩欄（A 樓層／階段、B 細項）用字對齊：
- * 全形標點、空白與區段名集中於此，勿在多處複製貼上。
+ * 與《估價表》左兩欄（A 樓層／階段、B 細項）用字對齊：
+ * 基礎／地下室／地上段細項依業務定義完整列出；每層×每細項獨立一列供填寫。
  */
 
 /** A 欄表頭（Excel 常為全形斜線） */
@@ -25,49 +25,67 @@ export const EXCEL_STAGE = {
 /** 基礎工程 B 欄 14 行（列序＝表內由上而下） */
 export const EXCEL_FOUNDATION_ITEMS: readonly string[] = [
   '點位收測',
-  'GL+100 高程放樣',
+  'GL+100高程放樣',
   '連續壁或鋼板樁位置放樣',
-  '挖改樁放樣',
+  '地改樁放樣',
   '中間樁放樣',
   '開挖深度高程放樣',
   '機械停車位位置放樣',
-  'PC 高程放樣',
+  'PC高程放樣',
   '基礎放樣',
-  'BASE，地梁及水箱蓋湧築完成面高程放樣',
-  '點位位置放樣',
-  '水箱蓋上預留筋放樣（第一次）',
-  '二層筋上預留筋放樣（第二次）',
-  '地梁、承台與圖面位置覆測（必要時）',
+  'BASE,地梁及水箱蓋灌漿完成面高度放樣',
+  '地梁位置放樣',
+  '水箱蓋上預留筋放樣(第一次)',
+  '二層筋上預留筋放樣(第二次)',
+  '標高器放置',
 ]
 
-/** 地下室區（除 B1／B1F）B 欄 8 行 */
+/**
+ * 地下室 B2、B3… 及 B1F 同一套 8 行（B1 與非 B1 之細項名稱相同，欄 C 各層獨立展開批次）
+ */
 export const EXCEL_BASEMENT_ITEMS: readonly string[] = [
-  '模板放樣',
-  'FL+100 高程放樣',
+  '樓板放樣',
+  'FL+100高度放樣',
   '樓梯放樣',
   '車道放樣',
-  '樓板上預留筋放樣（第一次）',
-  '二層筋上預留筋放樣（第二次）',
+  '模板上預留筋放樣(第一次)',
+  '二層筋上預留筋放樣(第二次)',
   '標高器放置',
-  '門窗FL+100 高程放樣',
+  '門窗FL+100高程放樣',
 ]
 
-/** 地上標準套組（夾層／正常樓／RF）B 欄 10 行 */
+/**
+ * 1F、夾層、正常樓、RF 同一套 10 行（與地下室 8 行不同：含外露樑、隔間、室內外門窗高程、柱心線等）
+ */
 export const EXCEL_ABOVE_STANDARD_ITEMS: readonly string[] = [
   '樓板放樣',
   'FL+100高度放樣',
-  '轉軸放樣',
+  '樓梯放樣',
   '外露樑位置及造型放樣',
-  '模板上預留筋放樣（第一次）',
-  '二層筋上預留筋放樣（第二次）',
+  '模板上預留筋放樣(第一次)',
+  '二層筋上預留筋放樣(第二次)',
   '標高器放置',
   '隔間放樣',
   '門窗及室外FL+100高程放樣',
   '柱心線放樣',
 ]
 
-/** 1F 專用 B 欄 2 行 */
-export const EXCEL_FIRST_FLOOR_ITEMS: readonly string[] = [
-  '門窗及室外FL+100高程放樣',
-  '柱心線放樣',
-]
+/**
+ * 「每項工程細項計價」表列序：基礎 → 地下室細項 → 地上段細項，同名細項只出現一次（加總仍含各區）。
+ */
+export function canonicalQuoteItemOrder(): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const list of [
+    EXCEL_FOUNDATION_ITEMS,
+    EXCEL_BASEMENT_ITEMS,
+    EXCEL_ABOVE_STANDARD_ITEMS,
+  ]) {
+    for (const item of list) {
+      if (seen.has(item)) continue
+      seen.add(item)
+      out.push(item)
+    }
+  }
+  return out
+}

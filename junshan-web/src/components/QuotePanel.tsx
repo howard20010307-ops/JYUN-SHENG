@@ -1,38 +1,179 @@
-import { useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   buildQuoteRowsFromLayout,
+  computeFloorPricingTable,
+  computeItemPricingTable,
   computeQuote,
   defaultQuoteRows,
+  exampleQuoteLayout,
   exampleSite,
+  mergeQuoteRowsPreservingValues,
   m2ToPing,
-  TEMPLATE,
+  syncFloorsWithLayout,
   type QuoteRow,
   type QuoteSite,
 } from '../domain/quoteEngine'
+import { EXCEL_STAGE } from '../domain/quoteExcelCanonical'
 import { QUOTE_TABLE_COLUMNS } from '../domain/quoteExcelColumns'
-type JobPick = { id: string; name: string }
+import {
+  floorPricingFloorLabelBreakdown,
+  floorPricingModuleBreakdown,
+  floorPricingNumericBreakdown,
+  itemPricingBreakdown,
+} from '../domain/quotePricingTooltipBreakdown'
+import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 
 type Props = {
   site: QuoteSite
   setSite: (s: QuoteSite) => void
   rows: QuoteRow[]
   setRows: (r: QuoteRow[]) => void
-  jobSites: JobPick[]
 }
 
-function num(v: string): number {
-  const n = parseFloat(v)
-  return Number.isFinite(n) ? n : 0
+/** 受控 number 清空會立刻被寫回 0；改為文字輸入，輸入中可空，blur 再定稿 */
+function useLooseNumericDrafts() {
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+
+  function bindDecimal(key: string, value: number, commit: (n: number) => void, className?: string) {
+    return {
+      type: 'text' as const,
+      inputMode: 'decimal' as const,
+      className,
+      value: drafts[key] !== undefined ? drafts[key]! : String(value),
+      onFocus() {
+        setDrafts((d) => {
+          if (d[key] !== undefined) return d
+          if (value !== 0) return d
+          return { ...d, [key]: '' }
+        })
+      },
+      onChange(e: React.ChangeEvent<HTMLInputElement>) {
+        const v = e.target.value
+        setDrafts((d) => ({ ...d, [key]: v }))
+        if (v === '' || v === '-' || v === '.' || v === '-.') return
+        const n = parseFloat(v)
+        if (Number.isFinite(n)) commit(n)
+      },
+      onBlur() {
+        setDrafts((d) => {
+          const raw = d[key]
+          const n = raw === undefined || raw === '' || raw === '-' ? 0 : parseFloat(raw)
+          commit(Number.isFinite(n) ? n : 0)
+          const next = { ...d }
+          delete next[key]
+          return next
+        })
+      },
+    }
+  }
+
+  function bindInt(key: string, value: number, commit: (n: number) => void, min: number, max: number) {
+    return {
+      type: 'text' as const,
+      inputMode: 'numeric' as const,
+      value: drafts[key] !== undefined ? drafts[key]! : String(value),
+      onFocus() {
+        setDrafts((d) => {
+          if (d[key] !== undefined) return d
+          if (value !== 0) return d
+          return { ...d, [key]: '' }
+        })
+      },
+      onChange(e: React.ChangeEvent<HTMLInputElement>) {
+        const v = e.target.value.replace(/\D/g, '')
+        setDrafts((d) => ({ ...d, [key]: v }))
+        if (v === '') return
+        let n = parseInt(v, 10)
+        if (!Number.isFinite(n)) return
+        n = Math.max(min, Math.min(max, n))
+        commit(n)
+      },
+      onBlur() {
+        setDrafts((d) => {
+          const raw = d[key]
+          let n = raw === '' || raw === undefined ? 0 : parseInt(raw, 10)
+          if (!Number.isFinite(n)) n = 0
+          n = Math.max(min, Math.min(max, n))
+          commit(n)
+          const next = { ...d }
+          delete next[key]
+          return next
+        })
+      },
+    }
+  }
+
+  return { bindDecimal, bindInt }
 }
 
-function intNonNeg(v: string, max: number): number {
-  const n = parseInt(v, 10)
-  if (!Number.isFinite(n) || n < 0) return 0
-  return Math.min(max, n)
+const QUOTE_DATA_COLS = QUOTE_TABLE_COLUMNS.length + 1
+
+/**
+ * 手動列（id 為 r＋數字）才顯示 A 欄編輯器。
+ * 若與上一列同區（工程模組），不顯示 A 欄——區名已由分組標題呈現，細項從屬該模組。
+ */
+function showQuoteStageCellEditor(
+  r: QuoteRow,
+  rowIndex: number,
+  allRows: readonly QuoteRow[],
+): boolean {
+  if (!/^r\d+$/.test(r.id)) return false
+  if (rowIndex > 0 && allRows[rowIndex - 1]?.zone === r.zone) return false
+  return true
 }
 
-export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
+function uniqueZonesInOrder(rows: readonly QuoteRow[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of rows) {
+    if (seen.has(r.zone)) continue
+    seen.add(r.zone)
+    out.push(r.zone)
+  }
+  return out
+}
+
+function lastIndexForZone(rows: readonly QuoteRow[], zone: string): number {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i]!.zone === zone) return i
+  }
+  return -1
+}
+
+export function QuotePanel({ site, setSite, rows, setRows }: Props) {
+  const { bindDecimal, bindInt } = useLooseNumericDrafts()
   const result = useMemo(() => computeQuote(site, rows), [site, rows])
+  const floorPricingRows = useMemo(() => computeFloorPricingTable(site, rows), [site, rows])
+  const itemPricingRows = useMemo(() => computeItemPricingTable(site, rows), [site, rows])
+  const zoneOptions = useMemo(() => uniqueZonesInOrder(rows), [rows])
+
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [quickAddZone, setQuickAddZone] = useState('')
+  const [quickItemName, setQuickItemName] = useState('新細項')
+
+  const [addModuleOpen, setAddModuleOpen] = useState(false)
+  const [newModuleNameDraft, setNewModuleNameDraft] = useState('')
+
+  const [renameZoneOpen, setRenameZoneOpen] = useState<string | null>(null)
+  const [renameZoneDraft, setRenameZoneDraft] = useState('')
+
+  /** 放樣估價內工作表（對齊薪水「月表」分頁用法） */
+  const [quoteSheet, setQuoteSheet] = useState<
+    'setup' | 'cost' | 'floorPricing' | 'itemPricing' | 'summary'
+  >('setup')
+
+  useEffect(() => {
+    if (!quickAddOpen && !addModuleOpen && renameZoneOpen === null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setQuickAddOpen(false)
+        setAddModuleOpen(false)
+        setRenameZoneOpen(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [quickAddOpen, addModuleOpen, renameZoneOpen])
 
   function updateFee<K extends keyof QuoteSite['fees']>(k: K, v: number) {
     setSite({
@@ -61,22 +202,97 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
     setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   }
 
-  function addRow() {
+  const newManualRowBase = {
+    sameFloors: 1,
+    basePerFloor: 2,
+    riskPct: 30,
+    useTotalStation: false,
+    useRotatingLaser: false,
+    useLineLaser: false,
+    miscPerFloor: 100,
+  } as const
+
+  /** 新增一個自訂工程模組：表尾一列、新區名，可再於其下用「快速新增」加細項 */
+  function addEngineeringModule(zoneName: string) {
+    const zone = zoneName.trim() || '新工程模組'
     setRows([
       ...rows,
       {
         id: `r${Date.now()}`,
-        zone: '新區域',
+        zone,
         item: '新細項',
-        sameFloors: 1,
-        basePerFloor: 2,
-        riskPct: 30,
-        useTotalStation: false,
-        useRotatingLaser: false,
-        useLineLaser: false,
-        miscPerFloor: 100,
+        ...newManualRowBase,
       },
     ])
+  }
+
+  /** 在該列下方插入同區手動列；item 可選 */
+  function addSubItemAfter(i: number, item: string = '新細項') {
+    const base = rows[i]
+    if (!base) return
+    const label = item.trim() || '新細項'
+    const newRow: QuoteRow = {
+      id: `r${Date.now()}`,
+      zone: base.zone,
+      item: label,
+      sameFloors: base.sameFloors,
+      basePerFloor: base.basePerFloor,
+      riskPct: base.riskPct,
+      useTotalStation: base.useTotalStation,
+      useRotatingLaser: base.useRotatingLaser,
+      useLineLaser: base.useLineLaser,
+      miscPerFloor: base.miscPerFloor,
+    }
+    setRows([...rows.slice(0, i + 1), newRow, ...rows.slice(i + 1)])
+  }
+
+  function addSubItemUnderZone(zone: string, item: string) {
+    const i = lastIndexForZone(rows, zone)
+    if (i < 0) return
+    addSubItemAfter(i, item)
+  }
+
+  function openQuickAdd() {
+    if (zoneOptions.length === 0) return
+    setQuickAddZone(zoneOptions[0]!)
+    setQuickItemName('新細項')
+    setQuickAddOpen(true)
+  }
+
+  function submitQuickAdd() {
+    const z = quickAddZone.trim()
+    if (!z) return
+    addSubItemUnderZone(z, quickItemName)
+    setQuickAddOpen(false)
+  }
+
+  function openAddModule() {
+    setNewModuleNameDraft('')
+    setAddModuleOpen(true)
+  }
+
+  function submitAddModule() {
+    const name = newModuleNameDraft.trim() || '新工程模組'
+    addEngineeringModule(name)
+    setAddModuleOpen(false)
+  }
+
+  /** 將目前表內該工程模組名稱一次改為新名稱（同區所有列） */
+  function renameModuleEverywhere(from: string, to: string) {
+    const next = to.trim()
+    if (!next || next === from) return
+    setRows(rows.map((row) => (row.zone === from ? { ...row, zone: next } : row)))
+  }
+
+  function openRenameZone(from: string) {
+    setRenameZoneOpen(from)
+    setRenameZoneDraft(from)
+  }
+
+  function submitRenameZone() {
+    if (renameZoneOpen === null) return
+    renameModuleEverywhere(renameZoneOpen, renameZoneDraft)
+    setRenameZoneOpen(null)
   }
 
   function removeRow(i: number) {
@@ -97,25 +313,35 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
       rfCount: number
     }>,
   ) {
-    setSite({ ...site, layout: { ...site.layout, ...p } })
+    const nextLayout = { ...site.layout, ...p }
+    setSite({
+      ...site,
+      layout: nextLayout,
+      floors: syncFloorsWithLayout(site.floors, nextLayout),
+    })
+    setRows(mergeQuoteRowsPreservingValues(rows, nextLayout))
   }
 
-  const typicalRangeHint = useMemo(() => {
-    const c = site.layout.typicalFloors
-    const s = site.layout.typicalStartFloor
-    if (c <= 0) return '標準層數為 0 時不產生「正常樓」區塊'
-    const end = s + c - 1
-    return `約 ${s}F～${end}F；『正常樓』區塊各列「相同樓層數」(欄 C)＝${c}`
-  }, [site.layout.typicalFloors, site.layout.typicalStartFloor])
+  function applyExcelSampleFloors() {
+    const nextLayout = exampleQuoteLayout()
+    setSite({
+      ...site,
+      layout: nextLayout,
+      floors: syncFloorsWithLayout(site.floors, nextLayout),
+    })
+    setRows(mergeQuoteRowsPreservingValues(rows, nextLayout))
+  }
 
   function applyLayoutToRows() {
     if (
       !window.confirm(
-        '將依「專案樓層」重建成本估算列（區塊／欄 C 與試算表同一套）。目前表格會被覆寫。確定嗎？',
+        '將依「專案樓層」重建成本估算列（區塊／欄 C 與《估價表》同一套）。目前表格會被覆寫。確定嗎？',
       )
     ) {
       return
     }
+    const nextFloors = syncFloorsWithLayout(site.floors, site.layout)
+    setSite({ ...site, floors: nextFloors })
     setRows(buildQuoteRowsFromLayout(site.layout))
   }
 
@@ -124,39 +350,93 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
       <div className="panelHead">
         <h2>放樣估價</h2>
         <button type="button" className="btn secondary" onClick={loadTemplate}>
-          載入範例（對齊試算表結構）
+          載入範例（估價結構）
         </button>
       </div>
       <p className="hint" style={{ marginTop: -4, marginBottom: 8 }}>
-        單次估價＝一個新案場。請先定<strong>專案樓層</strong>，再依固定工項產生成本表；可再微調欄內單層工數、儀器、雜項。樓層面積表與下表可捲動、表頭與首欄凍結便於對照《估價表》。
+        {quoteSheet === 'setup' ? (
+          <>
+            變更<strong>專案樓層</strong>會同步<strong>樓層面積</strong>列（同名保留 ㎡）並更新「成本估算列」工作表之結構與欄 C；已填的單層工數／儀器／雜項等會盡量保留。手動「依專案樓層產生」為整表重算範本預設。
+          </>
+        ) : (
+          <>
+            請用上方工作表切換「案場與樓層」「成本估算列」「每層計價工數」「每項工程細項計價」「總結」。
+          </>
+        )}
       </p>
 
+      <div className="btnRow" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'setup'}
+          className={`tab ${quoteSheet === 'setup' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('setup')}
+        >
+          案場與樓層
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'cost'}
+          className={`tab ${quoteSheet === 'cost' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('cost')}
+        >
+          成本估算列
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'floorPricing'}
+          className={`tab ${quoteSheet === 'floorPricing' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('floorPricing')}
+        >
+          每層計價工數
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'itemPricing'}
+          className={`tab ${quoteSheet === 'itemPricing' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('itemPricing')}
+        >
+          每項工程細項計價
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'summary'}
+          className={`tab ${quoteSheet === 'summary' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('summary')}
+        >
+          總結
+        </button>
+      </div>
+
+      {quoteSheet === 'setup' && (
+        <>
       <section className="card">
         <div className="panelHead">
           <h3>專案樓層</h3>
-          <button type="button" className="btn" onClick={applyLayoutToRows}>
-            依專案樓層產生（覆寫）估價列
-          </button>
+          <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <button type="button" className="btn secondary" onClick={applyExcelSampleFloors}>
+              套用試算表樓層範例
+            </button>
+            <button type="button" className="btn" onClick={applyLayoutToRows}>
+              依專案樓層產生（覆寫）估價列
+            </button>
+          </div>
         </div>
-        <p className="hint">
-          與 Excel《估價表》左區相同順序：<strong>基礎工程</strong> {TEMPLATE.foundation.length} 項 →{' '}
-          <strong>地下室(除B1F以外)</strong>（欄 C＝地下層數−1）→ <strong>B1F</strong> →{' '}
-          <strong>1F</strong>（{TEMPLATE.firstFloor.length} 細項）→ <strong>夾層／正常樓／RF</strong>
-          （標準層與 RF 各 {TEMPLATE.above.length} 細項；『正常樓』整區共用同一「相同樓層數」）。
-        </p>
         <div className="grid2" style={{ marginBottom: 12 }}>
           <label>
             地下幾層
             <input
-              type="number"
-              min={0}
-              max={30}
-              value={site.layout.basementFloors}
-              onChange={(e) =>
-                patchLayout({ basementFloors: intNonNeg(e.target.value, 30) })
-              }
+              {...bindInt('lay-basement', site.layout.basementFloors, (n) =>
+                patchLayout({ basementFloors: n }),
+                0,
+                30,
+              )}
             />
-            <span className="subtleInLabel">0＝無；1＝僅 B1；2＝B1+B2… 非 B1 各層各展開一批 8 項</span>
           </label>
           <div className="checkPair">
             <label className="rowCheck">
@@ -173,80 +453,45 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
           <label>
             正常樓自第幾層起
             <input
-              type="number"
-              min={2}
-              max={99}
-              value={site.layout.typicalStartFloor}
-              onChange={(e) =>
-                patchLayout({
-                  typicalStartFloor: Math.max(
-                    2,
-                    Math.min(99, intNonNeg(e.target.value, 99)),
-                  ),
-                })
-              }
+              {...bindInt('lay-typicalStart', site.layout.typicalStartFloor, (n) =>
+                patchLayout({ typicalStartFloor: n }),
+                2,
+                99,
+              )}
             />
-            <span className="subtleInLabel">2＝自 2F 起；3＝自 3F 起（1F 已單獨列出）</span>
           </label>
           <label>
             正常樓連續幾層
             <input
-              type="number"
-              min={0}
-              value={site.layout.typicalFloors}
-              onChange={(e) =>
-                patchLayout({ typicalFloors: intNonNeg(e.target.value, 200) })
-              }
+              {...bindInt('lay-typicalCount', site.layout.typicalFloors, (n) =>
+                patchLayout({ typicalFloors: n }),
+                0,
+                200,
+              )}
             />
-            <span className="subtleInLabel">{typicalRangeHint}</span>
           </label>
         </div>
         <div className="grid2">
           <label>
             RF 層數
             <input
-              type="number"
-              min={0}
-              value={site.layout.rfCount}
-              onChange={(e) =>
-                patchLayout({ rfCount: intNonNeg(e.target.value, 50) })
-              }
+              {...bindInt('lay-rf', site.layout.rfCount, (n) => patchLayout({ rfCount: n }), 0, 50)}
             />
-            <span className="subtleInLabel">『RF』區塊各列欄 C＝此數（整區相同）</span>
           </label>
           <div />
         </div>
       </section>
 
       <section className="card">
-        <h3>案場與費率</h3>
+        <h3>案名與費率</h3>
         <div className="grid2">
           <label>
             案名
-            <div className="inlinePair">
-              <select
-                className="sitePick"
-                aria-label="從案場帶入案名"
-                value={jobSites.find((j) => j.name === site.name)?.id ?? ''}
-                onChange={(e) => {
-                  const id = e.target.value
-                  const j = jobSites.find((x) => x.id === id)
-                  setSite({ ...site, name: j?.name ?? '' })
-                }}
-              >
-                <option value="">（手動輸入或選已建案場）</option>
-                {jobSites.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={site.name}
-                onChange={(e) => setSite({ ...site, name: e.target.value })}
-                placeholder="與案場分頁名稱一致較好對帳"
-              />
-            </div>
+            <input
+              value={site.name}
+              onChange={(e) => setSite({ ...site, name: e.target.value })}
+              placeholder="新案估價請填本案名稱"
+            />
           </label>
           <div className="stat">
             <span>總坪數（由面積加總）</span>
@@ -265,11 +510,7 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
           ).map(([k, label]) => (
             <label key={k}>
               {label}
-              <input
-                type="number"
-                value={site.fees[k]}
-                onChange={(e) => updateFee(k, num(e.target.value))}
-              />
+              <input {...bindDecimal(`fee-${k}`, site.fees[k], (n) => updateFee(k, n))} />
             </label>
           ))}
         </div>
@@ -303,9 +544,7 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                   </td>
                   <td>
                     <input
-                      type="number"
-                      value={fl.m2}
-                      onChange={(e) => updateFloor(i, { m2: num(e.target.value) })}
+                      {...bindDecimal(`floor-m2-${i}`, fl.m2, (n) => updateFloor(i, { m2: n }))}
                     />
                   </td>
                   <td className="num">{m2ToPing(fl.m2).toFixed(4)}</td>
@@ -324,26 +563,45 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
           </table>
         </div>
       </section>
+        </>
+      )}
 
+      {quoteSheet === 'cost' && (
       <section className="card">
         <div className="panelHead">
           <h3>成本估算列</h3>
-          <button type="button" className="btn secondary" onClick={addRow}>
-            新增列
-          </button>
+          <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={rows.length === 0}
+              title={rows.length === 0 ? '請先產生估價列（專案樓層或下「新增工程模組」）' : '選擇工程模組與輸入細項名稱，插入該模組最末列之下'}
+              onClick={openQuickAdd}
+            >
+              快速新增
+            </button>
+            <button type="button" className="btn secondary" onClick={openAddModule}>
+              新增工程模組
+            </button>
+          </div>
         </div>
+        <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+          依工程模組分組；區段標題旁可「改名」（整個模組一併換名）。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄直向／橫向並<strong>鎖在左側</strong>，橫向捲動時仍可對照細項所屬工程模組（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
+        </p>
         <div className="tableScroll tableScrollSticky">
           <table className="data tight quoteCostTableExcel">
             <thead>
               <tr>
                 {QUOTE_TABLE_COLUMNS.map((col) => (
-                  <th key={col.key} scope="col" className="quoteExcelTH">
-                    <span className="excelLet">{col.letter}</span>
+                  <th
+                    key={col.key}
+                    scope="col"
+                    className={`quoteExcelTH quoteExcelTHLblOnly${col.key === 'item' ? ' quoteStickyItemCol' : ''}`}
+                  >
                     <span className="excelLbl">{col.label}</span>
                   </th>
                 ))}
-                <th scope="col" className="quoteExcelTH quoteExcelTHAct">
-                  <span className="excelLet">　</span>
+                <th scope="col" className="quoteExcelTH quoteExcelTHAct quoteExcelTHLblOnly">
                   <span className="excelLbl">操作</span>
                 </th>
               </tr>
@@ -351,20 +609,53 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
             <tbody>
               {result.computed.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="emptyTableMsg">
-                    尚無列。請於上方「專案樓層」設定後按「依專案樓層產生（覆寫）估價列」，或按「新增列」。
+                  <td colSpan={QUOTE_DATA_COLS} className="emptyTableMsg">
+                    尚無列。請至「案場與樓層」工作表設定專案樓層後按「依專案樓層產生（覆寫）估價列」，或在此按「新增工程模組」。
                   </td>
                 </tr>
               ) : null}
-              {result.computed.map((r, i) => (
-                <tr key={r.id}>
-                  <td>
-                    <input
-                      value={r.zone}
-                      onChange={(e) => updateRow(i, { zone: e.target.value })}
-                    />
+              {result.computed.map((r, i) => {
+                const prevZone = i > 0 ? result.computed[i - 1]!.zone : ''
+                const showZoneHead = r.zone !== prevZone
+                const showStageA = showQuoteStageCellEditor(r, i, rows)
+                return (
+                  <Fragment key={r.id}>
+                    {showZoneHead ? (
+                      <tr className="quoteZoneSep">
+                        <td colSpan={QUOTE_DATA_COLS}>
+                          <div className="quoteZoneSepInner">
+                            <span className="quoteZoneSepTitle">{r.zone}</span>
+                            <button
+                              type="button"
+                              className="btn secondary ghost quoteZoneRenameBtn"
+                              title="此模組底下所有列一併換區名"
+                              onClick={() => openRenameZone(r.zone)}
+                            >
+                              改名
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                    <tr
+                      className={
+                        r.zone === EXCEL_STAGE.f1 || r.zone === EXCEL_STAGE.typical
+                          ? 'quoteRowHilite'
+                          : undefined
+                      }
+                    >
+                  <td
+                    className={showStageA ? undefined : 'quoteStageBlank'}
+                    aria-label={r.zone}
+                  >
+                    {showStageA ? (
+                      <input
+                        value={r.zone}
+                        onChange={(e) => updateRow(i, { zone: e.target.value })}
+                      />
+                    ) : null}
                   </td>
-                  <td>
+                  <td className="quoteStickyItemCol">
                     <input
                       value={r.item}
                       onChange={(e) => updateRow(i, { item: e.target.value })}
@@ -372,33 +663,33 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                   </td>
                   <td>
                     <input
-                      type="number"
-                      className="narrow"
-                      value={r.sameFloors}
-                      onChange={(e) =>
-                        updateRow(i, { sameFloors: num(e.target.value) })
-                      }
+                      {...bindDecimal(
+                        `q-${r.id}-same`,
+                        r.sameFloors,
+                        (n) => updateRow(i, { sameFloors: n }),
+                        'narrow',
+                      )}
                     />
                   </td>
                   <td>
                     <input
-                      type="number"
-                      className="narrow"
-                      value={r.basePerFloor}
-                      onChange={(e) =>
-                        updateRow(i, { basePerFloor: num(e.target.value) })
-                      }
+                      {...bindDecimal(
+                        `q-${r.id}-base`,
+                        r.basePerFloor,
+                        (n) => updateRow(i, { basePerFloor: n }),
+                        'narrow',
+                      )}
                     />
                   </td>
                   <td className="num">{r.baseTotal.toFixed(2)}</td>
                   <td>
                     <input
-                      type="number"
-                      className="narrow"
-                      value={r.riskPct}
-                      onChange={(e) =>
-                        updateRow(i, { riskPct: num(e.target.value) })
-                      }
+                      {...bindDecimal(
+                        `q-${r.id}-risk`,
+                        r.riskPct,
+                        (n) => updateRow(i, { riskPct: n }),
+                        'narrow',
+                      )}
                     />
                   </td>
                   <td className="num">{r.pricingPerFloor.toFixed(2)}</td>
@@ -432,12 +723,12 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                   </td>
                   <td>
                     <input
-                      type="number"
-                      className="narrow"
-                      value={r.miscPerFloor}
-                      onChange={(e) =>
-                        updateRow(i, { miscPerFloor: num(e.target.value) })
-                      }
+                      {...bindDecimal(
+                        `q-${r.id}-misc`,
+                        r.miscPerFloor,
+                        (n) => updateRow(i, { miscPerFloor: n }),
+                        'narrow',
+                      )}
                     />
                   </td>
                   <td className="num">{Math.round(r.miscModule)}</td>
@@ -445,22 +736,262 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
                   <td className="num">{Math.round(r.instrumentModule)}</td>
                   <td className="num">{Math.round(r.floorStageQuote)}</td>
                   <td className="num">{Math.round(r.regionCost)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn danger ghost"
-                      onClick={() => removeRow(i)}
-                    >
-                      刪
-                    </button>
+                  <td className="quoteRowActCell">
+                    <div className="quoteRowActBtns">
+                      <button
+                        type="button"
+                        className="btn quoteRowActAdd"
+                        title="在此列下方新增同區細項（複製欄 C 與工數／儀器／雜項預設）"
+                        onClick={() => addSubItemAfter(i)}
+                      >
+                        ＋細項
+                      </button>
+                      <button
+                        type="button"
+                        className="btn danger ghost"
+                        title="刪除此列"
+                        onClick={() => removeRow(i)}
+                      >
+                        刪
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </section>
+      )}
 
+      {quoteSheet === 'floorPricing' && (
+        <section className="card">
+          <div className="panelHead">
+            <h3>每層計價工數</h3>
+          </div>
+          <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+            依「樓層面積」列順序；當樓層名稱可對應試算表階段時，將該模組之基礎總工數、計價工數、儀器／雜項及工序成本合計
+            <strong>平均攤</strong>至同模組各樓層；作圖成本為該層坪數×作圖費率。成本估算列若變更區名，請維持與試算表階段用字一致（如「正常樓」「B1F」）以利對應。表內<strong>樓層、套用模組</strong>兩欄橫向捲動時鎖在左側。
+          </p>
+          <div className="tableScroll tableScrollSticky">
+            <table className="data quoteFloorPricingTable">
+              <thead>
+                <tr>
+                  <th>樓層</th>
+                  <th>套用模組</th>
+                  <th className="num">基礎總工數</th>
+                  <th className="num">計價工數</th>
+                  <th className="num">該層坪數</th>
+                  <th className="num">該層儀器成本</th>
+                  <th className="num">該層雜項成本</th>
+                  <th className="num">作圖成本</th>
+                  <th className="num">該層成本(扣除作圖成本)</th>
+                  <th className="num">該層成本</th>
+                  <th className="num">每坪成本</th>
+                </tr>
+              </thead>
+              <tbody>
+                {floorPricingRows.map((row, idx) => {
+                  const floorM2 = site.floors[idx]?.m2 ?? 0
+                  return (
+                    <tr key={`${row.floorLabel}-${idx}`}>
+                      <PayrollSummaryPopoverCell
+                        cellContent={row.floorLabel}
+                        hintTitle={`樓層：${row.floorLabel}`}
+                        breakdownLines={floorPricingFloorLabelBreakdown(row, floorM2)}
+                        showValueFooter={false}
+                      />
+                      <PayrollSummaryPopoverCell
+                        cellContent={row.moduleLabel}
+                        hintTitle="套用模組"
+                        breakdownLines={floorPricingModuleBreakdown(row)}
+                        showValueFooter={false}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={row.baseTotal.toFixed(1)}
+                        summaryAmount={row.baseTotal}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'baseTotal',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={row.pricingTotal.toFixed(1)}
+                        summaryAmount={row.pricingTotal}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'pricingTotal',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={row.ping.toFixed(2)}
+                        summaryAmount={row.ping}
+                        breakdownLines={floorPricingNumericBreakdown('ping', row, site, floorM2)}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.instrumentCost).toLocaleString()}
+                        summaryAmount={row.instrumentCost}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'instrumentCost',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.miscCost).toLocaleString()}
+                        summaryAmount={row.miscCost}
+                        breakdownLines={floorPricingNumericBreakdown('miscCost', row, site, floorM2)}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.drawingCost).toLocaleString()}
+                        summaryAmount={row.drawingCost}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'drawingCost',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.costExDrawing).toLocaleString()}
+                        summaryAmount={row.costExDrawing}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'costExDrawing',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.costTotal).toLocaleString()}
+                        summaryAmount={row.costTotal}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'costTotal',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                      <PayrollSummaryPopoverCell
+                        className="num"
+                        cellContent={Math.round(row.costPerPing).toLocaleString()}
+                        summaryAmount={row.costPerPing}
+                        breakdownLines={floorPricingNumericBreakdown(
+                          'costPerPing',
+                          row,
+                          site,
+                          floorM2,
+                        )}
+                      />
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {quoteSheet === 'itemPricing' && (
+        <section className="card">
+          <div className="panelHead">
+            <h3>每項工程細項計價</h3>
+          </div>
+          <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+            依成本估算列之<strong>細項</strong>名稱加總「區域細項合計計價」與<strong>基礎總工數</strong>（E 欄）；同一細項跨多個工程模組時合併一列。「總工數」為該細項之基礎總工數合計；「計價(元)」為區域合計金額；「占總(%)」為占<strong>總成本（含作圖）</strong>之百分比。表列順序為試算表基礎→地下→地上細項，其餘自訂細項排在表末。<strong>細項</strong>欄橫向捲動時鎖在左側。
+          </p>
+          <div className="tableScroll tableScrollSticky">
+            <table className="data quoteItemPricingTable">
+              <thead>
+                <tr>
+                  <th scope="col" className="quoteStickyItemCol">
+                    細項
+                  </th>
+                  <th className="num">總工數</th>
+                  <th className="num">計價(元)</th>
+                  <th className="num">占總(%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemPricingRows.map((row) => (
+                  <tr key={row.item}>
+                    <PayrollSummaryPopoverCell
+                      className="quoteStickyItemCol"
+                      cellContent={row.item}
+                      hintTitle={`細項：${row.item}`}
+                      breakdownLines={itemPricingBreakdown(
+                        'itemLabel',
+                        row.item,
+                        row,
+                        rows,
+                        site,
+                        result.totalCost,
+                      )}
+                      showValueFooter={false}
+                    />
+                    <PayrollSummaryPopoverCell
+                      className="num"
+                      cellContent={row.totalBaseLabor.toFixed(2)}
+                      summaryAmount={row.totalBaseLabor}
+                      breakdownLines={itemPricingBreakdown(
+                        'base',
+                        row.item,
+                        row,
+                        rows,
+                        site,
+                        result.totalCost,
+                      )}
+                    />
+                    <PayrollSummaryPopoverCell
+                      className="num"
+                      cellContent={Math.round(row.cost).toLocaleString()}
+                      summaryAmount={row.cost}
+                      breakdownLines={itemPricingBreakdown(
+                        'cost',
+                        row.item,
+                        row,
+                        rows,
+                        site,
+                        result.totalCost,
+                      )}
+                    />
+                    <PayrollSummaryPopoverCell
+                      className="num"
+                      cellContent={row.pctOfTotal.toFixed(2)}
+                      summaryAmount={row.pctOfTotal}
+                      breakdownLines={itemPricingBreakdown(
+                        'pct',
+                        row.item,
+                        row,
+                        rows,
+                        site,
+                        result.totalCost,
+                      )}
+                    />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {quoteSheet === 'summary' && (
       <section className="card summary">
         <h3>總結</h3>
         <dl className="dl">
@@ -494,6 +1025,174 @@ export function QuotePanel({ site, setSite, rows, setRows, jobSites }: Props) {
           </div>
         </dl>
       </section>
+      )}
+
+      {quickAddOpen ? (
+        <div
+          className="quoteDialogOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quoteQuickAddTitle"
+          onClick={() => setQuickAddOpen(false)}
+        >
+          <div className="quoteDialogPanel" onClick={(e) => e.stopPropagation()}>
+            <h2 id="quoteQuickAddTitle" className="quoteDialogTitle">
+              快速新增細項
+            </h2>
+            <p className="quoteDialogDesc">
+              選擇要掛在哪個工程模組下，新列會接在該模組最末一列之後，並帶入該列的欄 C 與工數／儀器／雜項預設。
+            </p>
+            <form
+              className="quoteDialogForm"
+              onSubmit={(e) => {
+                e.preventDefault()
+                submitQuickAdd()
+              }}
+            >
+              <label>
+                工程模組
+                <select
+                  value={quickAddZone}
+                  onChange={(e) => setQuickAddZone(e.target.value)}
+                  className="quoteDialogField"
+                >
+                  {zoneOptions.map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                細項名稱
+                <input
+                  className="quoteDialogField"
+                  value={quickItemName}
+                  onChange={(e) => setQuickItemName(e.target.value)}
+                  placeholder="新細項"
+                  autoComplete="off"
+                />
+              </label>
+              <div className="quoteDialogActions">
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setQuickAddOpen(false)}
+                >
+                  取消
+                </button>
+                <button type="submit" className="btn">
+                  加入
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {addModuleOpen ? (
+        <div
+          className="quoteDialogOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quoteAddModuleTitle"
+          onClick={() => setAddModuleOpen(false)}
+        >
+          <div className="quoteDialogPanel" onClick={(e) => e.stopPropagation()}>
+            <h2 id="quoteAddModuleTitle" className="quoteDialogTitle">
+              新增工程模組
+            </h2>
+            <p className="quoteDialogDesc">
+              在表尾加入一筆自訂工程模組（可填專屬區名），內建一條「新細項」列，之後可再補欄 C 與工數，或用「快速新增」加同模組細項。
+            </p>
+            <form
+              className="quoteDialogForm"
+              onSubmit={(e) => {
+                e.preventDefault()
+                submitAddModule()
+              }}
+            >
+              <label>
+                工程模組名稱
+                <input
+                  className="quoteDialogField"
+                  value={newModuleNameDraft}
+                  onChange={(e) => setNewModuleNameDraft(e.target.value)}
+                  placeholder="留空則使用「新工程模組」"
+                  autoComplete="off"
+                />
+              </label>
+              <div className="quoteDialogActions">
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setAddModuleOpen(false)}
+                >
+                  取消
+                </button>
+                <button type="submit" className="btn">
+                  建立
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {renameZoneOpen !== null ? (
+        <div
+          className="quoteDialogOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quoteRenameZoneTitle"
+          onClick={() => setRenameZoneOpen(null)}
+        >
+          <div className="quoteDialogPanel" onClick={(e) => e.stopPropagation()}>
+            <h2 id="quoteRenameZoneTitle" className="quoteDialogTitle">
+              工程模組改名
+            </h2>
+            <p className="quoteDialogDesc">
+              將「{renameZoneOpen}」底下所有列的區名一併改為新名稱（細項與數值不變）。
+            </p>
+            <form
+              className="quoteDialogForm"
+              onSubmit={(e) => {
+                e.preventDefault()
+                submitRenameZone()
+              }}
+            >
+              <label>
+                新模組名稱
+                <input
+                  className="quoteDialogField"
+                  value={renameZoneDraft}
+                  onChange={(e) => setRenameZoneDraft(e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+              <div className="quoteDialogActions">
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => setRenameZoneOpen(null)}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="btn"
+                  disabled={
+                    renameZoneDraft.trim() === '' ||
+                    renameZoneDraft.trim() === renameZoneOpen
+                  }
+                >
+                  套用
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -5,15 +5,11 @@ import {
   runningCumulative,
   type MonthLine,
 } from '../domain/ledgerEngine'
+import { PayrollNumberInput } from './PayrollNumberInput'
 
 type Props = {
   months: MonthLine[]
   setMonths: (m: MonthLine[]) => void
-}
-
-function num(v: string): number {
-  const n = parseFloat(v)
-  return Number.isFinite(n) ? n : 0
 }
 
 export function LedgerPanel({ months, setMonths }: Props) {
@@ -56,77 +52,66 @@ export function LedgerPanel({ months, setMonths }: Props) {
               <tr key={r.month}>
                 <td>{r.month} 月</td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.salary}
-                    onChange={(e) => patch(i, { salary: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { salary: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.overtimePay}
-                    onChange={(e) =>
-                      patch(i, { overtimePay: num(e.target.value) })
-                    }
+                    onCommit={(nv) => patch(i, { overtimePay: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.meals}
-                    onChange={(e) => patch(i, { meals: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { meals: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.tools}
-                    onChange={(e) => patch(i, { tools: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { tools: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.bossSalary}
-                    onChange={(e) => patch(i, { bossSalary: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { bossSalary: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.instrument}
-                    onChange={(e) => patch(i, { instrument: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { instrument: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.risk}
-                    onChange={(e) => patch(i, { risk: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { risk: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.revenueNet}
-                    onChange={(e) => patch(i, { revenueNet: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { revenueNet: nv })}
                   />
                 </td>
                 <td>
-                  <input
-                    type="number"
+                  <PayrollNumberInput
                     className="narrow"
                     value={r.tax}
-                    onChange={(e) => patch(i, { tax: num(e.target.value) })}
+                    onCommit={(nv) => patch(i, { tax: nv })}
                   />
                 </td>
                 <td className="num">{Math.round(r.totalCost).toLocaleString()}</td>

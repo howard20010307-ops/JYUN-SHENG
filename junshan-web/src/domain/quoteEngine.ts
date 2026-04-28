@@ -1,5 +1,7 @@
 /** 放樣估價：對應《鈞泩估價表》成本估算列的計算邏輯 */
 
+import { canonicalQuoteItemOrder, EXCEL_STAGE } from './quoteExcelCanonical'
+
 export type SiteFees = {
   laborPerDay: number
   totalStationPerDay: number
@@ -96,6 +98,60 @@ export type QuoteSite = {
   layout: QuoteLayout
 }
 
+/** 依專案樓層產生樓層面積表列名順序：基礎 → B1…Bn → 1F → 夾層（有則）→ nF… → R… */
+export function floorNamesFromQuoteLayout(l: QuoteLayout): string[] {
+  const names: string[] = ['基礎工程']
+  if (l.basementFloors >= 1) {
+    for (let k = 1; k <= l.basementFloors; k++) {
+      names.push(`B${k}`)
+    }
+  }
+  names.push('1F')
+  if (l.hasMezzanine) {
+    names.push('夾層')
+  }
+  const start = l.typicalStartFloor
+  for (let i = 0; i < l.typicalFloors; i++) {
+    names.push(`${start + i}F`)
+  }
+  for (let r = 1; r <= l.rfCount; r++) {
+    names.push(`R${r}`)
+  }
+  return names
+}
+
+/**
+ * 是否為「與專案樓層連動」的固定列名格式；若已不在目前 {@link floorNamesFromQuoteLayout} 清單內，代表舊 layout 殘列應刪除（例如少掉一層地下後的 B2）。
+ */
+function isStructuredFloorLabel(name: string): boolean {
+  if (name === '基礎工程' || name === '1F' || name === '夾層') return true
+  if (/^B\d+$/.test(name)) return true
+  if (/^\d+F$/.test(name)) return true
+  if (/^R\d+$/.test(name)) return true
+  return false
+}
+
+/**
+ * 依 {@link QuoteLayout} 重排／增刪樓層面積列；同名樓層保留原 ㎡，其餘補 0。
+ * 表尾僅保留非上述固定格式的自訂列（例如「閣樓」）；曾存在但 layout 已刪除的 B2／9F 等不保留。
+ */
+export function syncFloorsWithLayout(
+  prevFloors: readonly FloorArea[],
+  layout: QuoteLayout,
+): FloorArea[] {
+  const canonical = floorNamesFromQuoteLayout(layout)
+  const byName = new Map(prevFloors.map((f) => [f.name, f.m2]))
+  const core = canonical.map((name) => ({
+    name,
+    m2: byName.has(name) ? (byName.get(name) as number) : 0,
+  }))
+  const canonSet = new Set(canonical)
+  const extras = prevFloors.filter(
+    (f) => !canonSet.has(f.name) && !isStructuredFloorLabel(f.name),
+  )
+  return [...core, ...extras]
+}
+
 function clampInt(v: unknown, min: number, max: number, fallback: number): number {
   if (typeof v === 'number' && Number.isFinite(v)) {
     return Math.max(min, Math.min(max, Math.trunc(v)))
@@ -107,14 +163,20 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return fallback
 }
 
-export function defaultQuoteLayout(): QuoteLayout {
+/** 與試算表常見範例一致：B1、夾層、2F 起 8 層、RF×3（無 B2 時不產生「地下室(除B1F以外)」區塊） */
+export function exampleQuoteLayout(): QuoteLayout {
   return {
-    basementFloors: 0,
-    hasMezzanine: false,
+    basementFloors: 1,
+    hasMezzanine: true,
     typicalStartFloor: 2,
-    typicalFloors: 0,
-    rfCount: 0,
+    typicalFloors: 8,
+    rfCount: 3,
   }
+}
+
+/** 新案場預設＝試算表範例樓層，以確保 B1F／夾層／正常樓／RF 等區塊會產生估價列 */
+export function defaultQuoteLayout(): QuoteLayout {
+  return exampleQuoteLayout()
 }
 
 export function normalizeQuoteLayout(raw: unknown): QuoteLayout {
@@ -153,7 +215,8 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
     lineLaserPerDay: feeN(o.lineLaserPerDay, d0.lineLaserPerDay),
     drawingPerPing: feeN(o.drawingPerPing, d0.drawingPerPing),
   }
-  const floors: FloorArea[] = Array.isArray(s.floors)
+  const layout = 'layout' in s ? normalizeQuoteLayout(s.layout) : init.layout
+  const floorsParsed: FloorArea[] = Array.isArray(s.floors)
     ? s.floors
         .map((f) => {
           if (!f || typeof f !== 'object') return null
@@ -165,11 +228,12 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
         })
         .filter((x): x is FloorArea => x !== null)
     : init.floors
+  const floors = syncFloorsWithLayout(floorsParsed, layout)
   return {
     name,
     floors,
     fees,
-    layout: 'layout' in s ? normalizeQuoteLayout(s.layout) : init.layout,
+    layout,
   }
 }
 
@@ -201,6 +265,216 @@ export function computeQuote(site: QuoteSite, rows: QuoteRow[]) {
   }
 }
 
+/**
+ * 樓層面積表一列對應成本估算之「套用模組」（與 {@link EXCEL_STAGE} 區名一致時才可加總攤提）。
+ * 同一模組多列樓層（如多層正常樓、多個 RF）時，該模組之工數／儀器／雜項／區域成本採**平均攤**至各列。
+ */
+/** 每層計價列之攤提脈絡（供 hover 明細） */
+export type FloorPricingShareMeta = {
+  /** 對應試算表階段／模組名；無法對應時為 null */
+  zone: string | null
+  /** 樓層面積表中同階段之列數（平均攤分母） */
+  moduleFloorRowCount: number
+  /** 成本估算同階段合計（攤前提）；該階段無資料時為 null */
+  agg: {
+    base: number
+    pricing: number
+    instr: number
+    misc: number
+    region: number
+  } | null
+}
+
+export type FloorPricingRow = {
+  floorLabel: string
+  moduleLabel: string
+  baseTotal: number
+  pricingTotal: number
+  ping: number
+  instrumentCost: number
+  miscCost: number
+  drawingCost: number
+  costExDrawing: number
+  costTotal: number
+  costPerPing: number
+  shareMeta: FloorPricingShareMeta
+}
+
+/** 由樓層名稱與 layout 推得成本估算列所用之區名（與 {@link EXCEL_STAGE} 一致） */
+export function floorNameToQuoteZone(floorName: string, layout: QuoteLayout): string | null {
+  if (floorName === EXCEL_STAGE.foundation) return EXCEL_STAGE.foundation
+  const b = floorName.match(/^B(\d+)$/)
+  if (b) {
+    const k = parseInt(b[1]!, 10)
+    if (k === 1 && layout.basementFloors >= 1) return EXCEL_STAGE.b1f
+    if (k >= 2 && k <= layout.basementFloors) return EXCEL_STAGE.basementExceptB1F
+  }
+  if (floorName === '1F') return EXCEL_STAGE.f1
+  if (floorName === EXCEL_STAGE.mezzanine && layout.hasMezzanine) return EXCEL_STAGE.mezzanine
+  const mf = floorName.match(/^(\d+)F$/)
+  if (mf) {
+    const n = parseInt(mf[1]!, 10)
+    if (
+      n >= layout.typicalStartFloor &&
+      n < layout.typicalStartFloor + layout.typicalFloors
+    ) {
+      return EXCEL_STAGE.typical
+    }
+  }
+  const rf = floorName.match(/^R(\d+)$/)
+  if (rf) {
+    const r = parseInt(rf[1]!, 10)
+    if (r >= 1 && r <= layout.rfCount) return EXCEL_STAGE.rf
+  }
+  return null
+}
+
+/** 每層計價工數表：依樓層面積列順序，對應模組並攤提成本估算列之合計 */
+export function computeFloorPricingTable(site: QuoteSite, rows: QuoteRow[]): FloorPricingRow[] {
+  const computed = rows.map((r) => computeRow(r, site.fees))
+  const byZone = new Map<
+    string,
+    { base: number; pricing: number; instr: number; misc: number; region: number }
+  >()
+  for (const r of computed) {
+    const cur = byZone.get(r.zone) ?? { base: 0, pricing: 0, instr: 0, misc: 0, region: 0 }
+    cur.base += r.baseTotal
+    cur.pricing += r.pricingTotal
+    cur.instr += r.instrumentModule
+    cur.misc += r.miscModule
+    cur.region += r.regionCost
+    byZone.set(r.zone, cur)
+  }
+
+  const counts = new Map<string, number>()
+  for (const f of site.floors) {
+    const z = floorNameToQuoteZone(f.name, site.layout)
+    if (z) counts.set(z, (counts.get(z) ?? 0) + 1)
+  }
+
+  return site.floors.map((floor) => {
+    const zone = floorNameToQuoteZone(floor.name, site.layout)
+    const ping = m2ToPing(floor.m2)
+    const drawing = ping * site.fees.drawingPerPing
+    if (!zone) {
+      return {
+        floorLabel: floor.name,
+        moduleLabel: '—',
+        baseTotal: 0,
+        pricingTotal: 0,
+        ping,
+        instrumentCost: 0,
+        miscCost: 0,
+        drawingCost: drawing,
+        costExDrawing: 0,
+        costTotal: drawing,
+        costPerPing: ping > 0 ? drawing / ping : 0,
+        shareMeta: {
+          zone: null,
+          moduleFloorRowCount: 1,
+          agg: null,
+        },
+      }
+    }
+    const agg = byZone.get(zone)
+    const n = Math.max(1, counts.get(zone) ?? 1)
+    if (!agg) {
+      return {
+        floorLabel: floor.name,
+        moduleLabel: zone,
+        baseTotal: 0,
+        pricingTotal: 0,
+        ping,
+        instrumentCost: 0,
+        miscCost: 0,
+        drawingCost: drawing,
+        costExDrawing: 0,
+        costTotal: drawing,
+        costPerPing: ping > 0 ? drawing / ping : 0,
+        shareMeta: {
+          zone,
+          moduleFloorRowCount: n,
+          agg: null,
+        },
+      }
+    }
+    const base = agg.base / n
+    const pricing = agg.pricing / n
+    const instr = agg.instr / n
+    const misc = agg.misc / n
+    const costExDrawing = agg.region / n
+    const costTotal = costExDrawing + drawing
+    return {
+      floorLabel: floor.name,
+      moduleLabel: zone,
+      baseTotal: base,
+      pricingTotal: pricing,
+      ping,
+      instrumentCost: instr,
+      miscCost: misc,
+      drawingCost: drawing,
+      costExDrawing,
+      costTotal,
+      costPerPing: ping > 0 ? costTotal / ping : 0,
+      shareMeta: {
+        zone,
+        moduleFloorRowCount: n,
+        agg: {
+          base: agg.base,
+          pricing: agg.pricing,
+          instr: agg.instr,
+          misc: agg.misc,
+          region: agg.region,
+        },
+      },
+    }
+  })
+}
+
+/** 每項工程細項計價：依細項名稱加總各列區域合計（元）、基礎總工數，並算占總成本（含作圖）百分比 */
+export type ItemPricingRow = {
+  item: string
+  /** 加總各列 E 欄「基礎總工數」 */
+  totalBaseLabor: number
+  cost: number
+  /** 占總成本，單位為百分比（例如 0.66 表示 0.66%） */
+  pctOfTotal: number
+}
+
+export function computeItemPricingTable(site: QuoteSite, rows: QuoteRow[]): ItemPricingRow[] {
+  const { computed, totalCost } = computeQuote(site, rows)
+  const byItem = new Map<string, number>()
+  const byItemBase = new Map<string, number>()
+  for (const r of computed) {
+    byItem.set(r.item, (byItem.get(r.item) ?? 0) + r.regionCost)
+    byItemBase.set(r.item, (byItemBase.get(r.item) ?? 0) + r.baseTotal)
+  }
+  const order = canonicalQuoteItemOrder()
+  const used = new Set<string>()
+  const out: ItemPricingRow[] = []
+  const pushRow = (item: string) => {
+    used.add(item)
+    const cost = byItem.get(item) ?? 0
+    const totalBaseLabor = byItemBase.get(item) ?? 0
+    out.push({
+      item,
+      totalBaseLabor,
+      cost,
+      pctOfTotal: totalCost > 0 ? (cost / totalCost) * 100 : 0,
+    })
+  }
+  for (const item of order) {
+    pushRow(item)
+  }
+  const extras = [...byItem.keys()]
+    .filter((k) => !used.has(k))
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  for (const item of extras) {
+    pushRow(item)
+  }
+  return out
+}
+
 export function defaultSiteFees(): SiteFees {
   return {
     laborPerDay: 3500,
@@ -208,16 +482,6 @@ export function defaultSiteFees(): SiteFees {
     rotatingLaserPerDay: 500,
     lineLaserPerDay: 100,
     drawingPerPing: 100,
-  }
-}
-
-export function exampleQuoteLayout(): QuoteLayout {
-  return {
-    basementFloors: 1,
-    hasMezzanine: true,
-    typicalStartFloor: 2,
-    typicalFloors: 8,
-    rfCount: 3,
   }
 }
 
@@ -243,6 +507,7 @@ export function exampleSite(): QuoteSite {
 
 export {
   buildQuoteRowsFromLayout,
+  mergeQuoteRowsPreservingValues,
   TEMPLATE,
   ZONES,
   defaultQuoteRows,

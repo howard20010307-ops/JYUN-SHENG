@@ -1,4 +1,13 @@
-import { migrateQuoteSite, type QuoteSite, type QuoteRow } from './quoteEngine'
+import {
+  buildQuoteRowsFromLayout,
+  exampleQuoteLayout,
+  migrateQuoteSite,
+  normalizeQuoteLayout,
+  syncFloorsWithLayout,
+  type QuoteLayout,
+  type QuoteSite,
+  type QuoteRow,
+} from './quoteEngine'
 import { defaultLedger, type MonthLine } from './ledgerEngine'
 import {
   defaultSalaryBook,
@@ -11,6 +20,18 @@ import {
   type WorkLogState,
 } from './workLogModel'
 
+/** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
+export const QUOTE_ROWS_SCHEMA_VERSION = 3
+
+function isFlatQuoteLayout(l: QuoteLayout): boolean {
+  return (
+    l.basementFloors === 0 &&
+    !l.hasMezzanine &&
+    l.typicalFloors === 0 &&
+    l.rfCount === 0
+  )
+}
+
 export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog'
 
 export type AppState = {
@@ -18,6 +39,8 @@ export type AppState = {
   salaryBook: SalaryBook
   site: QuoteSite
   quoteRows: QuoteRow[]
+  /** 估價列結構版本；低於目前常數時載入會依 site.layout 重建 quoteRows */
+  quoteRowsSchemaVersion: number
   months: MonthLine[]
   workLog: WorkLogState
 }
@@ -28,6 +51,7 @@ export function initialAppState(): AppState {
     salaryBook: defaultSalaryBook(),
     site: migrateQuoteSite({}),
     quoteRows: [],
+    quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
     months: defaultLedger(),
     workLog: initialWorkLogState(),
   }
@@ -45,6 +69,30 @@ export function migrateAppState(loaded: unknown): AppState {
     d.workLog && typeof d.workLog === 'object' && d.workLog !== null
       ? migrateWorkLogState(d.workLog)
       : init.workLog
+  let siteOut: QuoteSite =
+    d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site
+  const storedSchema =
+    typeof d.quoteRowsSchemaVersion === 'number' &&
+    Number.isFinite(d.quoteRowsSchemaVersion)
+      ? Math.trunc(d.quoteRowsSchemaVersion)
+      : 0
+
+  let quoteRows: QuoteRow[] = Array.isArray(d.quoteRows) ? (d.quoteRows as QuoteRow[]) : init.quoteRows
+  let quoteRowsSchemaVersion = storedSchema
+  if (storedSchema < QUOTE_ROWS_SCHEMA_VERSION) {
+    quoteRowsSchemaVersion = QUOTE_ROWS_SCHEMA_VERSION
+    const layoutEff = normalizeQuoteLayout(siteOut.layout)
+    if (isFlatQuoteLayout(layoutEff)) {
+      const nextLayout = exampleQuoteLayout()
+      siteOut = {
+        ...siteOut,
+        layout: nextLayout,
+        floors: syncFloorsWithLayout(siteOut.floors, nextLayout),
+      }
+      quoteRows = buildQuoteRowsFromLayout(nextLayout)
+    }
+  }
+
   return {
     ...init,
     ...d,
@@ -54,8 +102,9 @@ export function migrateAppState(loaded: unknown): AppState {
       d.salaryBook && Array.isArray(d.salaryBook.months)
         ? normalizeSalaryBook(d.salaryBook as SalaryBook)
         : init.salaryBook,
-    site: d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site,
-    quoteRows: Array.isArray(d.quoteRows) ? d.quoteRows : init.quoteRows,
+    site: siteOut,
+    quoteRows,
+    quoteRowsSchemaVersion,
     months: Array.isArray(d.months)
       ? (d.months as MonthLine[]).map((m) => ({
           ...m,
