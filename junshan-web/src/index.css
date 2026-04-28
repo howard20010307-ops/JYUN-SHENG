@@ -944,6 +944,11 @@ table.data.quoteCostTableExcel td.quoteStageBlank {
   background: transparent;
 }
 
+table.data.quoteCostTableExcel td.quoteSameFloorsCell {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child.quoteStageBlank {
   padding: 6px 5px !important;
 }

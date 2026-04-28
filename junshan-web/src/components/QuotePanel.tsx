@@ -666,7 +666,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           </div>
         </div>
         <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-          依工程模組分組；表頭第二列會依<strong>垂直捲動</strong>顯示目前所在工程模組，並與 A、B 欄一併<strong>橫向鎖在左側</strong>，與欄位小標題對齊對照。區塊內細分隔線僅供對位；「改名」請用表頭該列按鈕。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄皆橫式（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
+          依工程模組分組；表頭第二列會依<strong>垂直捲動</strong>顯示目前所在工程模組，並與 A、B 欄一併<strong>橫向鎖在左側</strong>，與欄位小標題對齊對照。區塊內細分隔線僅供對位；「改名」請用表頭該列按鈕。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄皆橫式（同模組接續列 A 常留白）。<strong>欄 C「相同樓層數」</strong>隨專案樓層於產列／覆寫時帶入，<strong>不可於此工作表修改</strong>；請至「案場與樓層」調整後按「依專案樓層產生（覆寫）估價列」更新。調整專案樓層後若範本列數不符，亦請至「案場與樓層」按該鈕重建。
         </p>
         <div ref={quoteCostScrollRef} className="tableScroll tableScrollSticky">
           <table className="data tight quoteCostTableExcel">
@@ -764,15 +764,11 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                       onChange={(e) => updateRow(i, { item: e.target.value })}
                     />
                   </td>
-                  <td>
-                    <input
-                      {...bindDecimal(
-                        `q-${r.id}-same`,
-                        r.sameFloors,
-                        (n) => updateRow(i, { sameFloors: n }),
-                        'narrow',
-                      )}
-                    />
+                  <td
+                    className="num quoteSameFloorsCell"
+                    title="相同樓層數依專案樓層（地下室層數、標準層數、RF 等）於產列或「依專案樓層產生（覆寫）估價列」時帶入；請至「案場與樓層」工作表調整後再覆寫估價列更新。"
+                  >
+                    {Number.isFinite(r.sameFloors) ? r.sameFloors : '—'}
                   </td>
                   <td>
                     <input
