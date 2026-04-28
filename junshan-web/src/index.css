@@ -43,6 +43,19 @@ html {
   min-height: 100vh;
 }
 
+/** 僅供螢幕閱讀器；視覺隱藏 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 .rootBoot {
   margin: 0;
   padding: 28px 0;
@@ -722,10 +735,31 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 }
 .worklogMonthNav {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 14px;
+}
+.worklogMonthNavPrimary {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.worklogMonthNavLock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+@media (min-width: 560px) {
+  .worklogMonthNavLock {
+    margin-left: auto;
+  }
 }
 .worklogMonthTitle {
   margin: 0;
@@ -736,34 +770,39 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 }
 .worklogCalGrid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px 6px;
+  width: 100%;
+  align-items: stretch;
 }
 .worklogCalDow {
   text-align: center;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--muted);
-  padding: 4px 0 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  padding: 6px 2px 8px;
+  min-width: 0;
+  letter-spacing: 0.02em;
 }
 .worklogDayCell {
   position: relative;
-  aspect-ratio: 1;
-  min-height: 2.5rem;
-  max-height: 4.25rem;
+  min-height: 7.75rem;
+  max-height: none;
+  aspect-ratio: unset;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #0a1016;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
-  padding: 6px 4px 4px;
+  padding: 5px 5px 6px;
   cursor: pointer;
   color: var(--text);
+  text-align: left;
   transition: border-color 0.12s, background 0.12s;
+  width: 100%;
+  min-width: 0;
 }
 .worklogDayCell:hover:not(.worklogDayCell--empty) {
   border-color: rgba(61, 156, 245, 0.45);
@@ -774,10 +813,15 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   background: transparent;
   border-color: transparent;
   pointer-events: none;
+  min-height: 7.75rem;
 }
-.worklogDayCell--hasEntry .worklogDayNum {
+.worklogDayCell--hasLog .worklogDayNum,
+.worklogDayCell--hasPayroll .worklogDayNum {
   font-weight: 700;
   color: var(--head);
+}
+.worklogDayCell--hasLog.worklogDayCell--hasPayroll .worklogDayNum {
+  font-weight: 800;
 }
 .worklogDayCell--selected {
   border-color: var(--accent);
@@ -786,51 +830,121 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 .worklogDayCell--today:not(.worklogDayCell--selected) {
   border-color: rgba(90, 212, 168, 0.4);
 }
+.worklogDayCellTop {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
 .worklogDayNum {
-  font-size: 0.88rem;
-  line-height: 1.2;
+  font-size: 0.86rem;
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--head);
+}
+.worklogDayCellBody {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 0.64rem;
+  line-height: 1.28;
+  color: var(--text);
+}
+.worklogDayCellBody--payroll {
+  color: var(--muted);
+}
+.worklogDayCellLine {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 5px 8px;
+  align-items: start;
+  min-width: 0;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.worklogDayCellLine:last-child {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.worklogDayCellLine--count .worklogDayCellV {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+.worklogDayCellK {
+  color: var(--head);
+  font-weight: 700;
+  font-size: 0.56rem;
+  line-height: 1.25;
+  padding: 4px 3px;
+  text-align: center;
+  word-break: keep-all;
+  align-self: start;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.worklogDayCellV {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
+  padding: 3px 0 2px 2px;
+  font-weight: 500;
+  color: rgba(236, 244, 255, 0.94);
+  border-left: 1px solid rgba(61, 156, 245, 0.22);
+  padding-left: 8px;
+  margin-left: 0;
+}
+.worklogDayCellBody--payroll .worklogDayCellV {
+  color: rgba(220, 228, 238, 0.88);
+  border-left-color: rgba(255, 255, 255, 0.12);
+}
+.worklogDayDots {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 0;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 7px;
+  flex-shrink: 0;
 }
 .worklogDayDot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent2);
-  margin-top: auto;
   flex-shrink: 0;
 }
-.worklogDaySection {
-  margin-bottom: 14px;
+.worklogDayDot--log {
+  background: var(--accent2);
 }
-.worklogDayEntryList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.worklogDayDot--payroll {
+  background: #d4a017;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
-.worklogDayEntryItem {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #0a1016;
-}
-.worklogDayEntryHead {
+.worklogCalLegend {
+  margin: 10px 0 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 6px 14px;
+  font-size: 0.8rem;
 }
-.worklogDayEntryMeta {
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-.worklogDayEntryLine {
-  margin: 4px 0 0;
-  font-size: 0.88rem;
-  color: var(--text);
+.worklogCalLegend .worklogDayDot {
+  margin: 0;
+  position: static;
 }
 .worklogTimePair {
   display: inline-flex;
@@ -877,15 +991,112 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 }
 @media (max-width: 520px) {
   .worklogCalGrid {
-    gap: 4px;
+    gap: 3px 4px;
+  }
+  .worklogDayCell,
+  .worklogDayCell--empty {
+    min-height: 6.85rem;
   }
   .worklogDayCell {
-    padding: 4px 2px 2px;
+    padding: 4px 3px 5px;
     border-radius: 6px;
   }
   .worklogDayNum {
     font-size: 0.78rem;
   }
+  .worklogDayCellBody {
+    font-size: 0.58rem;
+    gap: 0;
+  }
+  .worklogDayCellLine {
+    grid-template-columns: 1.85rem minmax(0, 1fr);
+    gap: 4px 6px;
+    padding: 4px 0;
+  }
+  .worklogDayCellK {
+    font-size: 0.52rem;
+    padding: 3px 2px;
+  }
+  .worklogDayCellV {
+    padding-left: 6px;
+  }
+}
+
+/* 工作日誌：該日資訊（鎖定／編號欄位） */
+.worklogLockPill {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: #0b1016;
+}
+.worklogLockPill--on {
+  color: var(--accent2);
+  border-color: rgba(90, 212, 168, 0.45);
+  background: rgba(90, 212, 168, 0.08);
+}
+.worklogDayInfoField--picker {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 8px;
+}
+.worklogDayInfoField {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.worklogDayInfoField:first-of-type,
+.worklogStaffBlock.worklogDayInfoField {
+  border-top: none;
+  padding-top: 0;
+}
+.worklogStaffBlock.worklogDayInfoField {
+  margin-top: 10px;
+}
+.worklogDayInfoLabel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--head);
+  margin-bottom: 6px;
+}
+.worklogDayInfoNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--head);
+  background: rgba(61, 156, 245, 0.15);
+  border: 1px solid rgba(61, 156, 245, 0.35);
+}
+.worklogDayInfoCount {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent2);
+}
+.worklogDayInfoZhDate {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  color: var(--head);
+}
+.worklogDayInfoCard input:disabled,
+.worklogDayInfoCard select:disabled,
+.worklogDayInfoCard textarea:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+.worklogDayInfoCard .worklogStaffChecks label.rowCheck {
+  opacity: 1;
 }
 
 /* 工作日誌 */

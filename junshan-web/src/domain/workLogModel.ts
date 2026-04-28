@@ -1,6 +1,10 @@
 /** 營運／施工日誌；與薪水案場、估價細項、快速登記可連動。 */
 
 import type { QuoteRow } from './quoteEngine'
+import {
+  LEGACY_QUICK_SITE_JUN_ADJUST,
+  QUICK_SITE_JUN_ADJUST,
+} from './fieldworkQuickApply'
 
 const TIME_RE = /^\d{1,2}:\d{2}$/
 
@@ -11,7 +15,7 @@ export type WorkLogEntry = {
   id: string
   /** YYYY-MM-DD */
   logDate: string
-  /** 案場地點（可含「蔡董調工」等與月表一致之名稱） */
+  /** 案場地點（一般案場或「調工支援」「蔡董調工」；與月表／快速登記鍵名一致） */
   siteName: string
   /** 施工人員姓名 */
   staffNames: string[]
@@ -100,7 +104,8 @@ function migrateOne(e: unknown): WorkLogEntry | null {
   const o = e as Record<string, unknown>
   const logDate =
     typeof o.logDate === 'string' && DATE_RE.test(o.logDate) ? o.logDate : todayYmdLocal()
-  const siteName = typeof o.siteName === 'string' ? o.siteName : ''
+  let siteName = typeof o.siteName === 'string' ? o.siteName : ''
+  if (siteName === LEGACY_QUICK_SITE_JUN_ADJUST) siteName = QUICK_SITE_JUN_ADJUST
   const legacyContent = typeof o.content === 'string' ? o.content : ''
   const staffNames = staffListFromUnknown(o)
   const hasStruct =

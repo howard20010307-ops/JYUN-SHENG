@@ -6,7 +6,7 @@ import type {
   SummaryCellBreakdownLine,
 } from '../domain/salaryExcelModel'
 import { padArray, staffKeysForMonthDisplay, staffTotalDays } from '../domain/salaryExcelModel'
-import { QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
+import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 
 function fmtCell(v: number): number {
@@ -37,7 +37,18 @@ function tsaiAdjustTotalWorkDaysInMonth(month: MonthSheetData): number {
   return s
 }
 
-/** 該月內所有同名案場區塊之出工天數合計；列名為「蔡董調工」時改計月表蔡董調工列（不計案場格線） */
+/** 該月調工支援列（junAdjustDays）：各人天數加總（與月表調工區塊一致） */
+function junAdjustTotalWorkDaysInMonth(month: MonthSheetData): number {
+  const staffOrder = staffKeysForMonthDisplay(month)
+  const n = month.dates.length
+  let s = 0
+  for (const name of staffOrder) {
+    s += staffTotalDays(padArray(month.junAdjustDays[name], n))
+  }
+  return s
+}
+
+/** 該月內所有同名案場區塊之出工天數合計；「蔡董調工／調工支援」為月表調工類列（不計一般案場格線） */
 function totalWorkDaysForSiteInMonth(
   month: MonthSheetData,
   siteKey: string,
@@ -45,6 +56,9 @@ function totalWorkDaysForSiteInMonth(
 ): number {
   if (!unnamed && siteKey === QUICK_SITE_TSAI_ADJUST) {
     return tsaiAdjustTotalWorkDaysInMonth(month)
+  }
+  if (!unnamed && siteKey === QUICK_SITE_JUN_ADJUST) {
+    return junAdjustTotalWorkDaysInMonth(month)
   }
   const staffOrder = staffKeysForMonthDisplay(month)
   const n = month.dates.length
@@ -75,6 +89,15 @@ function siteMonthStaffBreakdown(
       .filter((ln) => ln.amount > 0)
     return lines.length > 0 ? lines : [{ label: '（無蔡董調工）', amount: 0 }]
   }
+  if (!unnamed && siteKey === QUICK_SITE_JUN_ADJUST) {
+    const lines: SummaryCellBreakdownLine[] = staffOrder
+      .map((name) => ({
+        label: `${name}（調工支援·天）`,
+        amount: staffTotalDays(padArray(month.junAdjustDays[name], n)),
+      }))
+      .filter((ln) => ln.amount > 0)
+    return lines.length > 0 ? lines : [{ label: '（無調工支援）', amount: 0 }]
+  }
   const byStaff: Record<string, number> = Object.fromEntries(staffOrder.map((x) => [x, 0]))
   for (const b of month.blocks) {
     const isUnnamed = b.siteName.trim() === ''
@@ -93,8 +116,8 @@ function siteMonthStaffBreakdown(
 type SitePivotRow = { key: string; label: string; unnamed: boolean }
 
 function collectSiteRows(book: SalaryBook): SitePivotRow[] {
-  /** 案名列鍵為區塊 {@link SiteBlock.siteName} 逐字串（不以 trim 合併）；「蔡董調工」為虛擬列（資料來自月表該列） */
-  const named = new Set<string>([QUICK_SITE_TSAI_ADJUST])
+  /** 案名列鍵為區塊 {@link SiteBlock.siteName}；「蔡董調工」「調工支援」對應月表調工類列 */
+  const named = new Set<string>([QUICK_SITE_TSAI_ADJUST, QUICK_SITE_JUN_ADJUST])
   let anyUnnamed = false
   for (const m of book.months) {
     for (const b of m.blocks) {
@@ -148,15 +171,17 @@ export function PayrollSitesByMonthReadonly({ salaryBook }: Props) {
     <section className="card">
       <h3>案場出工明細（唯讀）</h3>
       <p className="hint">
-        <strong>列</strong>為案場，<strong>欄</strong>為月份；數字為該案場該月<strong>出工天數合計</strong>（一般案場為格線加總；列「
+        <strong>列</strong>為案場（含調工支援），<strong>欄</strong>為月份；數字為該列該月<strong>出工天數合計</strong>（一般案場為格線加總；「
         {QUICK_SITE_TSAI_ADJUST}
-        」為月表<strong>蔡董調工</strong>列加總，不含餐費）。游標移至數字格可查看<strong>各人明細</strong>；與總表相同可<strong>點一下鎖定</strong>浮窗。請至「月表」編輯。
+        」「
+        {QUICK_SITE_JUN_ADJUST}
+        」為月表<strong>蔡董調工</strong>、<strong>調工支援</strong>列加總，不含餐費）。游標移至數字格可查看<strong>各人明細</strong>；與總表相同可<strong>點一下鎖定</strong>浮窗。請至「月表」編輯。
       </p>
       <div className="tableScroll tableScrollSticky">
         <table className="data tight payrollSitesPivotTable">
           <thead>
             <tr>
-              <th className="payrollSitesPivotStickyCol">案場</th>
+              <th className="payrollSitesPivotStickyCol">案場／調工支援</th>
               {months.map((m) => (
                 <th key={m.id} className="num dtCol">
                   {m.label}

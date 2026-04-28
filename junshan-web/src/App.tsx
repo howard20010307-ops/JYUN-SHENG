@@ -5,6 +5,7 @@ import { LedgerPanel } from './components/LedgerPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import type { SalaryBook } from './domain/salaryExcelModel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
+import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './domain/fieldworkQuickApply'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
@@ -20,6 +21,12 @@ export type { AppState, Tab } from './domain/appState'
 function jobSitesFromBook(book: SalaryBook): { id: string; name: string }[] {
   const seen = new Set<string>()
   const out: { id: string; name: string }[] = []
+  /** 調工支援（鈞泩／蔡董調工）與一般案場並列，供估價／日誌等案場選單使用；儲存鍵名仍為月表用字串 */
+  for (const raw of [QUICK_SITE_TSAI_ADJUST, QUICK_SITE_JUN_ADJUST]) {
+    if (seen.has(raw)) continue
+    seen.add(raw)
+    out.push({ id: raw, name: raw })
+  }
   for (const m of book.months) {
     for (const b of m.blocks) {
       const raw = b.siteName
@@ -28,7 +35,11 @@ function jobSitesFromBook(book: SalaryBook): { id: string; name: string }[] {
       out.push({ id: raw, name: raw })
     }
   }
-  return out
+  const head = [QUICK_SITE_TSAI_ADJUST, QUICK_SITE_JUN_ADJUST]
+  const tail = out
+    .filter((o) => !head.includes(o.name))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  return [...head.filter((n) => seen.has(n)).map((n) => ({ id: n, name: n })), ...tail]
 }
 
 export default function App() {
@@ -242,6 +253,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             siteOptions={quoteJobSites}
             quoteRows={state.quoteRows}
             staffOptions={worklogStaffKeys}
+            salaryBook={state.salaryBook}
+            ledgerMonths={state.months}
           />
         )}
       </main>

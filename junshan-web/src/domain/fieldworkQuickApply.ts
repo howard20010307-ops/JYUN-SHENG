@@ -8,10 +8,23 @@ import {
   staffKeysForMonthDisplay,
 } from './salaryExcelModel'
 
-/** 地點填此字串時，出工寫入月表「蔡董調工」列（蔡董日薪），不寫一般案場格線 */
+/**
+ * 地點填此字串時，出工寫入月表「蔡董調工」列（蔡董日薪），不寫一般案場格線。
+ */
 export const QUICK_SITE_TSAI_ADJUST = '蔡董調工'
-/** 地點填此字串時，出工寫入月表「鈞泩調工」列（鈞泩日薪） */
-export const QUICK_SITE_JUN_ADJUST = '鈞泩調工'
+/**
+ * 地點填此字串時，出工寫入月表之鈞泩調工欄（`junAdjustDays`；鈞泩日薪，與總表「調工」列一致）。
+ */
+export const QUICK_SITE_JUN_ADJUST = '調工支援'
+
+/** 舊版存檔與手動輸入仍可能出現此鍵名，載入與快速登記時會視同 {@link QUICK_SITE_JUN_ADJUST} */
+export const LEGACY_QUICK_SITE_JUN_ADJUST = '鈞泩調工'
+
+/** 快速登記等地點字串：舊鍵「鈞泩調工」正規化為「調工支援」 */
+export function normalizeQuickSiteKey(siteTrimmed: string): string {
+  if (siteTrimmed === LEGACY_QUICK_SITE_JUN_ADJUST) return QUICK_SITE_JUN_ADJUST
+  return siteTrimmed
+}
 
 export type FieldworkQuickPayload = {
   isoDate: string
@@ -70,13 +83,13 @@ export function applyFieldworkQuick(
   payload: FieldworkQuickPayload,
 ): { book: SalaryBook; months: MonthLine[]; ok: boolean; message: string } {
   const iso = payload.isoDate.trim()
-  /** 案場與書內區塊 **逐字相等**（不以 trim 視為同一） */
-  const siteNameIn = payload.siteName
+  const siteTrim = payload.siteName.trim()
+  const siteKey = normalizeQuickSiteKey(siteTrim)
   const workers = payload.workers.map((w) => w.trim()).filter(Boolean)
   /** 0 即不加該日出工／調工；非有限數字視為 0（不再預設為 1） */
   const dayVal = Number.isFinite(payload.dayValue) ? payload.dayValue : 0
 
-  if (!iso || !siteNameIn.trim() || workers.length === 0) {
+  if (!iso || !siteKey || workers.length === 0) {
     return { book, months, ok: false, message: '請填日期、地點，並至少選一位人員。' }
   }
 
@@ -96,8 +109,8 @@ export function applyFieldworkQuick(
   let m = bookWithStaff.months[mi]
   const len = m.dates.length
 
-  const isTsaiAdjustSite = siteNameIn === QUICK_SITE_TSAI_ADJUST
-  const isJunAdjustSite = siteNameIn === QUICK_SITE_JUN_ADJUST
+  const isTsaiAdjustSite = siteKey === QUICK_SITE_TSAI_ADJUST
+  const isJunAdjustSite = siteKey === QUICK_SITE_JUN_ADJUST
 
   let newBook: SalaryBook
   let msg: string
@@ -118,16 +131,16 @@ export function applyFieldworkQuick(
       ...bookWithStaff,
       months: bookWithStaff.months.map((x, i) => (i === mi ? updatedMonth : x)),
     }
-    const label = isTsaiAdjustSite ? '蔡董調工（蔡董日薪）' : '鈞泩調工（鈞泩日薪）'
+    const bookLine = isTsaiAdjustSite ? '月表「蔡董調工」' : '月表「調工支援」'
     msg =
       dayVal !== 0
-        ? `已登記：${iso}、${workers.join('、')} → 月表「${label}」該日各 +${dayVal} 天（與案場格線分開）。`
-        : `出工天數為 0：未變更月表「${label}」該日天數（${iso}、${workers.join('、')}）。`
+        ? `已登記：${iso}、${workers.join('、')} → ${bookLine} 該日各 +${dayVal} 天（與案場格線分開）。`
+        : `出工天數為 0：未變更 ${bookLine} 該日天數（${iso}、${workers.join('、')}）。`
   } else {
-    let bi = m.blocks.findIndex((b) => b.siteName === siteNameIn)
+    let bi = m.blocks.findIndex((b) => b.siteName === siteKey)
     let blocks = [...m.blocks]
     if (bi < 0) {
-      blocks = [...blocks, emptyBlock(siteNameIn, len, staffKeysForMonthDisplay(m))]
+      blocks = [...blocks, emptyBlock(siteKey, len, staffKeysForMonthDisplay(m))]
       bi = blocks.length - 1
     }
 
@@ -148,8 +161,8 @@ export function applyFieldworkQuick(
     newBook = { ...bookWithStaff, months: newMonthsData }
     msg =
       dayVal !== 0
-        ? `已登記：${iso}、${siteNameIn}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
-        : `出工天數為 0：未變更案場「${siteNameIn}」該日格線（${iso}、${workers.join('、')}）。`
+        ? `已登記：${iso}、${siteKey}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
+        : `出工天數為 0：未變更案場「${siteKey}」該日格線（${iso}、${workers.join('、')}）。`
   }
   let newLedger = months
 

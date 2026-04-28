@@ -205,7 +205,8 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
   const init: QuoteSite = { name: '', floors: [], fees: defaultSiteFees(), layout: defaultQuoteLayout() }
   if (!raw || typeof raw !== 'object') return init
   const s = raw as Record<string, unknown>
-  const name = typeof s.name === 'string' ? s.name : init.name
+  const nameRaw = typeof s.name === 'string' ? s.name : init.name
+  const name = nameRaw === '鈞泩調工' ? '調工支援' : nameRaw
   const d0 = defaultSiteFees()
   const o = s.fees && typeof s.fees === 'object' && s.fees !== null ? (s.fees as Record<string, unknown>) : {}
   const fees: SiteFees = {

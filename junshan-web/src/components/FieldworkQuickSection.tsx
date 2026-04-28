@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FocusEvent } from 'react'
 import {
   applyFieldworkQuick,
+  normalizeQuickSiteKey,
   QUICK_SITE_JUN_ADJUST,
   QUICK_SITE_TSAI_ADJUST,
 } from '../domain/fieldworkQuickApply'
@@ -116,9 +117,9 @@ export function FieldworkQuickSection({
   const [otRateLine, setOtRateLine] = useState<'jun' | 'tsai'>('jun')
 
   useEffect(() => {
-    const t = site.trim()
-    if (t === QUICK_SITE_TSAI_ADJUST) setOtRateLine('tsai')
-    else if (t === QUICK_SITE_JUN_ADJUST) setOtRateLine('jun')
+    const key = normalizeQuickSiteKey(site.trim())
+    if (key === QUICK_SITE_TSAI_ADJUST) setOtRateLine('tsai')
+    else if (key === QUICK_SITE_JUN_ADJUST) setOtRateLine('jun')
   }, [site])
 
   useEffect(() => {
@@ -216,7 +217,7 @@ export function FieldworkQuickSection({
     <section className="card">
       <h3>快速登記（出工＋公司帳＋工作日誌）</h3>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        送出後會更新<strong>月表出工／調工／加班</strong>與<strong>公司帳</strong>，並新增一則<strong>工作日誌</strong>（上下班、內容選項、儀器、餐費／雜項與備註）。工作內容選項與「放樣估價」細項及日誌自訂清單合併。
+        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並新增一則<strong>工作日誌</strong>。地點選「調工支援」或「蔡董調工」與月表調工列連動。工作內容選項與「放樣估價」細項及日誌自訂清單合併。
       </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -224,7 +225,7 @@ export function FieldworkQuickSection({
           <input type="date" value={iso} onChange={(e) => setIso(e.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
-          <span>地點（案場）</span>
+          <span>地點（案場或調工支援）</span>
           <input
             type="text"
             value={site}
@@ -234,7 +235,9 @@ export function FieldworkQuickSection({
           />
           <datalist id="fieldwork-site-datalist">
             {siteOptions.map((n) => (
-              <option key={n} value={n} />
+              <option key={n} value={n}>
+                {n}
+              </option>
             ))}
           </datalist>
         </label>

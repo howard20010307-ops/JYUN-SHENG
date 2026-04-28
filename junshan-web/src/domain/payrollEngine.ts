@@ -11,7 +11,7 @@ export type PeriodEntry = {
   workerId: string
   /** 鈞泩一般出工「天」可含小數 */
   junDays: number
-  /** 鈞泩調工（天），與總表「調工」列一致 */
+  /** 調工支援（天），與總表「調工」列一致 */
   junAdjustDays: number
   /** 加班時數；加班費 = 時薪 × 時數，時薪 = 鈞泩日薪 / 8 */
   junOtHours: number

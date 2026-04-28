@@ -933,7 +933,7 @@ export function PayrollPanel({
           </section>
 
           <section className="card">
-            <h3>調工（天／日期欄，鈞泩日薪）</h3>
+            <h3>調工支援（天／日期欄，鈞泩日薪）</h3>
             <div className="tableScroll tableScrollSticky">
               <table className="data tight">
                 <thead>

@@ -61,9 +61,9 @@ export type MonthSheetData = {
   blocks: SiteBlock[]
   /** 預支：金額，與 dates 等長 */
   advances: Record<string, number[]>
-  /** 鈞泩調工（天／日欄，與總表「調工」列對齊） */
+  /** 調工支援（天／日欄；日誌／快速登記地點鍵名為「調工支援」，與總表「調工」列一致） */
   junAdjustDays: Record<string, number[]>
-  /** 蔡董調工（天／日欄） */
+  /** 蔡董調工（天／日欄；語意為調工支援） */
   tsaiAdjustDays: Record<string, number[]>
   /** 鈞泩加班時數 */
   junOtHours: Record<string, number[]>
@@ -619,8 +619,8 @@ export function renameWorkerInBook(
   }
 }
 
-/** 與快速登記「蔡董調工／鈞泩調工」專用案名衝突時拒絕更名（避免誤用保留字） */
-const RESERVED_SITE_NAMES_FOR_QUICK = new Set(['蔡董調工', '鈞泩調工'])
+/** 與快速登記「蔡董調工／調工支援」專用案名衝突時拒絕更名（避免誤用保留字）；含舊鍵「鈞泩調工」 */
+const RESERVED_SITE_NAMES_FOR_QUICK = new Set(['蔡董調工', '調工支援', '鈞泩調工'])
 
 /** 同一月內「完整案名字串」重複（不以 trim 等同視為同一） */
 function monthLabelWithDuplicateSiteName(book: SalaryBook): string | null {
@@ -896,9 +896,20 @@ export function pickActiveMonthIdForToday(months: readonly MonthSheetData[]): st
   return months[0]!.id
 }
 
-/** 舊版 localStorage 缺欄時補齊（調工／蔡董調工） */
+/** 舊版 localStorage 缺欄時補齊（調工／蔡董調工）；並將案場名「鈞泩調工」併入「調工支援」 */
 export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
-  const months = book.months.map((m) => {
+  const LEGACY_JUN_SITE = '鈞泩調工'
+  const JUN_SITE = '調工支援'
+  const bookRenamed: SalaryBook = {
+    ...book,
+    months: book.months.map((m) => ({
+      ...m,
+      blocks: m.blocks.map((b) =>
+        b.siteName === LEGACY_JUN_SITE ? { ...b, siteName: JUN_SITE } : b,
+      ),
+    })),
+  }
+  const months = bookRenamed.months.map((m) => {
     let mm = reconcileLegacyWorkerNamesInMonth(m)
     mm = ensureFixedMonthStaffInSheet(mm)
     const len = mm.dates.length
@@ -910,7 +921,7 @@ export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
     }
     return { ...mm, junAdjustDays, tsaiAdjustDays }
   })
-  const withMonths = { ...book, months }
+  const withMonths = { ...bookRenamed, months }
   return {
     ...withMonths,
     periodColumns: autoPayrollPeriodColumns(inferPayrollYearFromBook(withMonths)),
@@ -1943,7 +1954,7 @@ export function computeStaffSummaryCellBreakdowns(
           name,
           period,
           (m) => m.junAdjustDays[name],
-          '鈞泩調工·天',
+          '調工支援·天',
         )
         return finish(
           ensureBreakdownLines(lines, {
