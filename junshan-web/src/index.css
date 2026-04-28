@@ -796,7 +796,7 @@ table.data.quoteCostTableExcel {
 
 /**
  * 成本估算：A「樓層／階段」＋ B「細項」兩欄左凍結（B 用 .quoteStickyItemCol 標記）。
- * 目前工程模組名稱顯示於表頭第二列（sticky，top 用 --quote-cost-head-row1-h）；tbody 之 .quoteZoneSep 為區段細線與捲動偵測用。
+ * 目前工程模組名稱顯示於表頭第二列左側（A+B colspan，sticky top ＋ left，與凍結欄同寬）；tbody 之 .quoteZoneSep 為區段細線與捲動偵測用。
  */
 .tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
   position: sticky;
@@ -826,6 +826,10 @@ table.data.quoteCostTableExcel {
 }
 .tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowHilite:not(.quoteZoneSep) td.quoteStickyItemCol {
   background: rgba(255, 214, 10, 0.07);
+}
+/** 基礎工程模組：與 1F／正常樓（淡黃）區隔之底色 */
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowZoneFoundation:not(.quoteZoneSep) td.quoteStickyItemCol {
+  background: rgba(90, 212, 168, 0.1);
 }
 
 .tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
@@ -857,16 +861,29 @@ table.data.quoteCostTableExcel {
   padding: 8px 6px;
 }
 /**
- * 表頭第二列：垂直捲動時顯示目前所屬工程模組（z-index 低於第一列表頭，避免蓋住欄名）。
+ * 表頭第二列：左側併欄 A+B，橫向捲動時與樓層／細項凍結欄同寬鎖定（z-index 低於第一列欄名，避免蓋住）。
  */
-.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneTh {
+.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThStickyAB {
+  position: sticky;
+  left: 0;
+  top: var(--quote-cost-head-row1-h, 44px);
+  z-index: 6;
+  padding: 8px 10px !important;
+  vertical-align: middle;
+  text-align: left;
+  background: rgba(56, 139, 253, 0.2);
+  border-bottom: 1px solid var(--border);
+  box-shadow:
+    6px 0 14px -6px rgba(0, 0, 0, 0.75),
+    0 4px 12px -6px rgba(0, 0, 0, 0.45);
+}
+.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThRest {
   position: sticky;
   top: var(--quote-cost-head-row1-h, 44px);
   z-index: 5;
-  padding: 8px 12px !important;
+  padding: 0 !important;
   vertical-align: middle;
-  text-align: left;
-  background: rgba(56, 139, 253, 0.16);
+  background: #0b0f14;
   border-bottom: 1px solid var(--border);
   box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.45);
 }
@@ -899,6 +916,10 @@ table.data.quoteCostTableExcel {
   border-top: 1px solid var(--accent);
   border-bottom: none;
 }
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneSep[data-zone='基礎工程'] td.quoteZoneSepMark {
+  background: rgba(90, 212, 168, 0.16);
+  border-top: 1px solid rgba(90, 212, 168, 0.55);
+}
 
 tr.quoteZoneSep td {
   border-top: 1px solid var(--border);
@@ -913,6 +934,9 @@ tr.quoteZoneSep td {
 
 table.data.quoteCostTableExcel tbody tr.quoteRowHilite td {
   background: rgba(255, 214, 10, 0.07);
+}
+table.data.quoteCostTableExcel tbody tr.quoteRowZoneFoundation td {
+  background: rgba(90, 212, 168, 0.09);
 }
 
 table.data.quoteCostTableExcel td.quoteStageBlank {

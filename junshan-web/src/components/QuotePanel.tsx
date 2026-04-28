@@ -666,7 +666,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           </div>
         </div>
         <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-          依工程模組分組；表頭第二列會依<strong>垂直捲動</strong>顯示目前所在工程模組，與欄位小標題一併鎖定。區塊內細分隔線僅供對位；「改名」請用表頭該列按鈕。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄皆橫式並<strong>鎖在左側</strong>（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
+          依工程模組分組；表頭第二列會依<strong>垂直捲動</strong>顯示目前所在工程模組，並與 A、B 欄一併<strong>橫向鎖在左側</strong>，與欄位小標題對齊對照。區塊內細分隔線僅供對位；「改名」請用表頭該列按鈕。「快速新增」可指定模組與細項名稱。每列「＋細項」可就地插入同模組列。A「樓層／階段」與 B「細項」兩欄皆橫式（同模組接續列 A 常留白）。調整專案樓層後若範本列數不符，請至「案場與樓層」工作表按「依專案樓層產生（覆寫）估價列」重建。
         </p>
         <div ref={quoteCostScrollRef} className="tableScroll tableScrollSticky">
           <table className="data tight quoteCostTableExcel">
@@ -687,7 +687,11 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
               </tr>
               {result.computed.length > 0 ? (
                 <tr className="quoteCostActiveZoneHead">
-                  <th colSpan={QUOTE_DATA_COLS} scope="colgroup" className="quoteCostActiveZoneTh">
+                  <th
+                    colSpan={2}
+                    scope="colgroup"
+                    className="quoteCostActiveZoneThStickyAB"
+                  >
                     <div className="quoteCostActiveZoneInner">
                       <span className="quoteCostActiveZoneTitle">
                         {activeCostZone || zoneOptions[0] || '—'}
@@ -706,6 +710,12 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                       </button>
                     </div>
                   </th>
+                  <th
+                    colSpan={QUOTE_DATA_COLS - 2}
+                    scope="colgroup"
+                    className="quoteCostActiveZoneThRest"
+                    aria-hidden
+                  />
                 </tr>
               ) : null}
             </thead>
@@ -730,9 +740,11 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                     ) : null}
                     <tr
                       className={
-                        r.zone === EXCEL_STAGE.f1 || r.zone === EXCEL_STAGE.typical
-                          ? 'quoteRowHilite'
-                          : undefined
+                        r.zone === EXCEL_STAGE.foundation
+                          ? 'quoteRowZoneFoundation'
+                          : r.zone === EXCEL_STAGE.f1 || r.zone === EXCEL_STAGE.typical
+                            ? 'quoteRowHilite'
+                            : undefined
                       }
                     >
                   <td
