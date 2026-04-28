@@ -29,7 +29,7 @@ export function LedgerPanel({ months, setMonths }: Props) {
         總成本；總成本＝薪水＋加班費＋餐費＋工具＋老闆薪水＋儀器損耗＋風險。最右欄為累計盈虧。
       </p>
       <div className="tableScroll">
-        <table className="data tight">
+        <table className="data tight ledgerCompanyTable">
           <thead>
             <tr>
               <th>月</th>

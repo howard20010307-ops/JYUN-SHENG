@@ -8,6 +8,8 @@ import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
+import { AppLoginGate } from './components/AppLoginGate'
+import { useAppGateAuth } from './context/AppGateAuthContext'
 import { useJsonBinSync } from './hooks/useJsonBinSync'
 import { clearPersistentState, usePersistentStateWithUndo } from './hooks/usePersistentState'
 
@@ -29,6 +31,14 @@ function jobSitesFromBook(book: SalaryBook): { id: string; name: string }[] {
 }
 
 export default function App() {
+  const gate = useAppGateAuth()
+  if (!gate.isUnlocked) {
+    return <AppLoginGate tryLogin={gate.tryLogin} />
+  }
+  return <AppShell onLogout={gate.logout} />
+}
+
+function AppShell({ onLogout }: { onLogout?: () => void }) {
   const backupInputRef = useRef<HTMLInputElement>(null)
   const [state, setState, undo, canUndo] = usePersistentStateWithUndo<AppState>(
     initialAppState,
@@ -107,7 +117,7 @@ export default function App() {
                   const text = String(reader.result ?? '')
                   const raw = rawDataFromBackupJson(text)
                   const next = migrateAppState(raw)
-                    if (
+                  if (
                     !window.confirm(
                       '確定用此備份「完整取代」目前網頁內所有資料？\n（薪水、估價、公司帳、工作日誌皆會變成備份檔內容，且會寫入本機瀏覽器。）',
                     )
@@ -139,6 +149,16 @@ export default function App() {
           >
             清除本機資料
           </button>
+          {onLogout ? (
+            <button
+              type="button"
+              className="btn secondary"
+              title="清除登入狀態，須重新輸入帳號密碼"
+              onClick={onLogout}
+            >
+              登出
+            </button>
+          ) : null}
           </div>
         </div>
         <JsonBinSyncBar

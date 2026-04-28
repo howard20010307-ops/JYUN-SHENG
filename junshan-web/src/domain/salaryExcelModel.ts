@@ -80,6 +80,8 @@ export type PeriodColumn = {
    * 未設定時：全書各月凡日期落在區間內者皆列入。
    */
   monthSheetId?: string
+  /** 為真表示本欄為「總結」：數值為其餘各分期同列指標加總（不當作日期區間） */
+  summaryTotal?: boolean
 }
 
 export type SalaryBook = {
@@ -200,12 +202,35 @@ function dayColumnMatchesPeriod(
   return inRange(iso, period.startIso, period.endIso)
 }
 
+/** 總結欄：將同一指標對「非總結」各分期加總 */
+function sumMetricAcrossNonSummaryPeriods(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+  metric: (book: SalaryBook, staffName: string, p: PeriodColumn) => number,
+): number | undefined {
+  if (!period.summaryTotal) return undefined
+  let s = 0
+  for (const p of book.periodColumns) {
+    if (p.summaryTotal) continue
+    s += metric(book, staffName, p)
+  }
+  return s
+}
+
 /** 鈞泩出工數：分期間內，跨所有月、所有案場加總人員天數（或僅綁定之月表） */
 export function junWorkDaysInPeriod(
   book: SalaryBook,
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junWorkDaysInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let s = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -226,7 +251,7 @@ function toIsoYmd(y: number, month1to12: number, day: number): string {
 
 /**
  * 「員工總出工及薪水計算」分期欄：每月 **11～25 日**、**26 日～次月 10 日** 各一欄（以此類推）。
- * 含所給曆年 **1～12 月**，並接續次年 **1、2 月**（末段為「2/26～3/10」），總表加總時依各欄 `startIso`～`endIso` 對月表日期欄篩選（可跨多張月表）。
+ * 含所給曆年 **1～12 月**（最後一欄日期區間為 **12/26～次年 1/10**），再接一欄 **總結**（各分期同列數值加總）。
  */
 export function autoPayrollPeriodColumns(year: number): PeriodColumn[] {
   const cols: PeriodColumn[] = []
@@ -245,8 +270,12 @@ export function autoPayrollPeriodColumns(year: number): PeriodColumn[] {
     })
   }
   for (let mo = 1; mo <= 12; mo++) addMonthPair(year, mo)
-  addMonthPair(year + 1, 1)
-  addMonthPair(year + 1, 2)
+  cols.push({
+    label: '總結',
+    startIso: '',
+    endIso: '',
+    summaryTotal: true,
+  })
   return cols
 }
 
@@ -267,7 +296,8 @@ function periodColumnsEqual(
       x.label !== y.label ||
       x.startIso !== y.startIso ||
       x.endIso !== y.endIso ||
-      (x.monthSheetId ?? '') !== (y.monthSheetId ?? '')
+      (x.monthSheetId ?? '') !== (y.monthSheetId ?? '') ||
+      Boolean(x.summaryTotal) !== Boolean(y.summaryTotal)
     )
       return false
   }
@@ -317,7 +347,7 @@ export function payrollPeriodColumnsFromBookMonths(book: SalaryBook): PeriodColu
 }
 
 /**
- * 將 `periodColumns` 更新為 {@link autoPayrollPeriodColumns}（依書內推斷曆年：每月 11～25、26～次月 10，並延伸至次年 1～2 月）。
+ * 將 `periodColumns` 更新為 {@link autoPayrollPeriodColumns}（依書內推斷曆年：每月 11～25、26～次月 10，至 12/26～次年 1/10，並加「總結」欄）。
  */
 export function reconcileSalaryBookPeriodColumns(book: SalaryBook): SalaryBook {
   const want = autoPayrollPeriodColumns(inferPayrollYearFromBook(book))
@@ -843,6 +873,29 @@ export function newMonthSheet(label: string, dates: string[]): MonthSheetData {
   }
 }
 
+/**
+ * 薪水「目前月表」下拉預設：任一日期欄落在今天所屬曆年、曆月之月表。
+ * 無命中則第一張月表；無月表則空字串。
+ */
+export function pickActiveMonthIdForToday(months: readonly MonthSheetData[]): string {
+  if (months.length === 0) return ''
+  const now = new Date()
+  const y = now.getFullYear()
+  const mo = now.getMonth() + 1
+  for (const sheet of months) {
+    for (const iso of sheet.dates) {
+      if (!iso || typeof iso !== 'string') continue
+      const head = iso.trim().slice(0, 10)
+      const m = /^(\d{4})-(\d{2})-/.exec(head)
+      if (!m) continue
+      const sy = parseInt(m[1]!, 10)
+      const sm = parseInt(m[2]!, 10)
+      if (sy === y && sm === mo) return sheet.id
+    }
+  }
+  return months[0]!.id
+}
+
 /** 舊版 localStorage 缺欄時補齊（調工／蔡董調工） */
 export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
   const months = book.months.map((m) => {
@@ -948,6 +1001,13 @@ export function advanceSumInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    advanceSumInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let s = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -965,6 +1025,13 @@ export function junOtHoursInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junOtHoursInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let h = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -982,6 +1049,13 @@ export function junAdjustDaysInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junAdjustDaysInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let s = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -999,6 +1073,13 @@ export function tsaiAdjustDaysInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    tsaiAdjustDaysInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let s = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -1016,6 +1097,13 @@ export function tsaiOtHoursInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    tsaiOtHoursInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   let h = 0
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -1066,6 +1154,13 @@ export function junOtPayInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junOtPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   const h = junOtHoursInPeriod(book, staffName, period)
   return h * (rateJunForStaff(book, staffName, period) / 8)
 }
@@ -1076,6 +1171,13 @@ export function tsaiOtPayInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    tsaiOtPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   const h = tsaiOtHoursInPeriod(book, staffName, period)
   return h * (rateTsaiForStaff(book, staffName, period) / 8)
 }
@@ -1092,6 +1194,13 @@ export function netTakeHomePayInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    netTakeHomePayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   const rt = rateTsaiForStaff(book, staffName, period)
   const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
   const adv = advanceSumInPeriod(book, staffName, period)
@@ -1319,6 +1428,28 @@ export function payrollSummaryTooltipFooterTotals(
   ]
 }
 
+/** 「蔡董調工薪水」欄位值：各分期為調工天數×該期蔡董日薪；總結欄為各分期該乘積加總（非「總調工×單一日薪」）。 */
+function tapRowCellAmount(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): number {
+  if (!period.summaryTotal) {
+    return (
+      tsaiAdjustDaysInPeriod(book, staffName, period) *
+      rateTsaiForStaff(book, staffName, period)
+    )
+  }
+  let s = 0
+  for (const p of book.periodColumns) {
+    if (p.summaryTotal) continue
+    s +=
+      tsaiAdjustDaysInPeriod(book, staffName, p) *
+      rateTsaiForStaff(book, staffName, p)
+  }
+  return s
+}
+
 function valueForSummaryPrefix(
   prefix: SummaryRowPrefix,
   book: SalaryBook,
@@ -1351,7 +1482,7 @@ function valueForSummaryPrefix(
     case 'jap':
       return junAdjustPayInPeriod(book, staffName, period)
     case 'tap':
-      return tsaiAdjustDaysInPeriod(book, staffName, period) * rateTsaiForStaff(book, staffName, period)
+      return tapRowCellAmount(book, staffName, period)
     case 'net':
       return netTakeHomePayInPeriod(book, staffName, period)
     default:
@@ -1599,6 +1730,13 @@ function junGridSalaryTotalInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junGridSalaryTotalInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   return junSalaryLinesBySite(book, staffName, period).reduce((s, ln) => s + ln.amount, 0)
 }
 
@@ -1611,6 +1749,13 @@ export function junAdjustPayInPeriod(
   staffName: string,
   period: PeriodColumn,
 ): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junAdjustPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
   const jAdj = junAdjustDaysInPeriod(book, staffName, period)
   if (jAdj === 0) return 0
   const gridDays = junWorkDaysInPeriod(book, staffName, period)
@@ -1666,6 +1811,18 @@ export function computeStaffSummaryCellBreakdowns(
 
     const name = meta.staffName
     const pr = meta.prefix
+
+    if (period.summaryTotal) {
+      const subs = book.periodColumns.filter((p) => !p.summaryTotal)
+      const lines: SummaryCellBreakdownLine[] = [
+        { label: '總結（各分期加總）', amount: row.cols[i] ?? 0 },
+        ...subs.map((subP) => ({
+          label: `　${subP.label}`,
+          amount: valueForSummaryPrefix(pr, book, name, subP),
+        })),
+      ]
+      return finish(lines)
+    }
 
     switch (pr) {
       case 'jd':
@@ -2030,22 +2187,14 @@ export function buildStaffSummaryRows(
     rows.push({
       key: `tap-${name}`,
       label: `蔡董調工薪水·${name}`,
-      cols: pc.map(
-        (p) =>
-          tsaiAdjustDaysInPeriod(book, name, p) * rateTsaiForStaff(book, name, p),
-      ),
+      cols: pc.map((p) => tapRowCellAmount(book, name, p)),
     })
   }
   rows.push({
     key: 'tap-total',
     label: '蔡董調工薪水·總計',
     cols: pc.map((p) =>
-      staff.reduce(
-        (s, name) =>
-          s +
-          tsaiAdjustDaysInPeriod(book, name, p) * rateTsaiForStaff(book, name, p),
-        0,
-      ),
+      staff.reduce((s, name) => s + tapRowCellAmount(book, name, p), 0),
     ),
   })
 

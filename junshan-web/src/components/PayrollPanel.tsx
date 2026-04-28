@@ -28,6 +28,7 @@ import {
   reconcileSalaryBookPeriodColumns,
   renameSiteAcrossBook,
   payrollSummaryTooltipFooterTotals,
+  pickActiveMonthIdForToday,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import { FieldworkQuickSection } from './FieldworkQuickSection'
@@ -130,14 +131,14 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     oldExact: string
   } | null>(null)
   const [newStaffName, setNewStaffName] = useState('')
-  const [activeMonthId, setActiveMonthId] = useState(
-    () => salaryBook.months[0]?.id ?? '',
+  const [activeMonthId, setActiveMonthId] = useState(() =>
+    pickActiveMonthIdForToday(salaryBook.months),
   )
-  const [sub, setSub] = useState<'month' | 'summary' | 'sites'>('month')
+  const [sub, setSub] = useState<'month' | 'quick' | 'summary' | 'sites'>('month')
 
   useEffect(() => {
     if (!salaryBook.months.some((m) => m.id === activeMonthId)) {
-      setActiveMonthId(salaryBook.months[0]?.id ?? '')
+      setActiveMonthId(pickActiveMonthIdForToday(salaryBook.months))
     }
   }, [salaryBook.months, activeMonthId])
 
@@ -224,7 +225,14 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
     <div className="panel">
       <h2>薪水統計（對齊 Excel 結構）</h2>
 
-      <div className="btnRow" style={{ marginBottom: 12 }}>
+      <div className="btnRow payrollSubTabs" style={{ marginBottom: 12 }}>
+        <button
+          type="button"
+          className={`tab ${sub === 'quick' ? 'on' : ''}`}
+          onClick={() => setSub('quick')}
+        >
+          快速登記
+        </button>
         <button
           type="button"
           className={`tab ${sub === 'month' ? 'on' : ''}`}
@@ -250,7 +258,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
 
       {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBook} />}
 
-      {sub === 'month' && (
+      {sub === 'quick' && (
         <FieldworkQuickSection
           staffPickerKeys={staffPickerBookwide}
           salaryBook={salaryBook}

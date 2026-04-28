@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { registerBootstrapGlobalHandlers } from './bootstrapGlobalHandlers'
+import { AppGateAuthProvider } from './context/AppGateAuthContext'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -18,7 +19,9 @@ if (!rootEl) {
     createRoot(rootEl).render(
       <StrictMode>
         <ErrorBoundary>
-          <App />
+          <AppGateAuthProvider>
+            <App />
+          </AppGateAuthProvider>
         </ErrorBoundary>
       </StrictMode>,
     )

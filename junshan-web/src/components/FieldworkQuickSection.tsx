@@ -8,7 +8,6 @@ import type { MonthLine } from '../domain/ledgerEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 
 type Props = {
-  /** 全書各月曾出現之人員併集（與「鈞泩／蔡董日薪」連動；切換月分仍同一份勾選名單） */
   staffPickerKeys: readonly string[]
   salaryBook: SalaryBook
   months: MonthLine[]
@@ -35,7 +34,6 @@ function clearSingleZeroOnFocus(e: FocusEvent<HTMLInputElement>, set: (s: string
   if (v === '0' || v === '-0') set('')
 }
 
-/** 臨時人員：換行、逗號／頓號／分號／斜線／空白等皆可分隔多人 */
 function parseExtraWorkerNames(raw: string): string[] {
   const out: string[] = []
   for (const line of raw.split(/\r?\n/)) {
@@ -141,11 +139,6 @@ export function FieldworkQuickSection({
   return (
     <section className="card">
       <h3>快速登記（出工＋公司帳）</h3>
-      <p className="hint">
-        地點填「<strong>{QUICK_SITE_TSAI_ADJUST}</strong>」或「<strong>{QUICK_SITE_JUN_ADJUST}</strong>」時，出工寫入月表<strong>蔡董調工／鈞泩調工</strong>列，不寫案場格線；加班費會自動對應同一條日薪。
-        其餘案名則寫入該日所在月表案場格線。下方<strong>餐費</strong>與<strong>加班費</strong>各自填寫（皆為選填），會加在與日期同日曆月的公司帳欄位。
-        有填「每人加班時數」時，會<strong>連動</strong>寫入該月薪水表「鈞泩加班／蔡董加班」時數格（與加班費試算同一條日薪線）；手動金額僅進公司帳、不寫時數。
-      </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span>日期</span>
@@ -180,9 +173,6 @@ export function FieldworkQuickSection({
         </label>
       </div>
       <div style={{ marginTop: 12 }}>
-        <div className="hint" style={{ marginBottom: 8 }}>
-          施工人員為<strong>全書各月併集名單</strong>（與「鈞泩／蔡董日薪」連動；換月不切換勾選）；登記時會把勾選或臨時輸入的人員<strong>同步補進每一個月的格線與日薪列</strong>。下方可再加臨時人員。
-        </div>
         <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
           {staffPickerKeys.map((name) => (
             <label
@@ -201,7 +191,8 @@ export function FieldworkQuickSection({
         <textarea
           rows={3}
           style={{ marginTop: 8, width: '100%', maxWidth: 480, resize: 'vertical' }}
-          placeholder="臨時人員（多人：逗號、頓號、分號、斜線或換行分隔），例：小明、小華 或 每行一位"
+          aria-label="臨時人員"
+          placeholder="臨時人員"
           value={extraNames}
           onChange={(e) => setExtraNames(e.target.value)}
         />
@@ -228,9 +219,6 @@ export function FieldworkQuickSection({
           <legend>加班費</legend>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <div className="hint" style={{ marginBottom: 8 }}>
-                有填「每人加班時數」時，依日薪÷8自動計算並加在公司帳「加班費」欄，並連動累加該月月表「鈞泩加班」或「蔡董加班」該日時數（與下方日薪線一致）。時數為 0 時才使用下方手動金額（僅公司帳、不寫月表時數）。
-              </div>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 16 }}>
                 <input
                   type="radio"
@@ -260,7 +248,6 @@ export function FieldworkQuickSection({
                 value={otHoursPerPerson}
                 onFocus={(e) => clearSingleZeroOnFocus(e, setOtHoursPerPerson)}
                 onChange={(e) => setOtHoursPerPerson(e.target.value)}
-                placeholder="例：2，0 則改用手動"
               />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
