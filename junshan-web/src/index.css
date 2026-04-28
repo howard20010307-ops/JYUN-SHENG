@@ -563,6 +563,8 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 /** 總表：游標旁浮動提示（金額拆解） */
 .payrollSummaryPopoverCell {
   cursor: help;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .payrollSummaryTooltip {
@@ -593,6 +595,10 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   flex-shrink: 0;
   cursor: grab;
   user-select: none;
+  touch-action: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
   padding: 8px 12px;
   font-size: 0.78rem;
   color: var(--muted);
@@ -708,6 +714,178 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   margin: 0 0 12px;
   font-size: 1rem;
   color: var(--head);
+}
+
+/* 工作日誌：月曆 */
+.worklogCalendarCard {
+  margin-bottom: 14px;
+}
+.worklogMonthNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.worklogMonthTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--head);
+  text-align: center;
+  flex: 1;
+}
+.worklogCalGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.worklogCalDow {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.worklogDayCell {
+  position: relative;
+  aspect-ratio: 1;
+  min-height: 2.5rem;
+  max-height: 4.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a1016;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 6px 4px 4px;
+  cursor: pointer;
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s;
+}
+.worklogDayCell:hover:not(.worklogDayCell--empty) {
+  border-color: rgba(61, 156, 245, 0.45);
+  background: #0d141c;
+}
+.worklogDayCell--empty {
+  cursor: default;
+  background: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+.worklogDayCell--hasEntry .worklogDayNum {
+  font-weight: 700;
+  color: var(--head);
+}
+.worklogDayCell--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(61, 156, 245, 0.35);
+}
+.worklogDayCell--today:not(.worklogDayCell--selected) {
+  border-color: rgba(90, 212, 168, 0.4);
+}
+.worklogDayNum {
+  font-size: 0.88rem;
+  line-height: 1.2;
+}
+.worklogDayDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent2);
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.worklogDaySection {
+  margin-bottom: 14px;
+}
+.worklogDayEntryList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.worklogDayEntryItem {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #0a1016;
+}
+.worklogDayEntryHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.worklogDayEntryMeta {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.worklogDayEntryLine {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.worklogTimePair {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.worklogTimePair input[type='time'] {
+  color-scheme: dark;
+  max-width: 8.5rem;
+}
+.worklogStaffBlock {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.worklogStaffTitle {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.worklogStaffChecks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.worklogCustomItemRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.worklogCustomItemRow .titleInput {
+  flex: 1;
+  min-width: 140px;
+}
+.worklogListSummary {
+  margin: 6px 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+@media (max-width: 520px) {
+  .worklogCalGrid {
+    gap: 4px;
+  }
+  .worklogDayCell {
+    padding: 4px 2px 2px;
+    border-radius: 6px;
+  }
+  .worklogDayNum {
+    font-size: 0.78rem;
+  }
 }
 
 /* 工作日誌 */
@@ -1284,6 +1462,52 @@ table.data {
   font-size: 0.88rem;
 }
 
+/**
+ * 月表「鈞泩／蔡董日薪」：僅四欄，手機若全寬均分會把姓名擠扁；固定版面讓姓名欄優先寬度。
+ */
+table.data.payrollRatesTable {
+  table-layout: fixed;
+  min-width: 17.5rem;
+}
+
+table.data.payrollRatesTable thead th:first-child,
+table.data.payrollRatesTable tbody td:first-child {
+  min-width: 11rem;
+  width: 44%;
+  max-width: none;
+  vertical-align: middle;
+}
+
+.tableScrollSticky > table.data.payrollRatesTable thead th:first-child,
+.tableScrollSticky > table.data.payrollRatesTable tbody td:first-child {
+  min-width: 11rem;
+}
+
+table.data.payrollRatesTable thead th:nth-child(2),
+table.data.payrollRatesTable thead th:nth-child(3),
+table.data.payrollRatesTable tbody td:nth-child(2),
+table.data.payrollRatesTable tbody td:nth-child(3) {
+  width: 24%;
+  min-width: 5.5rem;
+}
+
+table.data.payrollRatesTable thead th:nth-child(4),
+table.data.payrollRatesTable tbody td:nth-child(4) {
+  width: 8%;
+  min-width: 3.5rem;
+  white-space: nowrap;
+}
+
+table.data.payrollRatesTable .titleInput {
+  flex: none;
+  display: block;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
 table.data th,
 table.data td {
   border: 1px solid var(--border);
@@ -1561,6 +1785,30 @@ table.data.ledgerCompanyTable {
     font-size: 1rem;
   }
 
+  /** 日薪表：手機再略放寬姓名欄，長姓名（含括號）可換行不擠 */
+  table.data.payrollRatesTable {
+    min-width: 19.5rem;
+  }
+
+  table.data.payrollRatesTable thead th:first-child,
+  table.data.payrollRatesTable tbody td:first-child {
+    min-width: 12.5rem;
+    width: 50%;
+  }
+
+  table.data.payrollRatesTable thead th:nth-child(2),
+  table.data.payrollRatesTable thead th:nth-child(3),
+  table.data.payrollRatesTable tbody td:nth-child(2),
+  table.data.payrollRatesTable tbody td:nth-child(3) {
+    width: 21%;
+    min-width: 5.25rem;
+  }
+
+  .tableScrollSticky > table.data.payrollRatesTable thead th:first-child,
+  .tableScrollSticky > table.data.payrollRatesTable tbody td:first-child {
+    min-width: 12.5rem;
+  }
+
   .tableScrollSticky {
     max-height: min(88vh, 980px);
     border-radius: 8px;
@@ -1699,23 +1947,391 @@ table.data.ledgerCompanyTable {
     font-size: 1rem;
   }
 
-  /** 估價大表：表頭字不要太小、欄位內距加大 */
-  .quoteExcelTH {
-    padding: 8px 6px !important;
+  /** 放樣估價：工作表切換、表頭與儲存格（手機以橫捲＋較大字級／點擊區為主） */
+  .quoteSheetTabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: stretch;
   }
 
-  .quoteExcelTH .excelLet {
-    font-size: 0.68rem;
+  .quoteSheetTabs .tab {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    min-height: 48px;
+    line-height: 1.25;
+    font-size: 0.88rem;
+    padding: 10px 8px;
   }
 
-  .quoteExcelTH .excelLbl {
-    font-size: 0.7rem;
+  .panelHead {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .panelHead .btnRow {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .panelHead .btnRow .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .feeGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .feeGrid label {
+    font-size: 0.88rem;
+  }
+
+  .stat {
+    padding: 12px 14px;
+    min-height: auto;
+  }
+
+  .stat strong {
+    font-size: 1rem;
+  }
+
+  .summary .dl {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .summary .dl > div {
+    padding: 12px 14px;
+  }
+
+  .summary dt {
+    font-size: 0.82rem;
+  }
+
+  .summary dd {
+    font-size: 1rem;
+  }
+
+  table.data.quoteFloorTable {
+    min-width: 100%;
+    table-layout: fixed;
+  }
+
+  table.data.quoteFloorTable th:nth-child(1),
+  table.data.quoteFloorTable td:nth-child(1) {
+    width: 36%;
+    min-width: 6.5rem;
+    max-width: none;
+  }
+
+  table.data.quoteFloorTable th:nth-child(2),
+  table.data.quoteFloorTable td:nth-child(2) {
+    width: 32%;
+    min-width: 5.5rem;
+  }
+
+  table.data.quoteFloorTable th:nth-child(3),
+  table.data.quoteFloorTable td:nth-child(3) {
+    width: 22%;
+    min-width: 4.5rem;
+  }
+
+  table.data.quoteFloorTable th:nth-child(4),
+  table.data.quoteFloorTable td:nth-child(4) {
+    width: 10%;
+    min-width: 3.25rem;
+    white-space: nowrap;
+  }
+
+  table.data.quoteFloorTable input {
+    width: 100%;
+    min-height: 44px;
+    font-size: 1rem;
+    box-sizing: border-box;
+  }
+
+  table.data.quoteFloorTable .btn {
+    width: 100%;
+    min-height: 44px;
+    font-size: 0.88rem;
+  }
+
+  table.data.quoteFloorPricingTable {
+    min-width: 880px;
+    --quote-floor-sticky-a: 5.25rem;
+  }
+
+  .tableScrollSticky > table.quoteFloorPricingTable thead th:first-child,
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child {
+    width: var(--quote-floor-sticky-a);
+    min-width: var(--quote-floor-sticky-a);
+    max-width: 7rem;
+    font-size: 0.8rem;
+    white-space: normal;
+    line-height: 1.25;
+    word-break: break-word;
+  }
+
+  .tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2),
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2) {
+    left: var(--quote-floor-sticky-a);
+    min-width: 5rem;
+    max-width: 9rem;
+    font-size: 0.78rem;
+    white-space: normal;
     line-height: 1.2;
   }
 
-  .quoteRowActBtns .btn {
+  .tableScrollSticky > table.quoteFloorPricingTable thead th {
+    font-size: 0.76rem;
+    padding: 10px 6px !important;
+    white-space: normal;
+    line-height: 1.2;
+    vertical-align: bottom;
+  }
+
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td {
+    padding: 10px 7px !important;
+    font-size: 0.88rem;
+  }
+
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td input {
+    min-height: 44px;
+    font-size: 0.95rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  table.data.quoteItemPricingTable {
+    min-width: 100%;
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  .tableScrollSticky > table.quoteItemPricingTable thead th.quoteStickyItemCol,
+  .tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol {
+    min-width: 0;
+    width: 40%;
+    max-width: none;
+    white-space: normal;
+    word-break: break-word;
+    font-size: 0.86rem;
+    line-height: 1.35;
+    vertical-align: top;
+    padding: 10px 8px !important;
+  }
+
+  .tableScrollSticky > table.quoteItemPricingTable thead th.num,
+  .tableScrollSticky > table.quoteItemPricingTable tbody td.num {
+    width: 20%;
+    min-width: 4.5rem;
+    font-size: 0.88rem;
+    padding: 10px 8px !important;
+  }
+
+  table.data.quoteCostTable,
+  table.data.quoteCostTableExcel {
+    min-width: 1980px;
+    --quote-sticky-col-a: 6.25rem;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
+    min-width: 6.25rem;
+    max-width: 9rem;
+    width: 6.25rem;
+    padding: 10px 6px !important;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child {
+    min-width: 6.25rem;
+    max-width: 9rem;
+    width: 6.25rem;
+    padding: 8px 6px !important;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
+    min-width: 7rem;
+    max-width: 11rem;
+    left: var(--quote-sticky-col-a);
+    padding: 10px 6px !important;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol {
+    min-width: 7rem;
+    max-width: 11rem;
+    left: var(--quote-sticky-col-a);
+    padding: 8px 6px !important;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child input {
+    min-height: 44px;
+    font-size: 0.95rem;
+    padding: 8px 6px;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol input {
+    min-height: 44px;
+    font-size: 0.95rem;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody td input:not([type='checkbox']):not([type='radio']) {
+    min-height: 42px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel tbody td.num {
+    font-size: 0.88rem;
+    padding: 10px 7px !important;
+  }
+
+  .tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThStickyAB {
+    padding: 10px 8px !important;
+  }
+
+  .quoteCostActiveZoneInner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .quoteCostActiveZoneTitle {
+    font-size: 0.92rem;
+  }
+
+  .quoteCostActiveZoneSub {
+    font-size: 0.72rem;
+  }
+
+  .quoteZoneRenameBtn {
     min-height: 40px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+  }
+
+  .quoteExcelTH {
+    min-width: 4.75rem;
+    max-width: 6.25rem;
+    padding: 9px 6px !important;
+    line-height: 1.2;
+  }
+
+  .quoteExcelTH .excelLet {
+    font-size: 0.66rem;
+    margin-bottom: 3px;
+  }
+
+  .quoteExcelTH .excelLbl {
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+
+  .quoteExcelTHAct {
+    min-width: 4.75rem;
+    max-width: 5.5rem;
+  }
+
+  .quoteRowActCell {
+    padding: 8px 6px !important;
+    vertical-align: middle;
+  }
+
+  .quoteRowActBtns {
+    gap: 8px;
+  }
+
+  .quoteRowActBtns .btn {
+    min-height: 44px;
     font-size: 0.82rem;
+    padding: 8px 8px;
+    white-space: normal;
+    line-height: 1.25;
+    text-align: center;
+  }
+
+  .quoteDialogOverlay {
+    padding: 12px;
+    align-items: flex-end;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .quoteDialogPanel {
+    max-width: 100%;
+    width: 100%;
+    max-height: min(88vh, 36rem);
+    overflow-y: auto;
+    padding: 1.1rem 1.15rem 1rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .quoteDialogTitle {
+    font-size: 1.05rem;
+  }
+
+  .quoteDialogDesc {
+    font-size: 0.88rem;
+  }
+
+  .quoteDialogField,
+  .quoteDialogForm select {
+    min-height: 46px;
+    font-size: 1rem;
+  }
+
+  .jsonbinSyncBar {
+    font-size: 0.88rem;
+    padding: 12px 12px;
+  }
+
+  .jsonbinSyncBar__row {
+    gap: 10px;
+  }
+
+  .top .btnRow {
+    gap: 10px;
+  }
+
+  .top .btnRow .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .checkPair {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .worklogListItem {
+    padding: 14px 12px;
+  }
+
+  .worklogListBody {
+    font-size: 0.92rem;
+  }
+
+  .appLoginGate {
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .appLoginGate__panel {
+    width: 100%;
+    max-width: 100%;
+    padding: 1.15rem 1.1rem 1rem;
+  }
+
+  .appCloudGate__panel {
+    max-width: calc(100vw - 24px);
+    margin: 0 12px;
   }
 
   .foot {
@@ -1739,6 +2355,10 @@ table.data.ledgerCompanyTable {
 
 @media (max-width: 380px) {
   .payrollSubTabs {
+    grid-template-columns: 1fr;
+  }
+
+  .quoteSheetTabs {
     grid-template-columns: 1fr;
   }
 }

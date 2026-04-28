@@ -5,7 +5,15 @@ import {
   QUICK_SITE_TSAI_ADJUST,
 } from '../domain/fieldworkQuickApply'
 import type { MonthLine } from '../domain/ledgerEngine'
+import type { QuoteRow } from '../domain/quoteEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
+import {
+  DEFAULT_WORK_END,
+  DEFAULT_WORK_START,
+  mergedWorkItemOptions,
+  newWorkLogEntry,
+  type WorkLogState,
+} from '../domain/workLogModel'
 
 type Props = {
   staffPickerKeys: readonly string[]
@@ -13,6 +21,9 @@ type Props = {
   months: MonthLine[]
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
   setMonths: (m: MonthLine[]) => void
+  quoteRows: readonly QuoteRow[]
+  workLog: WorkLogState
+  setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
 }
 
 function todayIso(): string {
@@ -26,6 +37,15 @@ function todayIso(): string {
 function num(v: string): number {
   const n = parseFloat(v)
   return Number.isFinite(n) ? n : 0
+}
+
+function padHhmm(s: string, fb: string): string {
+  const t = (s || fb).trim()
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t)
+  if (!m) return fb
+  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)))
+  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)))
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
 /** 受控字串數字欄若目前顯示為單一 0，進焦點即清空（與 PayrollNumberInput 一致） */
@@ -58,6 +78,9 @@ export function FieldworkQuickSection({
   months,
   setSalaryBook,
   setMonths,
+  quoteRows,
+  workLog,
+  setWorkLog,
 }: Props) {
   const pickerSig = staffPickerKeys.join('\u0001')
   const siteOptions = useMemo(() => {
@@ -71,12 +94,23 @@ export function FieldworkQuickSection({
     return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   }, [salaryBook.months])
 
+  const workItemOptions = useMemo(
+    () => mergedWorkItemOptions(quoteRows, workLog.customWorkItemLabels ?? []),
+    [quoteRows, workLog.customWorkItemLabels],
+  )
+
   const [iso, setIso] = useState(todayIso)
   const [site, setSite] = useState('')
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const [extraNames, setExtraNames] = useState('')
   const [dayVal, setDayVal] = useState('1')
+  const [timeStart, setTimeStart] = useState(DEFAULT_WORK_START)
+  const [timeEnd, setTimeEnd] = useState(DEFAULT_WORK_END)
+  const [workItem, setWorkItem] = useState('')
+  const [equipment, setEquipment] = useState('')
+  const [remarkQuick, setRemarkQuick] = useState('')
   const [mealAmount, setMealAmount] = useState('')
+  const [miscLedger, setMiscLedger] = useState('')
   const [otHoursPerPerson, setOtHoursPerPerson] = useState('')
   const [otManualAmount, setOtManualAmount] = useState('')
   const [otRateLine, setOtRateLine] = useState<'jun' | 'tsai'>('jun')
@@ -117,12 +151,14 @@ export function FieldworkQuickSection({
       seen.add(w)
       workers.push(w)
     }
+    const miscN = num(miscLedger)
     const r = applyFieldworkQuick(salaryBook, months, {
       isoDate: iso,
       siteName: site,
       workers,
       dayValue: num(dayVal),
       mealLedgerAmount: num(mealAmount),
+      miscLedgerAmount: miscN,
       otHoursPerPerson: num(otHoursPerPerson),
       otManualAmount: num(otManualAmount),
       otRateLine,
@@ -133,12 +169,55 @@ export function FieldworkQuickSection({
     }
     setSalaryBook(() => r.book)
     setMonths(r.months)
-    alert(r.message)
+
+    const remarkParts: string[] = []
+    const hOt = num(otHoursPerPerson)
+    if (hOt > 0) {
+      remarkParts.push(
+        `加班 ${hOt} 時／人（${otRateLine === 'jun' ? '鈞泩' : '蔡董'}日薪線）`,
+      )
+    }
+    const manOt = num(otManualAmount)
+    if (manOt !== 0 && hOt <= 0) {
+      remarkParts.push(`加班費手動 ${manOt} 元`)
+    }
+    if (remarkQuick.trim()) remarkParts.push(remarkQuick.trim())
+
+    const wi = workItem.trim()
+    setWorkLog((w) => {
+      let custom = [...(w.customWorkItemLabels ?? [])]
+      const opts = mergedWorkItemOptions(quoteRows, custom)
+      if (wi && !opts.includes(wi)) {
+        custom = [...custom, wi].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+      }
+      const entry = newWorkLogEntry({
+        logDate: iso,
+        siteName: site.trim(),
+        staffNames: workers,
+        timeStart: padHhmm(timeStart, DEFAULT_WORK_START),
+        timeEnd: padHhmm(timeEnd, DEFAULT_WORK_END),
+        workItem: wi,
+        equipment: equipment.trim(),
+        mealCost: num(mealAmount),
+        miscCost: miscN,
+        remark: remarkParts.join('\n'),
+      })
+      return {
+        ...w,
+        customWorkItemLabels: custom,
+        entries: [...w.entries, entry],
+      }
+    })
+
+    alert(`${r.message}\n已同步寫入「工作日誌」一筆（${iso}）。`)
   }
 
   return (
     <section className="card">
-      <h3>快速登記（出工＋公司帳）</h3>
+      <h3>快速登記（出工＋公司帳＋工作日誌）</h3>
+      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+        送出後會更新<strong>月表出工／調工／加班</strong>與<strong>公司帳</strong>，並新增一則<strong>工作日誌</strong>（上下班、內容選項、儀器、餐費／雜項與備註）。工作內容選項與「放樣估價」細項及日誌自訂清單合併。
+      </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span>日期</span>
@@ -172,6 +251,7 @@ export function FieldworkQuickSection({
           />
         </label>
       </div>
+
       <div style={{ marginTop: 12 }}>
         <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
           {staffPickerKeys.map((name) => (
@@ -192,24 +272,92 @@ export function FieldworkQuickSection({
           rows={3}
           style={{ marginTop: 8, width: '100%', maxWidth: 480, resize: 'vertical' }}
           aria-label="臨時人員"
-          placeholder="臨時人員"
+          placeholder="臨時人員（可逗號、換行分隔）"
           value={extraNames}
           onChange={(e) => setExtraNames(e.target.value)}
         />
       </div>
+
+      <h4 style={{ marginTop: 18, marginBottom: 8 }}>工作日誌欄位（與日誌頁連動）</h4>
+      <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span>上班（預設 7:30）</span>
+          <input
+            type="time"
+            value={padHhmm(timeStart, DEFAULT_WORK_START)}
+            onChange={(e) => setTimeStart(e.target.value)}
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span>下班（預設 16:30）</span>
+          <input
+            type="time"
+            value={padHhmm(timeEnd, DEFAULT_WORK_END)}
+            onChange={(e) => setTimeEnd(e.target.value)}
+          />
+        </label>
+      </div>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
+        <span>工作內容（估價細項／可自填；新字會加入日誌自訂選項）</span>
+        <input
+          type="text"
+          value={workItem}
+          onChange={(e) => setWorkItem(e.target.value)}
+          list="fieldwork-workitem-datalist"
+          placeholder="選擇或輸入"
+        />
+        <datalist id="fieldwork-workitem-datalist">
+          {workItemOptions.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
+        <span>使用儀器</span>
+        <input
+          type="text"
+          value={equipment}
+          onChange={(e) => setEquipment(e.target.value)}
+          placeholder="例如：全站、墨線儀…"
+        />
+      </label>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
+        <span>備註（寫入日誌；可補現場說明）</span>
+        <textarea
+          rows={2}
+          style={{ width: '100%', maxWidth: 520, resize: 'vertical' }}
+          value={remarkQuick}
+          onChange={(e) => setRemarkQuick(e.target.value)}
+        />
+      </label>
 
       <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司帳（選填）</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <fieldset style={fieldsetStyle}>
           <legend>餐費</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>加帳金額（可正負，0 表示不加）</span>
+            <span>加帳金額（可正負，0 表示不加；同日誌「餐費」）</span>
             <input
               type="number"
               className="narrow"
               value={mealAmount}
               onFocus={(e) => clearSingleZeroOnFocus(e, setMealAmount)}
               onChange={(e) => setMealAmount(e.target.value)}
+              placeholder="0"
+            />
+          </label>
+        </fieldset>
+
+        <fieldset style={fieldsetStyle}>
+          <legend>雜項（入公司帳「工具」）</legend>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
+            <span>金額（可正負，0 表示不加；同日誌「雜項支出」）</span>
+            <input
+              type="number"
+              className="narrow"
+              value={miscLedger}
+              onFocus={(e) => clearSingleZeroOnFocus(e, setMiscLedger)}
+              onChange={(e) => setMiscLedger(e.target.value)}
               placeholder="0"
             />
           </label>
@@ -267,7 +415,7 @@ export function FieldworkQuickSection({
 
       <div className="btnRow" style={{ marginTop: 16 }}>
         <button type="button" className="btn" onClick={submit}>
-          登記到月表與公司帳
+          登記到月表、公司帳與工作日誌
         </button>
       </div>
     </section>

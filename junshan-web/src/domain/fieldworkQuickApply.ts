@@ -20,6 +20,8 @@ export type FieldworkQuickPayload = {
   dayValue: number
   /** 公司帳「餐費」加帳（可正負）；0 表示不加 */
   mealLedgerAmount: number
+  /** 公司帳「工具」加帳（可正負）；0 表示不加；工作日誌雜項支出與此連動 */
+  miscLedgerAmount?: number
   /**
    * 加班費：每人加班時數；與月表一致：時薪＝日薪／8，再乘時數。
    * 若為 0 且 otManualAmount≠0，則加班費改用手動金額。
@@ -156,10 +158,16 @@ export function applyFieldworkQuick(
   const li = months.findIndex((row) => row.month === monthKey)
 
   const mealAmt = payload.mealLedgerAmount
+  const miscAmtRaw =
+    typeof payload.miscLedgerAmount === 'number' && Number.isFinite(payload.miscLedgerAmount)
+      ? payload.miscLedgerAmount
+      : 0
+  const miscAmt = miscAmtRaw
   const otHours = payload.otHoursPerPerson
   const otManual = payload.otManualAmount
 
   const wantsMeal = Number.isFinite(mealAmt) && mealAmt !== 0
+  const wantsMisc = miscAmt !== 0
   const hours = Number.isFinite(otHours) && otHours > 0 ? otHours : 0
   const wantsOtAuto = hours > 0 && workers.length > 0
   const wantsOtManual =
@@ -188,8 +196,8 @@ export function applyFieldworkQuick(
   }
 
   if (li < 0) {
-    if (wantsMeal || wantsOtAuto || wantsOtManual) {
-      msg += ` 公司帳：找不到「${monthKey} 月」列，略過餐費／加班費加帳。`
+    if (wantsMeal || wantsMisc || wantsOtAuto || wantsOtManual) {
+      msg += ` 公司帳：找不到「${monthKey} 月」列，略過餐費／工具（雜項）／加班費加帳。`
     }
   } else {
     const parts: string[] = []
@@ -200,6 +208,13 @@ export function applyFieldworkQuick(
         i !== li ? row : { ...row, meals: row.meals + mealAmt },
       )
       parts.push(`餐費 ${mealAmt}`)
+    }
+
+    if (wantsMisc) {
+      ledger = ledger.map((row, i) =>
+        i !== li ? row : { ...row, tools: row.tools + miscAmt },
+      )
+      parts.push(`工具（雜項） ${miscAmt}`)
     }
 
     let otDelta = 0

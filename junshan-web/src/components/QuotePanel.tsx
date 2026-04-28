@@ -445,7 +445,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
         )}
       </p>
 
-      <div className="btnRow" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
+      <div className="btnRow quoteSheetTabs" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
         <button
           type="button"
           role="tab"

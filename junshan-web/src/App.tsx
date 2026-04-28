@@ -4,6 +4,7 @@ import { PayrollPanel } from './components/PayrollPanel'
 import { LedgerPanel } from './components/LedgerPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import type { SalaryBook } from './domain/salaryExcelModel'
+import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
@@ -72,6 +73,11 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
 
   const quoteJobSites = useMemo(
     () => jobSitesFromBook(state.salaryBook),
+    [state.salaryBook],
+  )
+
+  const worklogStaffKeys = useMemo(
+    () => staffKeysAcrossBook(state.salaryBook),
     [state.salaryBook],
   )
 
@@ -198,6 +204,14 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             }
             months={state.months}
             setMonths={(months) => patch({ months })}
+            quoteRows={state.quoteRows}
+            workLog={state.workLog}
+            setWorkLog={(fn) =>
+              setState((s) => ({
+                ...s,
+                workLog: fn(s.workLog),
+              }))
+            }
           />
         )}
         {state.tab === 'quote' && (
@@ -226,6 +240,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               }))
             }
             siteOptions={quoteJobSites}
+            quoteRows={state.quoteRows}
+            staffOptions={worklogStaffKeys}
           />
         )}
       </main>

@@ -31,6 +31,8 @@ import {
   pickActiveMonthIdForToday,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
+import type { QuoteRow } from '../domain/quoteEngine'
+import type { WorkLogState } from '../domain/workLogModel'
 import { FieldworkQuickSection } from './FieldworkQuickSection'
 import { PayrollSitesByMonthReadonly } from './PayrollSitesByMonthReadonly'
 import { PayrollNumberInput } from './PayrollNumberInput'
@@ -42,6 +44,9 @@ type Props = {
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
   months: MonthLine[]
   setMonths: (m: MonthLine[]) => void
+  quoteRows: readonly QuoteRow[]
+  workLog: WorkLogState
+  setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
 }
 
 function sumRowCells(row: number[] | undefined, len: number): number {
@@ -123,7 +128,15 @@ function staffHasBlockWork(
   return staffTotalDays(padArray(block.grid[name], dateLen)) !== 0
 }
 
-export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: Props) {
+export function PayrollPanel({
+  salaryBook,
+  setSalaryBook,
+  months,
+  setMonths,
+  quoteRows,
+  workLog,
+  setWorkLog,
+}: Props) {
   /** 案場名 blur 時全書連動更名：記錄焦點當下之舊字串 */
   const siteRenameSnapRef = useRef<{
     monthId: string
@@ -265,6 +278,9 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
           months={months}
           setSalaryBook={setSalaryBook}
           setMonths={setMonths}
+          quoteRows={quoteRows}
+          workLog={workLog}
+          setWorkLog={setWorkLog}
         />
       )}
 
@@ -400,7 +416,7 @@ export function PayrollPanel({ salaryBook, setSalaryBook, months, setMonths }: P
               <strong>蔡董日薪</strong>僅用於<strong>蔡董調工薪水</strong>與<strong>蔡董加班費</strong>換算；案場格線不計蔡董薪水（總表「蔡董薪水(未扣預支)」為 0）。
             </p>
             <div className="tableScroll tableScrollSticky">
-              <table className="data">
+              <table className="data payrollRatesTable">
                 <thead>
                   <tr>
                     <th>姓名</th>

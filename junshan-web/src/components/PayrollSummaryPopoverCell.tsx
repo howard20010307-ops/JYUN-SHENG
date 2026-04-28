@@ -10,6 +10,15 @@ function formatAmount(n: number): string {
   return r.toLocaleString('zh-TW', { maximumFractionDigits: 2 })
 }
 
+function clientFromTouch(e: TouchEvent | React.TouchEvent): {
+  clientX: number
+  clientY: number
+} | null {
+  const t = e.touches[0] ?? e.changedTouches[0]
+  if (!t) return null
+  return { clientX: t.clientX, clientY: t.clientY }
+}
+
 type TipState = { x: number; y: number; open: boolean; pinned: boolean }
 
 type Props = {
@@ -43,6 +52,17 @@ export function PayrollSummaryPopoverCell({
   const cellRef = useRef<HTMLTableCellElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const dragOriginRef = useRef({ sx: 0, sy: 0, ox: 0, oy: 0 })
+  const tipRef = useRef(tip)
+  const suppressClickUntilRef = useRef(0)
+  const touchStartRef = useRef<{
+    x: number
+    y: number
+    wasPinned: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    tipRef.current = tip
+  }, [tip])
 
   const dismiss = useCallback(() => {
     setDragging(false)
@@ -51,28 +71,38 @@ export function PayrollSummaryPopoverCell({
 
   useEffect(() => {
     if (!tip.pinned) return
-    const onDocMouseDown = (e: MouseEvent) => {
-      const n = e.target as Node
+    const onDocDown = (e: MouseEvent | TouchEvent) => {
+      let n: Node | null = null
+      if ('touches' in e) {
+        const te = e as TouchEvent
+        const t = te.touches[0] ?? te.changedTouches[0]
+        n = (t?.target as Node) ?? null
+      } else {
+        n = (e as MouseEvent).target as Node
+      }
+      if (!n) return
       if (cellRef.current?.contains(n) || tooltipRef.current?.contains(n)) return
       dismiss()
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') dismiss()
     }
-    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('mousedown', onDocDown)
+    document.addEventListener('touchstart', onDocDown, { capture: true })
     document.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('mousedown', onDocDown)
+      document.removeEventListener('touchstart', onDocDown, { capture: true })
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [tip.pinned, dismiss])
 
   useEffect(() => {
     if (!dragging) return
-    const onMove = (e: MouseEvent) => {
+    const applyMove = (clientX: number, clientY: number) => {
       const d = dragOriginRef.current
-      let nx = d.ox + (e.clientX - d.sx)
-      let ny = d.oy + (e.clientY - d.sy)
+      let nx = d.ox + (clientX - d.sx)
+      let ny = d.oy + (clientY - d.sy)
       const margin = 10
       const vw = window.innerWidth
       const vh = window.innerHeight
@@ -83,14 +113,25 @@ export function PayrollSummaryPopoverCell({
       ny = Math.min(Math.max(ny, margin), vh - margin - h)
       setTip((t) => ({ ...t, x: nx, y: ny }))
     }
+    const onMouseMove = (e: MouseEvent) => applyMove(e.clientX, e.clientY)
+    const onTouchMove = (e: TouchEvent) => {
+      const c = clientFromTouch(e)
+      if (!c) return
+      e.preventDefault()
+      applyMove(c.clientX, c.clientY)
+    }
     const onUp = () => setDragging(false)
-    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onUp)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('touchend', onUp)
     document.body.style.cursor = 'grabbing'
     document.body.style.userSelect = 'none'
     return () => {
-      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend', onUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -104,6 +145,23 @@ export function PayrollSummaryPopoverCell({
       dragOriginRef.current = {
         sx: e.clientX,
         sy: e.clientY,
+        ox: tip.x,
+        oy: tip.y,
+      }
+      setDragging(true)
+    },
+    [tip.pinned, tip.x, tip.y],
+  )
+
+  const startDragTouch = useCallback(
+    (e: React.TouchEvent) => {
+      if (!tip.pinned || e.touches.length !== 1) return
+      e.preventDefault()
+      e.stopPropagation()
+      const t = e.touches[0]!
+      dragOriginRef.current = {
+        sx: t.clientX,
+        sy: t.clientY,
         ox: tip.x,
         oy: tip.y,
       }
@@ -152,6 +210,77 @@ export function PayrollSummaryPopoverCell({
     })
   }, [])
 
+  const onCellTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return
+    const t = e.touches[0]!
+    const cur = tipRef.current
+    touchStartRef.current = {
+      x: t.clientX,
+      y: t.clientY,
+      wasPinned: cur.pinned,
+    }
+    if (!cur.pinned) {
+      setTip({
+        x: t.clientX + 12,
+        y: t.clientY + 12,
+        open: true,
+        pinned: false,
+      })
+    }
+  }, [])
+
+  const onCellTouchMove = useCallback((e: React.TouchEvent) => {
+    const cur = tipRef.current
+    if (!cur.open || cur.pinned || e.touches.length !== 1) return
+    const t = e.touches[0]!
+    setTip((prev) =>
+      prev.open && !prev.pinned
+        ? { ...prev, x: t.clientX + 12, y: t.clientY + 12 }
+        : prev,
+    )
+  }, [])
+
+  const onCellTouchEnd = useCallback((e: React.TouchEvent) => {
+    suppressClickUntilRef.current = Date.now() + 500
+    const t = e.changedTouches[0]
+    const start = touchStartRef.current
+    touchStartRef.current = null
+    if (!t || !start) return
+    const dist = Math.hypot(t.clientX - start.x, t.clientY - start.y)
+    if (start.wasPinned) {
+      if (dist < 20) dismiss()
+      return
+    }
+    if (dist < 20) {
+      setTip((prev) =>
+        prev.open && !prev.pinned ? { ...prev, pinned: true } : prev,
+      )
+    } else {
+      setTip((prev) =>
+        prev.open && !prev.pinned ? { ...prev, open: false, pinned: false } : prev,
+      )
+    }
+  }, [dismiss])
+
+  const onCellTouchCancel = useCallback(() => {
+    touchStartRef.current = null
+    setTip((prev) =>
+      prev.open && !prev.pinned ? { ...prev, open: false, pinned: false } : prev,
+    )
+  }, [])
+
+  const onCellClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (Date.now() < suppressClickUntilRef.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+      togglePin(e)
+    },
+    [togglePin],
+  )
+
   const mergedClass = ['payrollSummaryPopoverCell', className].filter(Boolean).join(' ')
 
   return (
@@ -162,7 +291,11 @@ export function PayrollSummaryPopoverCell({
         onMouseEnter={openAt}
         onMouseMove={move}
         onMouseLeave={leaveCell}
-        onClick={togglePin}
+        onClick={onCellClick}
+        onTouchStart={onCellTouchStart}
+        onTouchMove={onCellTouchMove}
+        onTouchEnd={onCellTouchEnd}
+        onTouchCancel={onCellTouchCancel}
       >
         {cellContent}
       </td>
@@ -185,7 +318,8 @@ export function PayrollSummaryPopoverCell({
               <div
                 className="payrollSummaryTooltip__dragBar"
                 onMouseDown={startDrag}
-                title="按住左鍵拖曳移動視窗"
+                onTouchStart={startDragTouch}
+                title="拖曳移動視窗（滑鼠左鍵或觸控按住此列）"
               >
                 ⋮⋮ 拖曳移動
               </div>
@@ -231,7 +365,7 @@ export function PayrollSummaryPopoverCell({
               ) : null}
               {tip.pinned ? (
                 <div className="payrollSummaryTooltip__pinHint">
-                  已鎖定：上方列可拖曳視窗；內容區可捲動；再點同一格、點空白處或按 Esc 關閉
+                  已鎖定：上方列可拖曳視窗；內容區可捲動。關閉：再點同一格、點畫面其他處，或按 Esc（外接鍵盤時）
                 </div>
               ) : null}
             </div>
