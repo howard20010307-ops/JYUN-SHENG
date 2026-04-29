@@ -171,15 +171,16 @@ export function itemPricingBreakdown(
   row: ItemPricingRow,
   rows: QuoteRow[],
   site: QuoteSite,
-  totalProjectCost: number,
+  /** 細項計價總額（區域合計加總），作為占總分母 */
+  totalItemRegionCost: number,
 ): SummaryCellBreakdownLine[] {
   const cs = contributionsForItem(item, rows, site)
 
   if (kind === 'pct') {
     return [
       { label: '細項計價合計（元）', amount: row.cost },
-      { label: '全案總成本（含作圖，元）', amount: totalProjectCost },
-      { label: '占總（計價÷總成本×100）', amount: row.pctOfTotal },
+      { label: '細項計價總額（本表分母，元）', amount: totalItemRegionCost },
+      { label: '占總（計價÷細項計價總額×100）', amount: row.pctOfTotal },
     ]
   }
 

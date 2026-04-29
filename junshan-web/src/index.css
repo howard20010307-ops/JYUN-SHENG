@@ -807,6 +807,25 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 .worklogCalendarCard {
   margin-bottom: var(--ui-card-gap);
 }
+/* 窄螢幕（WorkLogPanel matchMedia）：維持 7 欄，格內僅日期 + 出工／月表記號 + 預支 */
+.worklogCalendarCard--compact .worklogDayCell,
+.worklogCalendarCard--compact .worklogDayCell--empty {
+  min-height: 3.2rem;
+  justify-content: center;
+  padding: var(--ui-space-1) 4px calc(var(--ui-space-1) + 1px);
+}
+.worklogCalendarCard--compact .worklogDayCellTop {
+  margin-bottom: 0;
+  align-items: center;
+}
+.worklogCalendarCard--compact .worklogDayDot {
+  width: 6px;
+  height: 6px;
+}
+.worklogCalLegend--compact {
+  font-size: var(--ui-fs-2xs);
+  line-height: var(--ui-lh-snug);
+}
 .worklogMonthNav {
   display: flex;
   flex-wrap: wrap;
@@ -891,13 +910,9 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   pointer-events: none;
   min-height: 7.75rem;
 }
-.worklogDayCell--hasLog .worklogDayNum,
-.worklogDayCell--hasPayroll .worklogDayNum {
+.worklogDayCell--hasLog .worklogDayNum {
   font-weight: 700;
   color: var(--head);
-}
-.worklogDayCell--hasLog.worklogDayCell--hasPayroll .worklogDayNum {
-  font-weight: 800;
 }
 .worklogDayCell--hasAdvance {
   box-shadow: inset 0 2px 0 0 rgba(255, 138, 101, 0.45);
@@ -925,7 +940,7 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   margin-bottom: var(--ui-unit);
 }
 .worklogDayNum {
-  font-size: var(--ui-fs-sm);
+  font-size: var(--ui-fs-xs);
   line-height: var(--ui-lh-snug);
   font-weight: 600;
   color: var(--head);
@@ -943,9 +958,6 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-}
-.worklogDayCellBody--payroll {
-  color: var(--muted);
 }
 .worklogDayCellLine {
   display: grid;
@@ -967,7 +979,7 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 .worklogDayCellK {
   color: rgba(148, 162, 182, 0.95);
   font-weight: 600;
-  font-size: var(--ui-fs-2xs);
+  font-size: clamp(0.58rem, 1.65vw, 0.66rem);
   line-height: var(--ui-lh-snug);
   padding: var(--ui-unit) 3px;
   text-align: center;
@@ -982,28 +994,18 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   min-width: 0;
   overflow: visible;
   display: block;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-break: strict;
   padding: 3px 0 2px 2px;
   font-weight: 700;
-  font-size: var(--ui-fs-xs);
+  font-size: var(--ui-fs-2xs);
   line-height: var(--ui-lh-body);
   color: rgba(246, 250, 255, 0.98);
   border-left: 1px solid rgba(61, 156, 245, 0.28);
   padding-left: var(--ui-space-1);
   margin-left: 0;
-  white-space: normal;
-}
-.worklogDayCellBody--payroll .worklogDayCellK {
-  color: rgba(132, 146, 164, 0.92);
-  background: rgba(0, 0, 0, 0.28);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-.worklogDayCellBody--payroll .worklogDayCellV {
-  color: rgba(236, 244, 255, 0.95);
-  font-weight: 700;
-  font-size: 0.68rem;
-  border-left-color: rgba(255, 255, 255, 0.14);
+  white-space: pre-line;
 }
 .worklogDayDots {
   display: flex;
@@ -1025,11 +1027,7 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
 .worklogDayDot--log {
   background: var(--accent2);
 }
-.worklogDayDot--payroll {
-  background: #d4a017;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-}
-/** 月表「預支」獨立標記（與日誌／月表圓點色系區隔） */
+/** 月表「預支」獨立標記（與日誌圓點色系區隔） */
 .worklogDayAdvanceMark {
   display: inline-flex;
   align-items: center;
@@ -1134,10 +1132,10 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
     border-radius: var(--ui-radius-sm);
   }
   .worklogDayNum {
-    font-size: var(--ui-fs-xs);
+    font-size: clamp(0.65rem, 1.9vw, 0.72rem);
   }
   .worklogDayCellBody {
-    font-size: var(--ui-fs-2xs);
+    font-size: clamp(0.58rem, 1.7vw, 0.65rem);
     gap: 0;
   }
   .worklogDayCellLine {
@@ -1146,12 +1144,12 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
     padding: 4px 0;
   }
   .worklogDayCellK {
-    font-size: 0.52rem;
+    font-size: clamp(0.48rem, 1.45vw, 0.54rem);
     padding: 3px 2px;
     font-weight: 600;
   }
   .worklogDayCellV {
-    font-size: 0.64rem;
+    font-size: clamp(0.54rem, 1.6vw, 0.6rem);
     font-weight: 700;
     padding-left: 6px;
   }
@@ -1326,6 +1324,25 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   border: 1px solid rgba(245, 158, 66, 0.35);
   border-radius: 8px;
   background: rgba(245, 158, 66, 0.06);
+}
+.worklogPayrollOvertimeSection {
+  margin-top: 18px;
+  padding: 12px 14px 14px;
+  border: 1px solid rgba(61, 156, 245, 0.38);
+  border-radius: 8px;
+  background: rgba(61, 156, 245, 0.06);
+}
+.worklogPayrollOtSubhead {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.worklogPayrollOtSubhead--spaced {
+  margin-top: 14px;
+}
+.worklogPayrollOtList {
+  margin-bottom: 0;
 }
 .worklogPayrollAdvanceHint {
   margin: 0 0 12px;
@@ -1536,19 +1553,55 @@ input[type='date'].titleInput {
 table.data.quoteFloorTable {
   min-width: 400px;
 }
+
+/** 樓層面積表：輸入框一律深色底（禁止白底）；含 m² 數字欄 */
+table.data.quoteFloorTable input[type='text'],
+table.data.quoteFloorTable input[type='number'] {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+}
+table.data.quoteFloorTable input[type='text']:-webkit-autofill,
+table.data.quoteFloorTable input[type='text']:-webkit-autofill:hover,
+table.data.quoteFloorTable input[type='text']:-webkit-autofill:focus,
+table.data.quoteFloorTable input[type='number']:-webkit-autofill,
+table.data.quoteFloorTable input[type='number']:-webkit-autofill:hover,
+table.data.quoteFloorTable input[type='number']:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border);
+}
+
+/** 樓層面積表：首欄「樓層」儲存格底色與文字 */
+.tableScrollSticky > table.quoteFloorTable thead th:first-child,
+.tableScrollSticky > table.quoteFloorTable tbody td:first-child {
+  background: var(--card);
+  color: var(--text);
+}
+.tableScrollSticky > table.quoteFloorTable thead th:first-child {
+  color: var(--text);
+  font-weight: 600;
+}
 table.data.quoteFloorPricingTable {
   min-width: 1080px;
   /** 與首欄「樓層」固定寬一致，供第二欄「套用模組」sticky */
   --quote-floor-sticky-a: 6.25rem;
 }
 .tableScrollSticky > table.quoteFloorPricingTable thead th:first-child,
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child {
+.tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child,
+.tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
   width: 6.25rem;
   min-width: 6.25rem;
   max-width: 6.25rem;
 }
 .tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2),
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2) {
+.tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
+.tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
   position: sticky;
   left: var(--quote-floor-sticky-a);
   z-index: 3;
@@ -1571,7 +1624,8 @@ table.data.quoteItemPricingTable {
   min-width: 640px;
 }
 .tableScrollSticky > table.quoteItemPricingTable thead th:first-child,
-.tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol {
+.tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol,
+.tableScrollSticky > table.quoteItemPricingTable tfoot td.quoteStickyItemCol {
   min-width: 8.5rem;
   max-width: 16rem;
 }
@@ -2070,14 +2124,60 @@ td.emptyTableMsg {
 .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
   z-index: 3;
 }
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child {
+.tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child,
+.tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
   z-index: 4;
 }
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2) {
+.tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
+.tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
   z-index: 3;
 }
-.tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol {
+.tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol,
+.tableScrollSticky > table.quoteItemPricingTable tfoot td.quoteStickyItemCol {
   z-index: 4;
+}
+
+/** 每項工程細項計價：表尾合計列 */
+table.data.quoteItemPricingTable tfoot tr.quoteItemPricingTotalRow td,
+table.data.quoteItemPricingTable tfoot tr.quoteItemPricingTotalRow th {
+  border-top: 2px solid rgba(90, 212, 168, 0.45);
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.2), rgba(12, 18, 26, 0.96));
+  font-weight: 700;
+  color: var(--head);
+  vertical-align: middle;
+}
+.tableScrollSticky > table.quoteItemPricingTable tfoot tr.quoteItemPricingTotalRow td.quoteStickyItemCol {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.26), rgba(12, 18, 26, 0.98));
+  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+
+/** 每層計價工數：表尾合計列 */
+table.data.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow td,
+table.data.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow th {
+  border-top: 2px solid rgba(90, 212, 168, 0.45);
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.2), rgba(12, 18, 26, 0.96));
+  font-weight: 700;
+  color: var(--head);
+  vertical-align: middle;
+}
+.tableScrollSticky > table.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.26), rgba(12, 18, 26, 0.98));
+  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+.tableScrollSticky > table.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow td:nth-child(2) {
+  position: sticky;
+  left: var(--quote-floor-sticky-a);
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.24), rgba(12, 18, 26, 0.98));
+  box-shadow:
+    6px 0 14px -6px rgba(0, 0, 0, 0.75),
+    0 1px 0 var(--border);
 }
 
 table.data {
@@ -2701,7 +2801,8 @@ table.data.ledgerCompanyTable {
   }
 
   .tableScrollSticky > table.quoteFloorPricingTable thead th:first-child,
-  .tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child {
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child,
+  .tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
     width: var(--quote-floor-sticky-a);
     min-width: var(--quote-floor-sticky-a);
     max-width: 7rem;
@@ -2712,7 +2813,8 @@ table.data.ledgerCompanyTable {
   }
 
   .tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2),
-  .tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2) {
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
+  .tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
     left: var(--quote-floor-sticky-a);
     min-width: 5rem;
     max-width: 9rem;
@@ -2729,7 +2831,8 @@ table.data.ledgerCompanyTable {
     vertical-align: bottom;
   }
 
-  .tableScrollSticky > table.quoteFloorPricingTable tbody td {
+  .tableScrollSticky > table.quoteFloorPricingTable tbody td,
+  .tableScrollSticky > table.quoteFloorPricingTable tfoot td {
     padding: 10px 7px !important;
     font-size: 0.88rem;
   }
@@ -2748,7 +2851,8 @@ table.data.ledgerCompanyTable {
   }
 
   .tableScrollSticky > table.quoteItemPricingTable thead th.quoteStickyItemCol,
-  .tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol {
+  .tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol,
+  .tableScrollSticky > table.quoteItemPricingTable tfoot td.quoteStickyItemCol {
     min-width: 0;
     width: 40%;
     max-width: none;
@@ -2761,7 +2865,8 @@ table.data.ledgerCompanyTable {
   }
 
   .tableScrollSticky > table.quoteItemPricingTable thead th.num,
-  .tableScrollSticky > table.quoteItemPricingTable tbody td.num {
+  .tableScrollSticky > table.quoteItemPricingTable tbody td.num,
+  .tableScrollSticky > table.quoteItemPricingTable tfoot td.num {
     width: 20%;
     min-width: 4.5rem;
     font-size: 0.88rem;

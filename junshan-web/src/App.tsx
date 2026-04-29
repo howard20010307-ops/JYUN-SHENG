@@ -254,7 +254,6 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             quoteRows={state.quoteRows}
             staffOptions={worklogStaffKeys}
             salaryBook={state.salaryBook}
-            ledgerMonths={state.months}
           />
         )}
       </main>

@@ -377,28 +377,28 @@ function payrollGridStaffUnnamedBlocks(s: PayrollDaySnapshot): string[] {
 /**
  * 月曆格僅有月表、無日誌時：地點／人數／人員與表單帶入一致——
  * 多具名案場（或具名＋未命名）時人員依「案場：人員」分段；單一案場格線時人員含當日預支／加班等列（與 {@link payrollStaffMealForFormSite} 一致）。
- * **地點**僅表示格線或調工案場；僅有預支列非零時地點仍內部記為「—」，且設 {@link advanceOnlyMinimalCell}：月曆格**不顯示**地點／人數／人員／工作列；**仍**顯示黃色月表圓點與「預」角標（明細見整日工作誌底部月表預支區塊）。
+ * **地點**僅表示格線或調工案場；僅有預支列非零時地點仍內部記為「—」，且設 {@link advanceOnlyMinimalCell}：月曆格**不顯示**地點／人數／人員／工作列；**仍**顯示「預」角標（明細見整日工作誌底部月表預支區塊）。
  */
 export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
   siteLabel: string
   staffCount: number
   staffLabel: string
   workLabel: string
-  /** 僅預支、無案場／調工：月曆格不顯示摘要列（黃點與「預」仍由 UI 依月表顯示） */
+  /** 僅預支、無案場／調工：月曆格不顯示摘要列（「預」仍由 UI 依月表顯示） */
   advanceOnlyMinimalCell: boolean
 } {
   const { siteNamesWithWork, hasUnnamedSiteWork } = payrollSiteNamesWithGridWork(s)
 
-  let siteLabel = siteNamesWithWork.join('、')
+  let siteLabel = siteNamesWithWork.join('\n')
   if (hasUnnamedSiteWork) {
-    siteLabel = siteLabel ? `${siteLabel}、（未命名）` : '（未命名）'
+    siteLabel = siteLabel ? `${siteLabel}\n（未命名）` : '（未命名）'
   }
   if (!siteLabel) {
     const hasJun = s.junAdjust.some((x) => x.value !== 0)
     const hasTsai = s.tsaiAdjust.some((x) => x.value !== 0)
     if (hasTsai && !hasJun) siteLabel = QUICK_SITE_TSAI_ADJUST
     else if (hasJun && !hasTsai) siteLabel = QUICK_SITE_JUN_ADJUST
-    else if (hasJun && hasTsai) siteLabel = `${QUICK_SITE_JUN_ADJUST}／${QUICK_SITE_TSAI_ADJUST}`
+    else if (hasJun && hasTsai) siteLabel = `${QUICK_SITE_JUN_ADJUST}\n${QUICK_SITE_TSAI_ADJUST}`
     else if (s.advances.some((x) => x.value)) siteLabel = '—'
     else siteLabel = '月表'
   }
@@ -415,25 +415,25 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
     for (const site of siteNamesWithWork) {
       const names = payrollGridStaffAtSite(s, site)
       for (const n of names) uniq.add(n)
-      parts.push(`${site}：${names.length ? names.join('、') : '—'}`)
+      parts.push(`${site}：${names.length ? names.join('\n') : '—'}`)
     }
     if (hasUnnamedSiteWork) {
       const un = payrollGridStaffUnnamedBlocks(s)
       for (const n of un) uniq.add(n)
-      parts.push(`（未命名）：${un.length ? un.join('、') : '—'}`)
+      parts.push(`（未命名）：${un.length ? un.join('\n') : '—'}`)
     }
-    staffLabel = parts.join('； ')
+    staffLabel = parts.join('\n')
     staffCount = uniq.size
   } else if (siteNamesWithWork.length === 1) {
     const site = siteNamesWithWork[0]
     const scoped = payrollStaffMealForFormSite(s, site)
     const names = scoped?.staffNames ?? []
-    staffLabel = names.join('、') || '—'
+    staffLabel = names.join('\n') || '—'
     staffCount = names.length
   } else if (hasUnnamedSiteWork) {
     const scoped = payrollStaffMealForFormSite(s, '')
     const names = scoped?.staffNames ?? []
-    staffLabel = names.join('、') || '—'
+    staffLabel = names.join('\n') || '—'
     staffCount = names.length
   } else {
     const hasJun = s.junAdjust.some((x) => x.value !== 0)
@@ -445,10 +445,10 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
     if (siteKey) {
       const scoped = payrollStaffMealForFormSite(s, siteKey)
       const names = scoped?.staffNames ?? []
-      staffLabel = names.join('、') || '—'
+      staffLabel = names.join('\n') || '—'
       staffCount = names.length
     } else {
-      staffLabel = s.staffRates.map((r) => r.name).join('、') || '—'
+      staffLabel = s.staffRates.map((r) => r.name).join('\n') || '—'
       staffCount = s.staffRates.length
     }
   }

@@ -438,18 +438,18 @@ export function computeFloorPricingTable(site: QuoteSite, rows: QuoteRow[]): Flo
   })
 }
 
-/** 每項工程細項計價：依細項名稱加總各列區域合計（元）、基礎總工數，並算占總成本（含作圖）百分比 */
+/** 每項工程細項計價：依細項名稱加總各列區域合計（元）、基礎總工數；占總為該細項占「細項計價總額」之百分比（表內合計 100%） */
 export type ItemPricingRow = {
   item: string
   /** 加總各列 E 欄「基礎總工數」 */
   totalBaseLabor: number
   cost: number
-  /** 占總成本，單位為百分比（例如 0.66 表示 0.66%） */
+  /** 占細項計價總額（全表區域合計加總），單位為百分比 */
   pctOfTotal: number
 }
 
 export function computeItemPricingTable(site: QuoteSite, rows: QuoteRow[]): ItemPricingRow[] {
-  const { computed, totalCost } = computeQuote(site, rows)
+  const { computed, totalRegion } = computeQuote(site, rows)
   const byItem = new Map<string, number>()
   const byItemBase = new Map<string, number>()
   for (const r of computed) {
@@ -467,7 +467,7 @@ export function computeItemPricingTable(site: QuoteSite, rows: QuoteRow[]): Item
       item,
       totalBaseLabor,
       cost,
-      pctOfTotal: totalCost > 0 ? (cost / totalCost) * 100 : 0,
+      pctOfTotal: totalRegion > 0 ? (cost / totalRegion) * 100 : 0,
     })
   }
   for (const item of order) {

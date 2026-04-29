@@ -696,11 +696,11 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
     staffLabel = siteKeys
       .map((site) => {
         const names = [...(bySite.get(site) ?? [])].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-        return `${site}：${names.length ? names.join('、') : '—'}`
+        return `${site}：${names.length ? names.join('\n') : '—'}`
       })
-      .join('； ')
+      .join('\n')
   } else {
-    staffLabel = [...uniq].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('、') || '—'
+    staffLabel = [...uniq].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\n') || '—'
   }
   const singleSiteForCalendar = siteKeys.length <= 1
   const workParts: string[] = []
@@ -718,9 +718,9 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
     }
   }
   const workLabel =
-    workParts.length > 0 ? workParts.join('； ') : doc.workItem.trim() || '—'
+    workParts.length > 0 ? workParts.join('\n') : doc.workItem.trim() || '—'
   return {
-    siteLabel: sites.join('、') || '—',
+    siteLabel: sites.join('\n') || '—',
     staffCount: uniq.size,
     staffLabel,
     workLabel,

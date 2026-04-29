@@ -141,7 +141,48 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
   const { bindDecimal, bindInt } = useLooseNumericDrafts()
   const result = useMemo(() => computeQuote(site, rows), [site, rows])
   const floorPricingRows = useMemo(() => computeFloorPricingTable(site, rows), [site, rows])
+  const floorPricingTotals = useMemo(() => {
+    let baseTotal = 0
+    let pricingTotal = 0
+    let ping = 0
+    let instrumentCost = 0
+    let miscCost = 0
+    let drawingCost = 0
+    let costExDrawing = 0
+    let costTotal = 0
+    for (const r of floorPricingRows) {
+      baseTotal += r.baseTotal
+      pricingTotal += r.pricingTotal
+      ping += r.ping
+      instrumentCost += r.instrumentCost
+      miscCost += r.miscCost
+      drawingCost += r.drawingCost
+      costExDrawing += r.costExDrawing
+      costTotal += r.costTotal
+    }
+    const costPerPing = ping > 0 ? costTotal / ping : 0
+    return {
+      baseTotal,
+      pricingTotal,
+      ping,
+      instrumentCost,
+      miscCost,
+      drawingCost,
+      costExDrawing,
+      costTotal,
+      costPerPing,
+    }
+  }, [floorPricingRows])
   const itemPricingRows = useMemo(() => computeItemPricingTable(site, rows), [site, rows])
+  const itemPricingTotals = useMemo(() => {
+    let totalBaseLabor = 0
+    let cost = 0
+    for (const r of itemPricingRows) {
+      totalBaseLabor += r.totalBaseLabor
+      cost += r.cost
+    }
+    return { totalBaseLabor, cost }
+  }, [itemPricingRows])
   const zoneOptions = useMemo(() => uniqueZonesInOrder(rows), [rows])
 
   const [quickAddOpen, setQuickAddOpen] = useState(false)
@@ -328,17 +369,11 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           載入範例（估價結構）
         </button>
       </div>
-      <p className="hint" style={{ marginTop: -4, marginBottom: 8 }}>
-        {quoteSheet === 'setup' ? (
-          <>
-            變更<strong>專案樓層</strong>會同步<strong>樓層面積</strong>列（同名保留 ㎡）並更新「成本估算列」工作表之結構與欄 C；已填的單層工數／儀器／雜項等會盡量保留。手動「依專案樓層產生」為整表重算範本預設。
-          </>
-        ) : (
-          <>
-            請用上方工作表切換「案場與樓層」「成本估算列」「每層計價工數」「每項工程細項計價」「總結」。
-          </>
-        )}
-      </p>
+      {quoteSheet !== 'setup' ? (
+        <p className="hint" style={{ marginTop: -4, marginBottom: 8 }}>
+          請用上方工作表切換「案場與樓層」「成本估算列」「每層計價工數」「每項工程細項計價」「總結」。
+        </p>
+      ) : null}
 
       <div className="btnRow quoteSheetTabs" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
         <button
@@ -854,6 +889,21 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                   )
                 })}
               </tbody>
+              <tfoot>
+                <tr className="quoteFloorPricingTotalRow">
+                  <td>合計</td>
+                  <td>—</td>
+                  <td className="num">{floorPricingTotals.baseTotal.toFixed(1)}</td>
+                  <td className="num">{floorPricingTotals.pricingTotal.toFixed(1)}</td>
+                  <td className="num">{floorPricingTotals.ping.toFixed(2)}</td>
+                  <td className="num">{Math.round(floorPricingTotals.instrumentCost).toLocaleString()}</td>
+                  <td className="num">{Math.round(floorPricingTotals.miscCost).toLocaleString()}</td>
+                  <td className="num">{Math.round(floorPricingTotals.drawingCost).toLocaleString()}</td>
+                  <td className="num">{Math.round(floorPricingTotals.costExDrawing).toLocaleString()}</td>
+                  <td className="num">{Math.round(floorPricingTotals.costTotal).toLocaleString()}</td>
+                  <td className="num">{Math.round(floorPricingTotals.costPerPing).toLocaleString()}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </section>
@@ -865,7 +915,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
             <h3>每項工程細項計價</h3>
           </div>
           <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-            依成本估算列之<strong>細項</strong>名稱加總「區域細項合計計價」與<strong>基礎總工數</strong>（E 欄）；同一細項跨多個工程模組時合併一列。「總工數」為該細項之基礎總工數合計；「計價(元)」為區域合計金額；「占總(%)」為占<strong>總成本（含作圖）</strong>之百分比。表列順序為試算表基礎→地下→地上細項，其餘自訂細項排在表末。<strong>細項</strong>欄橫向捲動時鎖在左側。
+            依成本估算列之<strong>細項</strong>名稱加總「區域細項合計計價」與<strong>基礎總工數</strong>（E 欄）；同一細項跨多個工程模組時合併一列。「總工數」為該細項之基礎總工數合計；「計價(元)」為區域合計金額；「占總(%)」為該細項占<strong>本表細項計價總額</strong>之百分比（合計列為 100%）。表列順序為試算表基礎→地下→地上細項，其餘自訂細項排在表末。<strong>細項</strong>欄橫向捲動時鎖在左側。
           </p>
           <div className="tableScroll tableScrollSticky">
             <table className="data quoteItemPricingTable">
@@ -892,7 +942,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                         row,
                         rows,
                         site,
-                        result.totalCost,
+                        result.totalRegion,
                       )}
                       showValueFooter={false}
                     />
@@ -906,7 +956,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                         row,
                         rows,
                         site,
-                        result.totalCost,
+                        result.totalRegion,
                       )}
                     />
                     <PayrollSummaryPopoverCell
@@ -919,7 +969,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                         row,
                         rows,
                         site,
-                        result.totalCost,
+                        result.totalRegion,
                       )}
                     />
                     <PayrollSummaryPopoverCell
@@ -932,12 +982,24 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                         row,
                         rows,
                         site,
-                        result.totalCost,
+                        result.totalRegion,
                       )}
                     />
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="quoteItemPricingTotalRow">
+                  <td className="quoteStickyItemCol">合計</td>
+                  <td className="num">{itemPricingTotals.totalBaseLabor.toFixed(2)}</td>
+                  <td className="num">{Math.round(itemPricingTotals.cost).toLocaleString()}</td>
+                  <td className="num">
+                    {result.totalRegion > 0
+                      ? ((itemPricingTotals.cost / result.totalRegion) * 100).toFixed(2)
+                      : '0.00'}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </section>

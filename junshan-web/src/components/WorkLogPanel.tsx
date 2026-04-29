@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { QuoteRow } from '../domain/quoteEngine'
-import type { MonthKey, MonthLine } from '../domain/ledgerEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import type { WorkLogEntry, WorkLogState } from '../domain/workLogModel'
 import {
@@ -46,7 +45,6 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   staffOptions: readonly string[]
   salaryBook: SalaryBook
-  ledgerMonths?: readonly MonthLine[]
 }
 
 type StaffLineDraft = LinkedDayStaffLineDraft
@@ -98,6 +96,23 @@ function partsFromYmdStrict(iso: string): { y: number; m: number; d: number } | 
   return { y: parseInt(m[1], 10), m: parseInt(m[2], 10), d: parseInt(m[3], 10) }
 }
 
+/** 與 index.css 月曆 @media (max-width: 520px) 一致：窄螢幕只顯示記號、不顯示格內摘要 */
+const WORKLOG_CALENDAR_COMPACT_MQ = '(max-width: 520px)'
+
+function useWorklogCalendarCompact(): boolean {
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(WORKLOG_CALENDAR_COMPACT_MQ).matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia(WORKLOG_CALENDAR_COMPACT_MQ)
+    const sync = () => setCompact(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return compact
+}
+
 function orderStaffNamesForForm(
   staffOptionsOrdered: readonly string[],
   payrollStaff: readonly string[],
@@ -113,14 +128,15 @@ type DayCellSummary = {
   staffCount: number
   staffLabel: string
   workLabel: string
-  source: 'worklog' | 'payroll'
-  /** 月表僅預支：月曆格不顯示地點／人數／人員／工作列（仍顯示黃色月表圓點與「預」角標） */
+  /** 月表僅預支：月曆格不顯示地點／人數／人員／工作列（仍顯示「預」角標） */
   advanceOnlyMinimalCell?: boolean
   /** 月表該日「預支」列有非零（與出工／日誌分開標示） */
   hasPayrollAdvance?: boolean
 }
 
-function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummary, 'source'> {
+function aggregateWorkLogEntriesForDay(
+  list: WorkLogEntry[],
+): Pick<DayCellSummary, 'siteLabel' | 'staffCount' | 'staffLabel' | 'workLabel'> {
   const sites = new Set<string>()
   const staff = new Set<string>()
   const works = new Set<string>()
@@ -156,16 +172,16 @@ function aggregateWorkLogEntriesForDay(list: WorkLogEntry[]): Omit<DayCellSummar
     const siteKeys = [...bySite.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
     const parts = siteKeys.map((site) => {
       const names = [...(bySite.get(site) ?? [])].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-      return `${site}：${names.length ? names.join('、') : '—'}`
+      return `${site}：${names.length ? names.join('\n') : '—'}`
     })
-    staffLabel = parts.join('； ')
+    staffLabel = parts.join('\n')
     staffCount = staffArr.length
   } else {
-    staffLabel = staffArr.join('、') || '—'
+    staffLabel = staffArr.join('\n') || '—'
     staffCount = staffArr.length
   }
   return {
-    siteLabel: [...sites].join('、') || '—',
+    siteLabel: [...sites].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\n') || '—',
     staffCount,
     staffLabel,
     workLabel,
@@ -179,7 +195,6 @@ export function WorkLogPanel({
   quoteRows,
   staffOptions,
   salaryBook,
-  ledgerMonths,
 }: Props) {
   const today = todayYmdLocal()
   const [viewYear, setViewYear] = useState(() => {
@@ -199,6 +214,7 @@ export function WorkLogPanel({
   const [formUnlocked, setFormUnlocked] = useState(false)
   /** 全螢幕編輯：月曆格顯示摘要，完整內容於 overlay（可捲、不截斷） */
   const [dayOverlayOpen, setDayOverlayOpen] = useState(false)
+  const calendarCompact = useWorklogCalendarCompact()
 
   useEffect(() => {
     setFormUnlocked(false)
@@ -264,24 +280,6 @@ export function WorkLogPanel({
     [salaryBook, viewYear, viewMonth],
   )
 
-  const ledgerDisplayMonth = useMemo(() => {
-    const iso =
-      dayDraft.logDate && /^\d{4}-\d{2}-\d{2}$/.test(dayDraft.logDate.trim())
-        ? dayDraft.logDate.trim()
-        : selectedYmd
-    if (iso) {
-      const p = partsFromYmdStrict(iso)
-      if (p) return p.m
-    }
-    return viewMonth
-  }, [dayDraft.logDate, selectedYmd, viewMonth])
-
-  const ledgerRowForContext = useMemo(() => {
-    if (!ledgerMonths?.length || ledgerDisplayMonth < 2 || ledgerDisplayMonth > 12) return null
-    const key = String(ledgerDisplayMonth) as MonthKey
-    return ledgerMonths.find((m) => m.month === key) ?? null
-  }, [ledgerMonths, ledgerDisplayMonth])
-
   const datesWithLog = useMemo(
     () => datesWithAnyLogInMonth(workLog, viewYear, viewMonth),
     [workLog, viewYear, viewMonth],
@@ -297,7 +295,7 @@ export function WorkLogPanel({
     for (const doc of workLog.dayDocuments ?? []) {
       if (!doc.logDate.startsWith(p)) continue
       const a = summarizeWorkLogDayDocument(doc)
-      m.set(doc.logDate, { ...a, source: 'worklog' })
+      m.set(doc.logDate, { ...a })
     }
     const byDate = new Map<string, WorkLogEntry[]>()
     for (const e of effectiveEntriesForCalendar(workLog)) {
@@ -310,7 +308,7 @@ export function WorkLogPanel({
     for (const [iso, list] of byDate) {
       if (m.has(iso)) continue
       const a = aggregateWorkLogEntriesForDay(list)
-      m.set(iso, { ...a, source: 'worklog' })
+      m.set(iso, { ...a })
     }
     const dim = daysInMonth(viewYear, viewMonth)
     for (let day = 1; day <= dim; day++) {
@@ -321,7 +319,7 @@ export function WorkLogPanel({
       if (!sn) continue
       const pSum = payrollCalendarCellSummary(sn)
       const hasPayrollAdvance = sn.advances.some((x) => x.value !== 0)
-      m.set(iso, { ...pSum, source: 'payroll', hasPayrollAdvance })
+      m.set(iso, { ...pSum, hasPayrollAdvance })
     }
     for (let day = 1; day <= dim; day++) {
       const iso = ymd(viewYear, viewMonth, day)
@@ -593,10 +591,21 @@ export function WorkLogPanel({
     <div className="panel">
       <h2>工作日誌</h2>
       <p className="hint" style={{ marginBottom: 14 }}>
-        <strong>月曆</strong>顯示當日摘要（地點／人數／人員／工作）；格內過長可<strong>上下捲動</strong>，完整編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／<strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器、備註</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
+        {calendarCompact ? (
+          <>
+            <strong>月曆</strong>於窄螢幕僅以<strong>記號</strong>顯示是否有<strong>日誌</strong>與<strong>預支</strong>；完整摘要與編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／
+          </>
+        ) : (
+          <>
+            <strong>月曆</strong>顯示當日摘要（地點／人數／人員／工作）；格內過長可<strong>上下捲動</strong>，完整編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／
+          </>
+        )}
+        <strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器、備註</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
       </p>
 
-      <section className="card worklogCalendarCard">
+      <section
+        className={`card worklogCalendarCard${calendarCompact ? ' worklogCalendarCard--compact' : ''}`}
+      >
         <div className="worklogMonthNav">
           <div className="worklogMonthNavPrimary">
             <button type="button" className="btn secondary" onClick={prevMonth}>
@@ -622,15 +631,15 @@ export function WorkLogPanel({
             }
             const cellYmd = ymd(viewYear, viewMonth, day)
             const hasLog = datesWithLog.has(cellYmd)
-            const hasPayroll = datesWithPayroll.has(cellYmd)
             const isSel = selectedYmd === cellYmd
             const isToday = cellYmd === today
             const cellSum = dayCellSummaries.get(cellYmd)
+            const showCellBody = !calendarCompact && cellSum && !cellSum.advanceOnlyMinimalCell
             return (
               <button
                 key={cellYmd}
                 type="button"
-                className={`worklogDayCell${hasLog ? ' worklogDayCell--hasLog' : ''}${hasPayroll ? ' worklogDayCell--hasPayroll' : ''}${cellSum?.hasPayrollAdvance ? ' worklogDayCell--hasAdvance' : ''}${isSel ? ' worklogDayCell--selected' : ''}${isToday ? ' worklogDayCell--today' : ''}`}
+                className={`worklogDayCell${hasLog ? ' worklogDayCell--hasLog' : ''}${cellSum?.hasPayrollAdvance ? ' worklogDayCell--hasAdvance' : ''}${isSel ? ' worklogDayCell--selected' : ''}${isToday ? ' worklogDayCell--today' : ''}`}
                 onClick={() => {
                   setSelectedYmd(cellYmd)
                   resetDraftForDay(cellYmd)
@@ -642,9 +651,6 @@ export function WorkLogPanel({
                   <span className="worklogDayNum">{day}</span>
                   <span className="worklogDayDots" aria-hidden>
                     {hasLog ? <span className="worklogDayDot worklogDayDot--log" title="有日誌" /> : null}
-                    {hasPayroll ? (
-                      <span className="worklogDayDot worklogDayDot--payroll" title="月表有資料" />
-                    ) : null}
                     {cellSum?.hasPayrollAdvance ? (
                       <span className="worklogDayAdvanceMark" title="月表該日有預支（非零）">
                         預
@@ -652,25 +658,23 @@ export function WorkLogPanel({
                     ) : null}
                   </span>
                 </div>
-                {cellSum && !cellSum.advanceOnlyMinimalCell ? (
-                  <div
-                    className={`worklogDayCellBody${cellSum.source === 'payroll' ? ' worklogDayCellBody--payroll' : ''}`}
-                  >
+                {showCellBody ? (
+                  <div className="worklogDayCellBody">
                     <div className="worklogDayCellLine">
                       <span className="worklogDayCellK">地點</span>
-                      <span className="worklogDayCellV">{cellSum.siteLabel}</span>
+                      <span className="worklogDayCellV">{cellSum!.siteLabel}</span>
                     </div>
                     <div className="worklogDayCellLine worklogDayCellLine--count">
                       <span className="worklogDayCellK">人數</span>
-                      <span className="worklogDayCellV">{cellSum.staffCount}</span>
+                      <span className="worklogDayCellV">{cellSum!.staffCount}</span>
                     </div>
                     <div className="worklogDayCellLine">
                       <span className="worklogDayCellK">人員</span>
-                      <span className="worklogDayCellV">{cellSum.staffLabel}</span>
+                      <span className="worklogDayCellV">{cellSum!.staffLabel}</span>
                     </div>
                     <div className="worklogDayCellLine">
                       <span className="worklogDayCellK">工作</span>
-                      <span className="worklogDayCellV">{cellSum.workLabel}</span>
+                      <span className="worklogDayCellV">{cellSum!.workLabel}</span>
                     </div>
                   </div>
                 ) : null}
@@ -678,18 +682,27 @@ export function WorkLogPanel({
             )
           })}
         </div>
-        <p className="hint worklogCalLegend">
-          <span className="worklogDayDot worklogDayDot--log" /> 有日誌
-          <span style={{ width: 8, display: 'inline-block' }} />
-          <span className="worklogDayDot worklogDayDot--payroll" /> 薪水月表當日有紀錄
-          <span style={{ width: 8, display: 'inline-block' }} />
-          <span className="worklogDayAdvanceMark worklogDayAdvanceMark--legend" aria-hidden>
-            預
-          </span>
-          月表該日有預支（非零）
-          <span style={{ width: 8, display: 'inline-block' }} />
-          格內摘要可捲；點日期 → 全螢幕編輯（全文）
-        </p>
+        {calendarCompact ? (
+          <p className="hint worklogCalLegend worklogCalLegend--compact">
+            <span className="worklogDayDot worklogDayDot--log" /> 有日誌
+            <span style={{ width: 8, display: 'inline-block' }} />
+            <span className="worklogDayAdvanceMark worklogDayAdvanceMark--legend" aria-hidden>
+              預
+            </span>
+            該日有預支（非零）· 點日期 → 全螢幕編輯
+          </p>
+        ) : (
+          <p className="hint worklogCalLegend">
+            <span className="worklogDayDot worklogDayDot--log" /> 有日誌
+            <span style={{ width: 8, display: 'inline-block' }} />
+            <span className="worklogDayAdvanceMark worklogDayAdvanceMark--legend" aria-hidden>
+              預
+            </span>
+            月表該日有預支（非零）
+            <span style={{ width: 8, display: 'inline-block' }} />
+            格內摘要可捲；點日期 → 全螢幕編輯（全文）
+          </p>
+        )}
         {selectedYmd && !selectedInCalendarView ? (
           <p className="hint" style={{ marginTop: 10, marginBottom: 0 }}>
             目前選取為 <strong>{formatYmdChinese(selectedYmd)}</strong>，不在此月曆月份。{' '}
@@ -992,9 +1005,6 @@ export function WorkLogPanel({
                 <span className="worklogDayInfoLabel">
                   工作內容（本案場，可多列）
                 </span>
-                <p className="hint muted" style={{ margin: '6px 0 8px', fontSize: 13 }}>
-                  選項清單來自放樣估價各列「細項」字串與下方自訂選項，僅供挑選填入；儲存為純文字，不與估價列連動。
-                </p>
                 <div className="btnRow" style={{ marginTop: 8, marginBottom: 10 }}>
                   <button
                     type="button"
@@ -1161,6 +1171,50 @@ export function WorkLogPanel({
             </div>
           ))}
 
+          {payrollSnapshotForWorkLogDay &&
+          (payrollSnapshotForWorkLogDay.junOt.length > 0 ||
+            payrollSnapshotForWorkLogDay.tsaiOt.length > 0) ? (
+            <div className="worklogPayrollOvertimeSection">
+              <span className="worklogDayInfoLabel" style={{ marginBottom: 10 }}>
+                月表加班（本日，唯讀）
+              </span>
+              {payrollSnapshotForWorkLogDay.junOt.length > 0 ? (
+                <>
+                  <div className="worklogPayrollOtSubhead">鈞泩加班（時數）</div>
+                  <ul className="worklogPayrollAdvanceList worklogPayrollOtList">
+                    {payrollSnapshotForWorkLogDay.junOt.map((x) => (
+                      <li key={`jun-ot-${x.name}`}>
+                        <span className="worklogPayrollAdvanceName">{x.name}</span>
+                        <span className="muted"> — </span>
+                        <span className="worklogPayrollAdvanceAmount">{x.value}</span>
+                        <span className="muted"> 小時</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {payrollSnapshotForWorkLogDay.tsaiOt.length > 0 ? (
+                <>
+                  <div
+                    className={`worklogPayrollOtSubhead${payrollSnapshotForWorkLogDay.junOt.length > 0 ? ' worklogPayrollOtSubhead--spaced' : ''}`}
+                  >
+                    蔡董加班（時數）
+                  </div>
+                  <ul className="worklogPayrollAdvanceList worklogPayrollOtList">
+                    {payrollSnapshotForWorkLogDay.tsaiOt.map((x) => (
+                      <li key={`tsai-ot-${x.name}`}>
+                        <span className="worklogPayrollAdvanceName">{x.name}</span>
+                        <span className="muted"> — </span>
+                        <span className="worklogPayrollAdvanceAmount">{x.value}</span>
+                        <span className="muted"> 小時</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
           {payrollSnapshotForWorkLogDay && payrollSnapshotForWorkLogDay.advances.length > 0 ? (
             <div className="worklogPayrollAdvanceSection">
               <span className="worklogDayInfoLabel" style={{ marginBottom: 8 }}>
@@ -1182,20 +1236,6 @@ export function WorkLogPanel({
                 ))}
               </ul>
             </div>
-          ) : null}
-
-          {ledgerRowForContext ? (
-            <p className="hint worklogLedgerHint" style={{ marginTop: 10 }}>
-              公司帳 <strong>{ledgerDisplayMonth} 月</strong>列（整月累計，非單日）：薪資 {ledgerRowForContext.salary}、加班{' '}
-              {ledgerRowForContext.overtimePay}、餐費 {ledgerRowForContext.meals}、工具／雜項{' '}
-              {ledgerRowForContext.tools}、蔡董薪 {ledgerRowForContext.bossSalary}、儀器{' '}
-              {ledgerRowForContext.instrument}、風險金 {ledgerRowForContext.risk}、工程款（未稅）{' '}
-              {ledgerRowForContext.revenueNet}、稅 {ledgerRowForContext.tax}
-            </p>
-          ) : ledgerDisplayMonth === 1 ? (
-            <p className="hint worklogLedgerHint" style={{ marginTop: 10 }}>
-              公司帳目前僅有 2–12 月列，1 月無對應列。
-            </p>
           ) : null}
 
           <div className="btnRow" style={{ marginTop: 12 }}>
