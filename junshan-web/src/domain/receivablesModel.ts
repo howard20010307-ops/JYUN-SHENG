@@ -22,6 +22,7 @@ export type ReceivableEntry = {
   taxZero: boolean
   /** 與未稅、taxZero 連動（儲存用） */
   tax: number
+  /** 備註（可含換行） */
   note: string
 }
 
@@ -128,9 +129,14 @@ function str(v: unknown, d = ''): string {
   return typeof v === 'string' ? v : d
 }
 
-/** 階段／備註欄為單行：載入時把舊資料換行轉空白 */
+/** 階段欄為單行：載入時把換行轉空白 */
 function receivableSingleLineField(s: string): string {
   return s.replace(/\r\n|\r|\n/g, ' ')
+}
+
+/** 備註可含換行：僅正規化換行字元為 \n */
+export function normalizeReceivableNote(s: string): string {
+  return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
 /** 舊 JSON 可能將 id 存成數字；略過會導致整批收帳消失 */
@@ -170,7 +176,7 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
       net,
       taxZero,
       tax: 0,
-      note: receivableSingleLineField(str(r.note, '')),
+      note: normalizeReceivableNote(str(r.note, '')),
     })
   }
   return out
@@ -228,7 +234,7 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
       net,
       taxZero,
       tax: 0,
-      note: receivableSingleLineField(str(r.note, '')),
+      note: normalizeReceivableNote(str(r.note, '')),
     })
   }
   return { entries }

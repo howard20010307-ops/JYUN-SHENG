@@ -168,7 +168,7 @@ export function PayrollPanel({
   const initSel = initialPayrollSelection(salaryBook)
   const [activeMonthId, setActiveMonthId] = useState(initSel.activeMonthId)
   const [payrollYear, setPayrollYear] = useState(initSel.payrollYear)
-  const [sub, setSub] = useState<'month' | 'quick' | 'summary' | 'sites'>('month')
+  const [sub, setSub] = useState<'month' | 'quick' | 'summary'>('month')
 
   const yearsInBook = useMemo(() => {
     const s = new Set<number>()
@@ -329,16 +329,9 @@ export function PayrollPanel({
         >
           員工總出工及薪水計算
         </button>
-        <button
-          type="button"
-          className={`tab ${sub === 'sites' ? 'on' : ''}`}
-          onClick={() => setSub('sites')}
-        >
-          案場出工明細
-        </button>
       </div>
 
-      {(sub === 'month' || sub === 'summary' || sub === 'sites') && (
+      {(sub === 'month' || sub === 'summary') && (
         <div className="btnRow payrollYearScopeBar" style={{ marginBottom: 12 }}>
           <label>
             資料年份
@@ -389,8 +382,6 @@ export function PayrollPanel({
           ) : null}
         </div>
       )}
-
-      {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBookForSitesYear} />}
 
       {sub === 'quick' && (
         <FieldworkQuickSection
@@ -506,6 +497,7 @@ export function PayrollPanel({
 
       {sub === 'month' && (
         <>
+          <PayrollSitesByMonthReadonly salaryBook={salaryBookForSitesYear} />
           <section className="card">
             <h3>鈞泩／蔡董日薪（本表）</h3>
             <div className="tableScroll tableScrollSticky">

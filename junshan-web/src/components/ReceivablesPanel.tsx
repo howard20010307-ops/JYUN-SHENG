@@ -5,6 +5,7 @@ import {
   entryTax,
   migrateReceivablesState,
   newReceivableId,
+  normalizeReceivableNote,
   sortReceivableEntriesByBookedDate,
   sumEntriesInMonth,
   sumEntriesInYear,
@@ -40,7 +41,7 @@ function fmtMoney(n: number): string {
   return n.toLocaleString('zh-TW', { maximumFractionDigits: 0 })
 }
 
-/** 階段／備註：依內容即時撐寬；`ch` 為「0」字寬，CJK 需加權才不會被裁切 */
+/** 階段單行；備註可換行：依內容即時撐寬；`ch` 為「0」字寬，CJK 需加權才不會被裁切 */
 const RECEIVABLES_INPUT_GROW_MIN = 12
 const RECEIVABLES_INPUT_GROW_MAX = 320
 
@@ -82,6 +83,16 @@ function receivableFieldWidthCh(value: string, placeholder: string): number {
     RECEIVABLES_INPUT_GROW_MAX,
     Math.max(RECEIVABLES_INPUT_GROW_MIN, Math.ceil(raw)),
   )
+}
+
+/** 備註可換行：欄寬取各行中最寬者 */
+function receivableNoteFieldWidthCh(note: string, placeholder: string): number {
+  const lines = note.split('\n')
+  let w = receivableFieldWidthCh('', placeholder)
+  for (const line of lines) {
+    w = Math.max(w, receivableFieldWidthCh(line, placeholder))
+  }
+  return w
 }
 
 function singleLineReceivableText(raw: string): string {
@@ -194,7 +205,7 @@ export function ReceivablesPanel({
     if (visibleRows.length === 0) return RECEIVABLES_INPUT_GROW_MIN
     return Math.max(
       RECEIVABLES_INPUT_GROW_MIN,
-      ...visibleRows.map((r) => receivableFieldWidthCh(r.note, '備註')),
+      ...visibleRows.map((r) => receivableNoteFieldWidthCh(r.note, '備註')),
     )
   }, [visibleRows])
 
@@ -616,16 +627,16 @@ export function ReceivablesPanel({
                     <td className="num receivablesTable__cellMoney">{fmtMoney(entryGross(row))}</td>
                     <td
                       className="receivablesTable__cellNote"
-                      style={{ minWidth: `${receivableFieldWidthCh(row.note, '備註')}ch` }}
+                      style={{ minWidth: `${receivableNoteFieldWidthCh(row.note, '備註')}ch` }}
                     >
-                      <input
-                        type="text"
-                        className="receivablesTable__inline receivablesTable__inputGrow"
+                      <textarea
+                        className="receivablesTable__inline receivablesTable__inputGrow receivablesTable__noteTextarea"
                         placeholder="備註"
+                        rows={2}
                         value={row.note}
                         disabled={!canEdit}
                         onChange={(e) =>
-                          updateEntry(row.id, { note: singleLineReceivableText(e.target.value) })
+                          updateEntry(row.id, { note: normalizeReceivableNote(e.target.value) })
                         }
                         aria-label="備註"
                       />

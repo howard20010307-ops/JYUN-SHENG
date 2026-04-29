@@ -3740,8 +3740,32 @@ fieldset.tabFieldset {
 .receivablesTable--flat .receivablesTable__cellNote {
   width: auto;
   max-width: none;
-  white-space: nowrap;
+  white-space: normal;
   overflow: visible;
+  vertical-align: top;
+}
+
+.receivablesTable--flat .receivablesTable__noteTextarea {
+  height: auto;
+  min-height: 2.75rem;
+  max-height: 12rem;
+  line-height: 1.35;
+  resize: vertical;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  box-sizing: border-box;
+}
+
+.receivablesTable--flat .receivablesTable__cellNote .receivablesTable__noteTextarea {
+  width: 100%;
+  max-width: none;
+}
+
+@supports (field-sizing: content) {
+  .receivablesTable--flat .receivablesTable__cellNote .receivablesTable__noteTextarea {
+    field-sizing: content;
+    min-width: 10ch;
+  }
 }
 
 .receivablesTable--flat .receivablesTable__cellMoney {

@@ -31,8 +31,6 @@ export function useJsonBinSync(
   ready: boolean
   line: JsonBinLine
   lastSavedAt: Date | null
-  /** 上次雲端上傳成功時，一併寫入之收帳列筆數（僅供顯示；與上傳前校驗同源） */
-  lastUploadReceivablesCount: number | null
   /** 已設定有效 JSONBin、且尚未完成首次雲端讀取：應鎖定操作避免與即將覆寫之雲端資料打架 */
   cloudBootstrapPending: boolean
   /** 自動上傳失敗：應全螢幕鎖定，直到使用者暫停雲端上傳 */
@@ -208,7 +206,6 @@ export function useJsonBinSync(
     ready,
     line,
     lastSavedAt: uploadMeta.at,
-    lastUploadReceivablesCount: uploadMeta.receivablesCount,
     cloudBootstrapPending,
     cloudUploadBlocked,
     cloudUploadBlockMessage: uploadBlockMessage,

@@ -5,8 +5,6 @@ type Props = {
   ready: boolean
   line: JsonBinLine
   lastSavedAt: Date | null
-  /** 上次成功上傳時一併記錄之收帳筆數 */
-  lastUploadReceivablesCount: number | null
   cloudUploadSuspended: boolean
   canResumeCloudUpload: boolean
   onResumeCloudUpload: () => void
@@ -20,7 +18,6 @@ export function JsonBinSyncBar({
   ready,
   line,
   lastSavedAt,
-  lastUploadReceivablesCount,
   cloudUploadSuspended,
   canResumeCloudUpload,
   onResumeCloudUpload,
@@ -61,12 +58,6 @@ export function JsonBinSyncBar({
           {lastSavedAt ? (
             <>
               上次<strong>雲端上傳成功</strong>：{lastSavedAt.toLocaleString('zh-TW', timeFmt)}
-              {typeof lastUploadReceivablesCount === 'number' ? (
-                <>
-                  {' '}
-                  （收帳 <strong>{lastUploadReceivablesCount}</strong> 筆已納入該次上傳）
-                </>
-              ) : null}
             </>
           ) : (
             <>尚無雲端上傳成功紀錄；編輯並儲存後會顯示時間。</>

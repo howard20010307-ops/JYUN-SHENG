@@ -172,7 +172,6 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           ready={jsonBin.ready}
           line={jsonBin.line}
           lastSavedAt={jsonBin.lastSavedAt}
-          lastUploadReceivablesCount={jsonBin.lastUploadReceivablesCount}
           cloudUploadSuspended={jsonBin.cloudUploadSuspended}
           canResumeCloudUpload={jsonBin.resumeCloudUploadAllowed}
           onResumeCloudUpload={() => jsonBin.resumeCloudUpload()}
