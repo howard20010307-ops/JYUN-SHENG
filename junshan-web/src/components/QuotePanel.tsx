@@ -349,11 +349,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
   }
 
   function applyLayoutToRows() {
-    if (
-      !window.confirm(
-        '將依「專案樓層」重建成本估算列（區塊／欄 C 與《估價表》同一套）。目前表格會被覆寫。確定嗎？',
-      )
-    ) {
+    if (!window.confirm('將依範本重建成本估算列並覆寫已填內容。確定嗎？')) {
       return
     }
     const nextFloors = syncFloorsWithLayout(site.floors, site.layout)
@@ -369,12 +365,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           載入範例（估價結構）
         </button>
       </div>
-      {quoteSheet !== 'setup' ? (
-        <p className="hint" style={{ marginTop: -4, marginBottom: 8 }}>
-          請用上方工作表切換「案場與樓層」「成本估算列」「每層計價工數」「每項工程細項計價」「總結」。
-        </p>
-      ) : null}
-
       <div className="btnRow quoteSheetTabs" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
         <button
           type="button"
@@ -585,7 +575,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
               type="button"
               className="btn"
               disabled={rows.length === 0}
-              title={rows.length === 0 ? '請先產生估價列（專案樓層或下「新增工程模組」）' : '選擇工程模組與輸入細項名稱，插入該模組最末列之下'}
+              title={rows.length === 0 ? '請先產生估價列' : '插入於該模組末列之下'}
               onClick={openQuickAdd}
             >
               快速新增
@@ -617,7 +607,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
               {result.computed.length === 0 ? (
                 <tr>
                   <td colSpan={QUOTE_DATA_COLS} className="emptyTableMsg">
-                    尚無列。請至「案場與樓層」工作表設定專案樓層後按「依專案樓層產生（覆寫）估價列」，或在此按「新增工程模組」。
+                    尚無列。請於「案場與樓層」產生估價列，或在此按「新增工程模組」。
                   </td>
                 </tr>
               ) : null}
@@ -652,10 +642,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                       spellCheck={false}
                     />
                   </td>
-                  <td
-                    className="num quoteSameFloorsCell"
-                    title="相同樓層數依專案樓層（地下室層數、標準層數、RF 等）於產列或「依專案樓層產生（覆寫）估價列」時帶入；請至「案場與樓層」工作表調整後再覆寫估價列更新。"
-                  >
+                  <td className="num quoteSameFloorsCell" title="依專案樓層（可於「案場與樓層」調整）">
                     {Number.isFinite(r.sameFloors) ? r.sameFloors : '—'}
                   </td>
                   <td>
@@ -728,7 +715,7 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
                       <button
                         type="button"
                         className="btn quoteRowActAdd"
-                        title="在此列下方新增同區細項（複製欄 C 與工數／儀器／雜項預設）"
+                        title="同區新增細項（沿用本列預設）"
                         onClick={() => addSubItemAfter(i)}
                       >
                         ＋細項
@@ -758,10 +745,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           <div className="panelHead">
             <h3>每層計價工數</h3>
           </div>
-          <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-            依「樓層面積」列順序；當樓層名稱可對應試算表階段時，將該模組之基礎總工數、計價工數、儀器／雜項及工序成本合計
-            <strong>平均攤</strong>至同模組各樓層；作圖成本為該層坪數×作圖費率。成本估算列若變更區名，請維持與試算表階段用字一致（如「正常樓」「B1F」）以利對應。表內<strong>樓層、套用模組</strong>兩欄橫向捲動時鎖在左側。
-          </p>
           <div className="tableScroll tableScrollSticky">
             <table className="data quoteFloorPricingTable">
               <thead>
@@ -914,9 +897,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
           <div className="panelHead">
             <h3>每項工程細項計價</h3>
           </div>
-          <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-            依成本估算列之<strong>細項</strong>名稱加總「區域細項合計計價」與<strong>基礎總工數</strong>（E 欄）；同一細項跨多個工程模組時合併一列。「總工數」為該細項之基礎總工數合計；「計價(元)」為區域合計金額；「占總(%)」為該細項占<strong>本表細項計價總額</strong>之百分比（合計列為 100%）。表列順序為試算表基礎→地下→地上細項，其餘自訂細項排在表末。<strong>細項</strong>欄橫向捲動時鎖在左側。
-          </p>
           <div className="tableScroll tableScrollSticky">
             <table className="data quoteItemPricingTable">
               <thead>
@@ -1008,9 +988,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
       {quoteSheet === 'summary' && (
       <section className="card summary">
         <h3>總結</h3>
-        <p className="hint" style={{ marginTop: -6, marginBottom: 10 }}>
-          作圖總額與每坪成本所依<strong>總坪</strong>不含樓層面積「<strong>基礎工程</strong>」列；該列㎡仍會出現在樓層面積與每層計價表。
-        </p>
         <dl className="dl">
           <div>
             <dt>基礎總工數加總</dt>
@@ -1056,9 +1033,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
             <h2 id="quoteQuickAddTitle" className="quoteDialogTitle">
               快速新增細項
             </h2>
-            <p className="quoteDialogDesc">
-              選擇要掛在哪個工程模組下，新列會接在該模組最末一列之後，並帶入該列的欄 C 與工數／儀器／雜項預設。
-            </p>
             <form
               className="quoteDialogForm"
               onSubmit={(e) => {
@@ -1119,9 +1093,6 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
             <h2 id="quoteAddModuleTitle" className="quoteDialogTitle">
               新增工程模組
             </h2>
-            <p className="quoteDialogDesc">
-              在表尾加入一筆自訂工程模組（可填專屬區名），內建一條「新細項」列，之後可再補欄 C 與工數，或用「快速新增」加同模組細項。
-            </p>
             <form
               className="quoteDialogForm"
               onSubmit={(e) => {

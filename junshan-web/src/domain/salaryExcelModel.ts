@@ -1095,6 +1095,35 @@ export function inferPayrollYearFromBook(book: SalaryBook): number {
   return 2026
 }
 
+/** 單張月表：依日期欄第一個有效 ISO 推斷西元年份（無則 2026） */
+export function inferYearFromMonthSheet(m: MonthSheetData): number {
+  for (const iso of m.dates) {
+    if (typeof iso === 'string' && iso.length >= 4) {
+      const y = parseInt(iso.slice(0, 4), 10)
+      if (Number.isFinite(y) && y >= 2000 && y <= 2100) return y
+    }
+  }
+  return 2026
+}
+
+/** 同一年內月表排序用：由日期欄或「◯月」標籤得 1～12，無法辨識則排最後 */
+export function monthSheetCalendarMonth(m: MonthSheetData): number {
+  for (const iso of m.dates) {
+    if (typeof iso !== 'string') continue
+    const parts = iso.split('-')
+    if (parts.length >= 2) {
+      const mo = Number.parseInt(parts[1]!, 10)
+      if (Number.isFinite(mo) && mo >= 1 && mo <= 12) return mo
+    }
+  }
+  const match = /^(\d{1,2})月/.exec(m.label.trim())
+  if (match) {
+    const mo = Number.parseInt(match[1]!, 10)
+    if (Number.isFinite(mo) && mo >= 1 && mo <= 12) return mo
+  }
+  return 99
+}
+
 export function advanceSumInPeriod(
   book: SalaryBook,
   staffName: string,

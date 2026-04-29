@@ -50,7 +50,7 @@ type Props = {
 
 type StaffLineDraft = LinkedDayStaffLineDraft
 type BlockDraft = LinkedDayBlockDraft
-/** 表單狀態：餐費／雜項為整日；工作內容／儀器／備註與人員在案場區塊；案場／人員與月表連動 */
+/** 表單狀態：餐費／雜項為整日；工作內容／儀器與人員在案場區塊；案場／人員與月表連動 */
 type DayDraft = LinkedDayDraft
 
 function daysInMonth(year: number, month1to12: number): number {
@@ -639,7 +639,7 @@ export function WorkLogPanel({
             <strong>月曆</strong>顯示當日摘要（地點／人數／人員／工作）；格內過長可<strong>上下捲動</strong>，完整編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／
           </>
         )}
-        <strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器、備註</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
+        <strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
       </p>
 
       <section
@@ -1185,24 +1185,6 @@ export function WorkLogPanel({
                   })}
                 </div>
               </div>
-              <label className="worklogFormLabel worklogDayInfoField" style={{ marginTop: 8 }}>
-                <span className="worklogDayInfoLabel">備註（本案場）</span>
-                <textarea
-                  className="worklogTextarea"
-                  disabled={!formUnlocked}
-                  value={block.remark}
-                  onChange={(e) =>
-                    setDayDraft((d) => ({
-                      ...d,
-                      blocks: d.blocks.map((b, i) =>
-                        i !== bi ? b : { ...b, remark: e.target.value },
-                      ),
-                    }))
-                  }
-                  rows={4}
-                  placeholder="現場狀況、待辦、交接…"
-                />
-              </label>
             </div>
           ))}
 

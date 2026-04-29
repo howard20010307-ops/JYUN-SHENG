@@ -117,7 +117,6 @@ export function FieldworkQuickSection({
   const [instrumentTotalStation, setInstrumentTotalStation] = useState('')
   const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
   const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
-  const [remarkQuick, setRemarkQuick] = useState('')
   const [mealAmount, setMealAmount] = useState('')
   const [miscLedger, setMiscLedger] = useState('')
   const [otHoursPerPerson, setOtHoursPerPerson] = useState('')
@@ -190,7 +189,6 @@ export function FieldworkQuickSection({
     if (manOt !== 0 && hOt <= 0) {
       remarkParts.push(`加班費手動 ${manOt} 元`)
     }
-    if (remarkQuick.trim()) remarkParts.push(remarkQuick.trim())
 
     const wi = workItem.trim()
     const iq = parseInstrumentQtyFromDraftStrings(
@@ -226,7 +224,7 @@ export function FieldworkQuickSection({
     <section className="card">
       <h3>快速登記（出工＋公司帳＋工作日誌）</h3>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容與備註等會併入本次登記）。
+        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容會併入本次登記）。
       </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -293,7 +291,7 @@ export function FieldworkQuickSection({
       <h4 style={{ marginTop: 18, marginBottom: 8 }}>工作日誌欄位（與日誌頁連動）</h4>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>上班（預設 7:30）</span>
+          <span>上班</span>
           <input
             type="time"
             value={padHhmm(timeStart, DEFAULT_WORK_START)}
@@ -301,7 +299,7 @@ export function FieldworkQuickSection({
           />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>下班（預設 16:30）</span>
+          <span>下班</span>
           <input
             type="time"
             value={padHhmm(timeEnd, DEFAULT_WORK_END)}
@@ -310,7 +308,7 @@ export function FieldworkQuickSection({
         </label>
       </div>
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
-        <span>工作內容（可自填；選項含放樣估價「細項」字串；新字會加入日誌自訂選項）</span>
+        <span>工作內容</span>
         <input
           type="text"
           value={workItem}
@@ -368,22 +366,12 @@ export function FieldworkQuickSection({
           </label>
         </div>
       </div>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
-        <span>備註（寫入日誌；可補現場說明）</span>
-        <textarea
-          rows={2}
-          style={{ width: '100%', maxWidth: 520, resize: 'vertical' }}
-          value={remarkQuick}
-          onChange={(e) => setRemarkQuick(e.target.value)}
-        />
-      </label>
-
       <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司帳（選填）</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <fieldset style={fieldsetStyle}>
           <legend>餐費</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>加帳金額（可正負，0 表示不加；同日誌「餐費」）</span>
+            <span>加帳金額（可正負，0 表示不加）</span>
             <input
               type="number"
               className="narrow"
@@ -398,7 +386,7 @@ export function FieldworkQuickSection({
         <fieldset style={fieldsetStyle}>
           <legend>雜項（入公司帳「工具」）</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>金額（可正負，0 表示不加；同日誌「雜項支出」）</span>
+            <span>金額（可正負，0 表示不加）</span>
             <input
               type="number"
               className="narrow"

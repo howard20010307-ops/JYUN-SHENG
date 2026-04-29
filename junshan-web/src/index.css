@@ -352,6 +352,35 @@ html {
   font-size: var(--ui-fs-sm);
 }
 
+.jsonbinSyncBar__record {
+  margin: var(--ui-space-1) 0 0;
+  font-size: var(--ui-fs-xs);
+  line-height: var(--ui-lh-body);
+}
+
+.jsonbinSyncBar__resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2) var(--ui-space-3);
+  margin: var(--ui-space-2) 0 0;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--accent, #5b8cff);
+  background: rgba(91, 140, 255, 0.08);
+}
+
+.jsonbinSyncBar__resumeText {
+  margin: 0;
+  flex: 1 1 12rem;
+  font-size: var(--ui-fs-sm);
+  line-height: var(--ui-lh-body);
+}
+
+.jsonbinSyncBar__resumeBtn {
+  flex: 0 0 auto;
+}
+
 .jsonbinSyncBar__hint {
   margin: var(--ui-space-1) 0 0;
   color: var(--accent2);

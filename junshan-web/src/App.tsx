@@ -172,6 +172,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           ready={jsonBin.ready}
           line={jsonBin.line}
           lastSavedAt={jsonBin.lastSavedAt}
+          cloudUploadSuspended={jsonBin.cloudUploadSuspended}
+          canResumeCloudUpload={jsonBin.resumeCloudUploadAllowed}
+          onResumeCloudUpload={() => jsonBin.resumeCloudUpload()}
         />
       </header>
 
@@ -335,7 +338,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               </button>
             </div>
             <p className="appCloudGate__hint muted" style={{ marginTop: '0.75rem' }}>
-              按下後僅本工作階段不再自動上傳；重新整理頁面後會再嘗試同步。若要立即重試，可先匯出備份再重新整理。
+              按下後暫停自動上傳；排除問題後請點頁首 JSONBin 區塊的「立即恢復雲端上傳」，會立刻上傳目前資料，無需重新整理。
             </p>
           </div>
         </div>

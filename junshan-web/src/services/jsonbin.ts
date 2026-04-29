@@ -6,6 +6,30 @@ const BASE = 'https://api.jsonbin.io/v3/b'
 /** 免費帳戶單一 Bin 約 100KB 上限；壓縮後仍超過則建議升級或刪減本機月表內容 */
 const JSONBIN_FREE_MAX_BYTES = 99_000
 
+/** 本機 localStorage：上次自動上傳 JSONBin 成功時間（ISO），重新整理後仍顯示 */
+const LOCALSTORAGE_LAST_UPLOAD_OK_AT = 'junshan.jsonBin.lastUploadSuccessAt'
+
+export function readLastJsonBinUploadSuccessAt(): Date | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(LOCALSTORAGE_LAST_UPLOAD_OK_AT)
+    if (raw == null || raw.trim() === '') return null
+    const d = new Date(raw)
+    return Number.isNaN(d.getTime()) ? null : d
+  } catch {
+    return null
+  }
+}
+
+export function writeLastJsonBinUploadSuccessAt(d: Date): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(LOCALSTORAGE_LAST_UPLOAD_OK_AT, d.toISOString())
+  } catch {
+    /* 配額／隱私模式等 */
+  }
+}
+
 const JUNSHAN_GZIP = 1 as const
 
 type JsonBinRecordGzipV1 = {

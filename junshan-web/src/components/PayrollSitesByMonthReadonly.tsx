@@ -165,6 +165,15 @@ export function PayrollSitesByMonthReadonly({ salaryBook }: Props) {
 
   const grandTotal = colTotals.reduce((a, b) => a + b, 0)
 
+  if (salaryBook.months.length === 0) {
+    return (
+      <section className="card">
+        <h3>案場出工明細（唯讀）</h3>
+        <p className="hint">此資料年份尚無月表；請切換上方「資料年份」或至「月表」新增該年之月份。</p>
+      </section>
+    )
+  }
+
   if (siteRows.length === 0) {
     return (
       <section className="card">

@@ -31,6 +31,9 @@ import {
   renameSiteAcrossBook,
   payrollSummaryTooltipFooterTotals,
   pickActiveMonthIdForToday,
+  inferYearFromMonthSheet,
+  monthSheetCalendarMonth,
+  autoPayrollPeriodColumns,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import type { QuoteRow } from '../domain/quoteEngine'
@@ -132,6 +135,15 @@ function staffHasBlockWork(
   return staffTotalDays(padArray(block.grid[name], dateLen)) !== 0
 }
 
+function initialPayrollSelection(book: SalaryBook): { activeMonthId: string; payrollYear: number } {
+  const id = pickActiveMonthIdForToday(book.months)
+  const m = book.months.find((x) => x.id === id)
+  return {
+    activeMonthId: id,
+    payrollYear: m ? inferYearFromMonthSheet(m) : new Date().getFullYear(),
+  }
+}
+
 export function PayrollPanel({
   salaryBook,
   setSalaryBook,
@@ -153,16 +165,46 @@ export function PayrollPanel({
   const [siteBlockNewWorkerName, setSiteBlockNewWorkerName] = useState<Record<string, string>>(
     () => ({}),
   )
-  const [activeMonthId, setActiveMonthId] = useState(() =>
-    pickActiveMonthIdForToday(salaryBook.months),
-  )
+  const initSel = initialPayrollSelection(salaryBook)
+  const [activeMonthId, setActiveMonthId] = useState(initSel.activeMonthId)
+  const [payrollYear, setPayrollYear] = useState(initSel.payrollYear)
   const [sub, setSub] = useState<'month' | 'quick' | 'summary' | 'sites'>('month')
+
+  const yearsInBook = useMemo(() => {
+    const s = new Set<number>()
+    for (const m of salaryBook.months) {
+      s.add(inferYearFromMonthSheet(m))
+    }
+    return [...s].sort((a, b) => a - b)
+  }, [salaryBook.months])
+
+  const monthsInPayrollYear = useMemo(() => {
+    const list = salaryBook.months.filter((m) => inferYearFromMonthSheet(m) === payrollYear)
+    return [...list].sort((a, b) => monthSheetCalendarMonth(a) - monthSheetCalendarMonth(b))
+  }, [salaryBook.months, payrollYear])
+
+  useEffect(() => {
+    if (yearsInBook.length === 0) return
+    if (!yearsInBook.includes(payrollYear)) {
+      setPayrollYear(yearsInBook[yearsInBook.length - 1]!)
+    }
+  }, [yearsInBook, payrollYear])
 
   useEffect(() => {
     if (!salaryBook.months.some((m) => m.id === activeMonthId)) {
-      setActiveMonthId(pickActiveMonthIdForToday(salaryBook.months))
+      const nextId = pickActiveMonthIdForToday(salaryBook.months)
+      setActiveMonthId(nextId)
+      const nm = salaryBook.months.find((x) => x.id === nextId)
+      if (nm) setPayrollYear(inferYearFromMonthSheet(nm))
     }
   }, [salaryBook.months, activeMonthId])
+
+  useEffect(() => {
+    if (monthsInPayrollYear.length === 0) return
+    if (!monthsInPayrollYear.some((m) => m.id === activeMonthId)) {
+      setActiveMonthId(monthsInPayrollYear[0]!.id)
+    }
+  }, [monthsInPayrollYear, activeMonthId])
 
   const summaryMonthDatesSig = useMemo(
     () =>
@@ -187,9 +229,27 @@ export function PayrollPanel({
     () => new Set([NET_TAKE_HOME_ROW_PREFIX]),
   )
 
+  /** 總表／分期欄：依「資料年份」顯示該曆年 12 個半月期 + 總結（與月表年份選擇一致） */
+  const salaryBookForSummaryYear = useMemo(
+    (): SalaryBook => ({
+      ...salaryBook,
+      periodColumns: autoPayrollPeriodColumns(payrollYear),
+    }),
+    [salaryBook, payrollYear],
+  )
+
+  /** 案場明細：僅列出所選年份之月表為欄 */
+  const salaryBookForSitesYear = useMemo(
+    (): SalaryBook => ({
+      ...salaryBook,
+      months: salaryBook.months.filter((m) => inferYearFromMonthSheet(m) === payrollYear),
+    }),
+    [salaryBook, payrollYear],
+  )
+
   const summaryRows = useMemo(
-    () => buildStaffSummaryRows(salaryBook, { showDailyMoney }),
-    [salaryBook, showDailyMoney],
+    () => buildStaffSummaryRows(salaryBookForSummaryYear, { showDailyMoney }),
+    [salaryBookForSummaryYear, showDailyMoney],
   )
 
   const summaryRowGroups = useMemo(
@@ -278,7 +338,59 @@ export function PayrollPanel({
         </button>
       </div>
 
-      {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBook} />}
+      {(sub === 'month' || sub === 'summary' || sub === 'sites') && (
+        <div className="btnRow payrollYearScopeBar" style={{ marginBottom: 12 }}>
+          <label>
+            資料年份
+            <select
+              value={yearsInBook.includes(payrollYear) ? payrollYear : (yearsInBook[0] ?? payrollYear)}
+              onChange={(e) => {
+                const y = Number(e.target.value)
+                setPayrollYear(y)
+                const list = salaryBook.months
+                  .filter((m) => inferYearFromMonthSheet(m) === y)
+                  .sort((a, b) => monthSheetCalendarMonth(a) - monthSheetCalendarMonth(b))
+                if (list[0]) setActiveMonthId(list[0].id)
+              }}
+              aria-label="薪水資料年份"
+            >
+              {yearsInBook.map((y) => (
+                <option key={y} value={y}>
+                  {y} 年
+                </option>
+              ))}
+            </select>
+          </label>
+          {sub === 'month' ? (
+            <>
+              <label>
+                月表
+                <select
+                  value={activeMonthId}
+                  onChange={(e) => setActiveMonthId(e.target.value)}
+                  aria-label="目前月表"
+                >
+                  {monthsInPayrollYear.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn danger ghost"
+                disabled={salaryBook.months.length <= 1}
+                onClick={() => removeMonth(activeMonthId)}
+              >
+                刪除此月
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBookForSitesYear} />}
 
       {sub === 'quick' && (
         <FieldworkQuickSection
@@ -296,6 +408,9 @@ export function PayrollPanel({
       {sub === 'summary' && (
         <section className="card">
           <h3>員工總出工及薪水計算</h3>
+          <p className="hint muted" style={{ marginTop: '-0.25rem', marginBottom: '0.5rem' }}>
+            橫向分期欄為所選<strong>資料年份</strong>之曆年分期（每月 11～25 日、26 日～次月 10 日，含 12/26～次年 1/10），與上方「資料年份」一致。
+          </p>
           <label className="payrollSummaryOptionRow">
             <input
               type="checkbox"
@@ -311,7 +426,7 @@ export function PayrollPanel({
               <thead>
                 <tr>
                   <th>項目</th>
-                  {salaryBook.periodColumns.map((p, i) => (
+                  {salaryBookForSummaryYear.periodColumns.map((p, i) => (
                     <th key={`${p.startIso}-${p.endIso}-${i}`}>{p.label}</th>
                   ))}
                 </tr>
@@ -319,7 +434,7 @@ export function PayrollPanel({
               {summaryRowGroups.map((group) => {
                 const sectionTitle = summaryGroupSectionTitle(group)
                 const isOpen = openSummarySections.has(sectionTitle)
-                const colCount = 1 + salaryBook.periodColumns.length
+                const colCount = 1 + salaryBookForSummaryYear.periodColumns.length
                 return (
                   <Fragment key={group[0]?.key ?? sectionTitle}>
                     <tbody className="payrollSummarySectionHeader">
@@ -350,7 +465,7 @@ export function PayrollPanel({
                           >
                             <PayrollSummaryPopoverCell
                               cellContent={r.label}
-                              breakdownLines={salaryBook.periodColumns.map((p, i) => ({
+                              breakdownLines={salaryBookForSummaryYear.periodColumns.map((p, i) => ({
                                 label: p.label,
                                 amount: r.cols[i] ?? 0,
                               }))}
@@ -359,7 +474,7 @@ export function PayrollPanel({
                             />
                             {r.cols.map((v, i) => {
                               const rounded = Math.round(v * 100) / 100
-                              const period = salaryBook.periodColumns[i]
+                              const period = salaryBookForSummaryYear.periodColumns[i]
                               return (
                                 <PayrollSummaryPopoverCell
                                   key={i}
@@ -394,36 +509,8 @@ export function PayrollPanel({
 
       {sub === 'month' && (
         <>
-          <div className="btnRow" style={{ marginBottom: 12 }}>
-            <label>
-              目前月表
-              <select
-                value={activeMonthId}
-                onChange={(e) => setActiveMonthId(e.target.value)}
-              >
-                {salaryBook.months.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="btn danger ghost"
-              disabled={salaryBook.months.length <= 1}
-              onClick={() => removeMonth(activeMonthId)}
-            >
-              刪除此月
-            </button>
-          </div>
-
           <section className="card">
             <h3>鈞泩／蔡董日薪（本表）</h3>
-            <p className="hint">
-              姓名欄可直接修改，游標移開後套用（<strong>全書各月</strong>一併更名）。下方可新增／刪除人員；刪除會清除全書該員日薪與格線等資料。新增案場區塊預設案名「{PLACEHOLDER_MONTH_BLOCK_SITE_NAME}」僅供草稿，改名後才會出現在收帳／估價案名等選單；區塊會帶入目前月表所有人員格線。
-              <strong>蔡董日薪</strong>僅用於<strong>蔡董調工薪水</strong>與<strong>蔡董加班費</strong>換算；案場格線不計蔡董薪水（總表「蔡董薪水(未扣預支)」為 0）。
-            </p>
             <div className="tableScroll tableScrollSticky">
               <table className="data payrollRatesTable">
                 <thead>
