@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { QuoteRow } from '../domain/quoteEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
+import { isPlaceholderMonthBlockSiteName } from '../domain/salaryExcelModel'
 import type { WorkLogEntry, WorkLogState } from '../domain/workLogModel'
 import {
   todayYmdLocal,
@@ -134,6 +135,13 @@ type DayCellSummary = {
   hasPayrollAdvance?: boolean
 }
 
+function workLogCalendarSiteKey(siteName: string): string {
+  const t = siteName.trim()
+  if (!t) return '（無案場）'
+  if (isPlaceholderMonthBlockSiteName(t)) return '（草稿案場）'
+  return t
+}
+
 function aggregateWorkLogEntriesForDay(
   list: WorkLogEntry[],
 ): Pick<DayCellSummary, 'siteLabel' | 'staffCount' | 'staffLabel' | 'workLabel'> {
@@ -141,7 +149,7 @@ function aggregateWorkLogEntriesForDay(
   const staff = new Set<string>()
   const works = new Set<string>()
   for (const e of list) {
-    if (e.siteName.trim()) sites.add(e.siteName.trim())
+    if (e.siteName.trim()) sites.add(workLogCalendarSiteKey(e.siteName))
     for (const n of e.staffNames ?? []) {
       if (n.trim()) staff.add(n.trim())
     }
@@ -150,11 +158,11 @@ function aggregateWorkLogEntriesForDay(
   const staffArr = [...staff].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   const workArr = [...works].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   let workLabel: string
-  const distinctSiteKeys = new Set(list.map((e) => e.siteName.trim() || '（無案場）'))
+  const distinctSiteKeys = new Set(list.map((e) => workLogCalendarSiteKey(e.siteName)))
   if (distinctSiteKeys.size > 1) {
     const workBySite = new Map<string, Set<string>>()
     for (const e of list) {
-      const key = e.siteName.trim() || '（無案場）'
+      const key = workLogCalendarSiteKey(e.siteName)
       const w = e.workItem.trim()
       if (!w) continue
       let ws = workBySite.get(key)
@@ -185,7 +193,7 @@ function aggregateWorkLogEntriesForDay(
   if (distinctSiteKeys.size > 1) {
     const bySite = new Map<string, Set<string>>()
     for (const e of list) {
-      const key = e.siteName.trim() || '（無案場）'
+      const key = workLogCalendarSiteKey(e.siteName)
       let set = bySite.get(key)
       if (!set) {
         set = new Set()
@@ -908,7 +916,7 @@ export function WorkLogPanel({
                   <option value={EMPTY_SITE}>請選擇</option>
                   {siteChoices.map((n) => (
                     <option key={n} value={n}>
-                      {n}
+                      {isPlaceholderMonthBlockSiteName(n) ? '（草稿案場）' : n}
                     </option>
                   ))}
                 </select>

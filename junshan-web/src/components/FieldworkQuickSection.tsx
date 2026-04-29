@@ -7,7 +7,7 @@ import {
 } from '../domain/fieldworkQuickApply'
 import type { MonthLine } from '../domain/ledgerEngine'
 import type { QuoteRow } from '../domain/quoteEngine'
-import type { SalaryBook } from '../domain/salaryExcelModel'
+import { isPlaceholderMonthBlockSiteName, type SalaryBook } from '../domain/salaryExcelModel'
 import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
@@ -95,7 +95,7 @@ export function FieldworkQuickSection({
     for (const m of salaryBook.months) {
       for (const b of m.blocks) {
         const n = b.siteName
-        if (n.trim()) s.add(n)
+        if (n.trim() && !isPlaceholderMonthBlockSiteName(n)) s.add(n)
       }
     }
     return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))

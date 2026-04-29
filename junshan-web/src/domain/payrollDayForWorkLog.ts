@@ -3,7 +3,13 @@
  */
 
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
-import { padArray, type MonthSheetData, type SalaryBook } from './salaryExcelModel'
+import {
+  isPlaceholderMonthBlockSiteName,
+  padArray,
+  siteBlockLabelForSummary,
+  type MonthSheetData,
+  type SalaryBook,
+} from './salaryExcelModel'
 
 export type PayrollDayBlockSnapshot = {
   siteName: string
@@ -179,7 +185,7 @@ export function formatPayrollDaySnapshotLines(s: PayrollDaySnapshot): string {
     lines.push('（當日各案場格線與餐費皆為 0）')
   } else {
     for (const b of activeBlocks) {
-      lines.push(`· ${b.siteName || '（未命名案場）'}`)
+      lines.push(`· ${siteBlockLabelForSummary(b.siteName)}`)
       lines.push(`  出工：${formatBlockWorkers(b)}`)
       if (b.mealAmount !== 0) lines.push(`  餐費欄：${b.mealAmount}`)
     }
@@ -233,8 +239,8 @@ export function payrollSiteNamesWithGridWork(s: PayrollDaySnapshot): {
   let hasUnnamedSiteWork = false
   for (const b of blocksWithWorkers) {
     const t = b.siteName.trim()
-    if (t) named.add(t)
-    else hasUnnamedSiteWork = true
+    if (t && !isPlaceholderMonthBlockSiteName(t)) named.add(t)
+    else if (!t || isPlaceholderMonthBlockSiteName(t)) hasUnnamedSiteWork = true
   }
   const siteNamesWithWork = [...named].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   return { siteNamesWithWork, hasUnnamedSiteWork }
@@ -313,7 +319,7 @@ export function payrollStaffMealForFormSite(
     const names = new Set<string>()
     let meal = 0
     for (const b of s.blocks) {
-      if (b.siteName.trim()) continue
+      if (b.siteName.trim() && !isPlaceholderMonthBlockSiteName(b.siteName)) continue
       meal += b.mealAmount || 0
       for (const w of b.workers) names.add(w.name)
     }
@@ -368,7 +374,7 @@ export function prefillFromPayrollDaySnapshot(s: PayrollDaySnapshot): PayrollDra
 function payrollGridStaffUnnamedBlocks(s: PayrollDaySnapshot): string[] {
   const names = new Set<string>()
   for (const b of s.blocks) {
-    if (b.siteName.trim()) continue
+    if (b.siteName.trim() && !isPlaceholderMonthBlockSiteName(b.siteName)) continue
     for (const w of b.workers) names.add(w.name)
   }
   return sortZhNames(names)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppState } from '../domain/appState'
 import {
   downloadAppStateFromJsonBin,
@@ -27,6 +27,10 @@ export function useJsonBinSync(
   lastSavedAt: Date | null
   /** 已設定有效 JSONBin、且尚未完成首次雲端讀取：應鎖定操作避免與即將覆寫之雲端資料打架 */
   cloudBootstrapPending: boolean
+  /** 自動上傳失敗：應全螢幕鎖定，直到使用者暫停雲端上傳 */
+  cloudUploadBlocked: boolean
+  cloudUploadBlockMessage: string | null
+  dismissCloudUploadBlock: () => void
 } {
   const envIntent = hasJsonBinEnvIntent()
   const keyErr = getJsonBinKeyErrorMessage()
@@ -39,9 +43,18 @@ export function useJsonBinSync(
     keyErr ? { text: keyErr, isError: true } : null,
   )
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
+  const [uploadBlockMessage, setUploadBlockMessage] = useState<string | null>(null)
   const skipNextUpload = useRef(false)
+  /** 上傳曾失敗且使用者已選「暫停」：本工作階段不再自動上傳（重新整理頁面後會再嘗試） */
+  const uploadSuspendedRef = useRef(false)
   /** 瀏覽器 setTimeout 回傳 number；與 NodeJS.Timeout 分開，避免 tsc 在雲端建置失敗 */
   const saveTimer = useRef<number | null>(null)
+
+  const dismissCloudUploadBlock = useCallback(() => {
+    uploadSuspendedRef.current = true
+    setUploadBlockMessage(null)
+    setLine(null)
+  }, [])
 
   useEffect(() => {
     if (keyErr) {
@@ -80,6 +93,7 @@ export function useJsonBinSync(
 
   useEffect(() => {
     if (!allowCloudWrite) return
+    if (uploadSuspendedRef.current) return
     if (keyErr || !canUse || !ready) return
     if (skipNextUpload.current) {
       skipNextUpload.current = false
@@ -93,8 +107,10 @@ export function useJsonBinSync(
           setLastSavedAt(new Date())
         })
         .catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e)
+          setUploadBlockMessage(msg)
           setLine({
-            text: e instanceof Error ? e.message : String(e),
+            text: msg,
             isError: true,
           })
         })
@@ -108,6 +124,16 @@ export function useJsonBinSync(
   }, [state, ready, canUse, keyErr, allowCloudWrite])
 
   const cloudBootstrapPending = Boolean(envIntent && canUse && !keyErr && !ready)
+  const cloudUploadBlocked = uploadBlockMessage !== null
 
-  return { active: envIntent, ready, line, lastSavedAt, cloudBootstrapPending }
+  return {
+    active: envIntent,
+    ready,
+    line,
+    lastSavedAt,
+    cloudBootstrapPending,
+    cloudUploadBlocked,
+    cloudUploadBlockMessage: uploadBlockMessage,
+    dismissCloudUploadBlock,
+  }
 }

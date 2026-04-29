@@ -51,6 +51,23 @@ export type SiteBlock = {
   meal: number[]
 }
 
+/**
+ * 月表「新增案場／新月份」預設區塊案名。僅作草稿；{@link isPlaceholderMonthBlockSiteName} 為真者不列入
+ * 估價／收帳／快速登記／日誌等由 `jobSitesFromSalaryBook` 提供的正式案名選單（改名後即視為上架）。
+ */
+export const PLACEHOLDER_MONTH_BLOCK_SITE_NAME = '新案場'
+
+export function isPlaceholderMonthBlockSiteName(raw: string): boolean {
+  return raw.trim() === PLACEHOLDER_MONTH_BLOCK_SITE_NAME
+}
+
+/** 月表以外之摘要／明細：不露出保留案名「新案場」；空白案名仍為未命名。 */
+export function siteBlockLabelForSummary(siteNameRaw: string): string {
+  if (isPlaceholderMonthBlockSiteName(siteNameRaw)) return '（草稿案場）'
+  const t = typeof siteNameRaw === 'string' ? siteNameRaw.trim() : ''
+  return t || '（未命名案場）'
+}
+
 export type MonthSheetData = {
   id: string
   label: string
@@ -865,6 +882,31 @@ export function addWorkerToBook(
   }
 }
 
+/**
+ * 僅於指定月表補齊／新增人員（日薪、預支／調工／加班列與各案場格線，缺則補 0）。
+ * 不影響其他月份；與「新增人員（全書各月）」並存，供案場區塊旁臨時加人。
+ */
+export function addOrEnsureWorkerInMonth(
+  book: SalaryBook,
+  monthId: string,
+  nameRaw: string,
+): { book: SalaryBook; ok: boolean; message: string } {
+  const name = nameRaw.trim()
+  if (!name) return { book, ok: false, message: '請輸入姓名。' }
+  const mi = book.months.findIndex((m) => m.id === monthId)
+  if (mi < 0) return { book, ok: false, message: '找不到月表。' }
+  const prev = book.months[mi]
+  const had = monthHasWorkerKey(prev, name)
+  const next = addWorkerToMonth(prev, name)
+  return {
+    book: { ...book, months: book.months.map((m, i) => (i === mi ? next : m)) },
+    ok: true,
+    message: had
+      ? `「${name}」已在本月資料中。若本案場未顯示人員列，請在下方格線至少填一日非 0 出工。`
+      : `已將「${name}」加入本月（他月不變）。請至上方日薪區填寫薪水，並在下方格線填出工；至少一日非 0 後人員列會顯示。`,
+  }
+}
+
 /** 全書刪除人員：各月與各案場移除該鍵（日薪、格線、預支、調工、加班列） */
 export function removeWorkerFromBook(
   book: SalaryBook,
@@ -910,7 +952,7 @@ export function newMonthSheet(label: string, dates: string[]): MonthSheetData {
     dates,
     rateJun,
     rateTsai,
-    blocks: [emptyBlock('新案場', dates.length)],
+    blocks: [emptyBlock(PLACEHOLDER_MONTH_BLOCK_SITE_NAME, dates.length)],
     advances,
     junAdjustDays,
     tsaiAdjustDays,
@@ -1570,7 +1612,13 @@ function collectGridSiteDayChunks(
         if (!dayColumnMatchesPeriod(m, j, period)) continue
         d += row[j] ?? 0
       }
-      if (d !== 0) out.push({ month: m, siteName: b.siteName, days: d, block: b })
+      if (d !== 0)
+        out.push({
+          month: m,
+          siteName: siteBlockLabelForSummary(b.siteName),
+          days: d,
+          block: b,
+        })
     }
   }
   return out

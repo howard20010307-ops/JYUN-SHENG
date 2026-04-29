@@ -5,7 +5,12 @@ import type {
   SiteBlock,
   SummaryCellBreakdownLine,
 } from '../domain/salaryExcelModel'
-import { padArray, staffKeysForMonthDisplay, staffTotalDays } from '../domain/salaryExcelModel'
+import {
+  isPlaceholderMonthBlockSiteName,
+  padArray,
+  staffKeysForMonthDisplay,
+  staffTotalDays,
+} from '../domain/salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 
@@ -64,7 +69,7 @@ function totalWorkDaysForSiteInMonth(
   const n = month.dates.length
   let total = 0
   for (const b of month.blocks) {
-    const isUnnamed = b.siteName.trim() === ''
+    const isUnnamed = b.siteName.trim() === '' || isPlaceholderMonthBlockSiteName(b.siteName)
     if (unnamed !== isUnnamed) continue
     if (!unnamed && b.siteName !== siteKey) continue
     total += siteBlockTotalWorkDays(b, staffOrder, n)
@@ -100,7 +105,7 @@ function siteMonthStaffBreakdown(
   }
   const byStaff: Record<string, number> = Object.fromEntries(staffOrder.map((x) => [x, 0]))
   for (const b of month.blocks) {
-    const isUnnamed = b.siteName.trim() === ''
+    const isUnnamed = b.siteName.trim() === '' || isPlaceholderMonthBlockSiteName(b.siteName)
     if (unnamed !== isUnnamed) continue
     if (!unnamed && b.siteName !== siteKey) continue
     for (const name of staffOrder) {
@@ -121,7 +126,9 @@ function collectSiteRows(book: SalaryBook): SitePivotRow[] {
   let anyUnnamed = false
   for (const m of book.months) {
     for (const b of m.blocks) {
-      if (b.siteName.trim() === '') anyUnnamed = true
+      const t = b.siteName.trim()
+      if (!t) anyUnnamed = true
+      else if (isPlaceholderMonthBlockSiteName(b.siteName)) anyUnnamed = true
       else named.add(b.siteName)
     }
   }

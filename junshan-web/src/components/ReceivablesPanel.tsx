@@ -16,20 +16,76 @@ import {
 type RangeMode = 'month' | 'year' | 'all'
 
 import type { SalaryBook } from '../domain/salaryExcelModel'
-import { addEmptySiteBlockToMonth, pickActiveMonthIdForToday } from '../domain/salaryExcelModel'
+import type { QuoteSite } from '../domain/quoteEngine'
+import {
+  addEmptySiteBlockToMonth,
+  isPlaceholderMonthBlockSiteName,
+  pickActiveMonthIdForToday,
+} from '../domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from '../domain/jobSitesFromBook'
+import { PayrollNumberInput } from './PayrollNumberInput'
 
 type Props = {
   receivables: ReceivablesState
   setReceivables: (fn: (prev: ReceivablesState) => ReceivablesState) => void
   salaryBook: SalaryBook
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
+  /** 估價案場：案名與此相同時，樓層欄可從估價樓層清單選填 */
+  quoteSite: QuoteSite
   canEdit: boolean
 }
 
 function fmtMoney(n: number): string {
   if (!Number.isFinite(n)) return '—'
   return n.toLocaleString('zh-TW', { maximumFractionDigits: 0 })
+}
+
+/** 階段／備註：依內容即時撐寬；`ch` 為「0」字寬，CJK 需加權才不會被裁切 */
+const RECEIVABLES_INPUT_GROW_MIN = 12
+const RECEIVABLES_INPUT_GROW_MAX = 320
+
+function isWideScriptCodePoint(cp: number): boolean {
+  return (
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0x3000 && cp <= 0x303f) ||
+    (cp >= 0xff00 && cp <= 0xffef) ||
+    (cp >= 0xac00 && cp <= 0xd7af) ||
+    (cp >= 0x3040 && cp <= 0x309f) ||
+    (cp >= 0x30a0 && cp <= 0x30ff)
+  )
+}
+
+/** 以「約略 ch」累加，比純字元數 * 常數更貼近中英文混排實際寬度 */
+function receivableContentWidthUnits(text: string): number {
+  let u = 0
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (isWideScriptCodePoint(cp)) {
+      u += 2.42
+    } else if (cp <= 0x20) {
+      u += 0.35
+    } else {
+      u += 1.1
+    }
+  }
+  return u
+}
+
+/** 欄最小寬度（ch）：取目前字串與 placeholder 較寬者，並預留邊框／內距 */
+function receivableFieldWidthCh(value: string, placeholder: string): number {
+  const v = receivableContentWidthUnits(value)
+  const p = receivableContentWidthUnits(placeholder)
+  const raw = Math.max(v, p) + 5.5
+  return Math.min(
+    RECEIVABLES_INPUT_GROW_MAX,
+    Math.max(RECEIVABLES_INPUT_GROW_MIN, Math.ceil(raw)),
+  )
+}
+
+function singleLineReceivableText(raw: string): string {
+  return raw.replace(/\r\n|\r|\n/g, ' ')
 }
 
 function todayYmd(): string {
@@ -40,11 +96,34 @@ function todayYmd(): string {
   return `${y}-${m}-${day}`
 }
 
+/** 新增列預設入帳日：落在目前檢視範圍內，且盡量用今天（若今天在該範圍內）。 */
+function defaultBookedDateForRange(
+  mode: RangeMode,
+  monthFilter: string,
+  yearFilter: string,
+): string {
+  const today = todayYmd()
+  if (mode === 'all') return today
+
+  if (mode === 'month') {
+    const ym = monthFilter.trim()
+    if (!/^\d{4}-\d{2}$/.test(ym)) return today
+    if (today.slice(0, 7) === ym) return today
+    return `${ym}-01`
+  }
+
+  const y = yearFilter.trim()
+  if (!/^\d{4}$/.test(y)) return today
+  if (today.startsWith(`${y}-`)) return today
+  return `${y}-01-01`
+}
+
 export function ReceivablesPanel({
   receivables,
   setReceivables,
   salaryBook,
   setSalaryBook,
+  quoteSite,
   canEdit,
 }: Props) {
   const data = useMemo(() => migrateReceivablesState(receivables), [receivables])
@@ -103,19 +182,54 @@ export function ReceivablesPanel({
 
   const footTotals = useMemo(() => sumEntriesNetTaxGross(visibleRows), [visibleRows])
 
+  const phaseColMinCh = useMemo(() => {
+    if (visibleRows.length === 0) return RECEIVABLES_INPUT_GROW_MIN
+    return Math.max(
+      RECEIVABLES_INPUT_GROW_MIN,
+      ...visibleRows.map((r) => receivableFieldWidthCh(r.phaseLabel, '階段')),
+    )
+  }, [visibleRows])
+
+  const noteColMinCh = useMemo(() => {
+    if (visibleRows.length === 0) return RECEIVABLES_INPUT_GROW_MIN
+    return Math.max(
+      RECEIVABLES_INPUT_GROW_MIN,
+      ...visibleRows.map((r) => receivableFieldWidthCh(r.note, '備註')),
+    )
+  }, [visibleRows])
+
   const rangeTotalsCaption = useMemo(() => {
     if (rangeMode === 'month') return `本月／${monthFilter}`
     if (rangeMode === 'year') return `${yearFilter.trim()} 年度`
     return '全部期間'
   }, [rangeMode, monthFilter, yearFilter])
 
+  const earliestBookedYm = useMemo(() => {
+    let best: string | null = null
+    for (const e of data.entries) {
+      const d = e.bookedDate
+      if (typeof d !== 'string' || !/^\d{4}-\d{2}/.test(d)) continue
+      const ym = d.slice(0, 7)
+      if (!/^\d{4}-\d{2}$/.test(ym)) continue
+      if (best === null || ym.localeCompare(best) < 0) best = ym
+    }
+    return best
+  }, [data.entries])
+
   const addRow = useCallback(() => {
     if (!canEdit) return
     const id = newReceivableId()
-    const booked = todayYmd()
-    setRangeMode('month')
-    setMonthFilter(booked.slice(0, 7))
-    setYearFilter(booked.slice(0, 4))
+    const booked = defaultBookedDateForRange(rangeMode, monthFilter, yearFilter)
+    if (rangeMode === 'month') {
+      setMonthFilter(booked.slice(0, 7))
+      setYearFilter(booked.slice(0, 4))
+    } else if (rangeMode === 'year') {
+      setYearFilter(booked.slice(0, 4))
+      setMonthFilter(booked.slice(0, 7))
+    } else {
+      setMonthFilter(booked.slice(0, 7))
+      setYearFilter(booked.slice(0, 4))
+    }
     setReceivables((prev) => {
       const p = migrateReceivablesState(prev)
       return {
@@ -125,6 +239,8 @@ export function ReceivablesPanel({
             id,
             bookedDate: booked,
             projectName: '',
+            buildingLabel: '',
+            floorLabel: '',
             phaseLabel: '',
             net: 0,
             taxZero: false,
@@ -134,7 +250,7 @@ export function ReceivablesPanel({
         ]),
       }
     })
-  }, [canEdit, setReceivables])
+  }, [canEdit, setReceivables, rangeMode, monthFilter, yearFilter])
 
   const updateEntry = useCallback(
     (id: string, patch: Partial<ReceivableEntry>) => {
@@ -205,7 +321,8 @@ export function ReceivablesPanel({
         <div>
           <h2 className="receivablesPanel__title">收帳</h2>
           <p className="receivablesPanel__sub muted">
-            每列一筆實際入帳。案名與薪水月表連動；列尾勾選「算稅」時依未稅金額計 5% 稅金，取消則為免稅／0 稅。
+            每列一筆實際入帳。案名與薪水月表連動；可選填<strong>棟</strong>、<strong>樓層</strong>（案名與估價案場名稱相同時，樓層可從估價樓層表選用或手打）。「階段」「備註」為<strong>單行</strong>，欄寬會隨字數加寬（表過寬時請橫向捲動）。列尾勾選「算稅」時依未稅金額計
+            5% 稅金，取消則為免稅／0 稅。
           </p>
         </div>
         {canEdit ? (
@@ -286,6 +403,11 @@ export function ReceivablesPanel({
         </div>
         <div className="receivablesPanel__monthTotals">
           <span className="receivablesPanel__totalsCap muted">{rangeTotalsCaption}</span>
+          {data.entries.length > 0 ? (
+            <span className="receivablesPanel__countHint muted" title="依「檢視範圍」篩選入帳日後的筆數">
+              表內 <strong>{visibleRows.length}</strong> 筆／全庫 <strong>{data.entries.length}</strong> 筆
+            </span>
+          ) : null}
           <span>
             未稅 <strong>{fmtMoney(rangeTotals.net)}</strong>
           </span>
@@ -298,24 +420,73 @@ export function ReceivablesPanel({
         </div>
       </section>
 
+      {data.entries.length > 0 && visibleRows.length === 0 ? (
+        <div className="receivablesPanel__filterGap card" role="status">
+          <p className="receivablesPanel__filterGapText">
+            收帳共有 <strong>{data.entries.length}</strong> 筆，但<strong>目前檢視範圍</strong>內沒有符合的入帳日。
+            表內是篩選後的結果，資料仍在本機；請改選「單月／整年／全部」或調整月份／年度。
+          </p>
+          <div className="btnRow receivablesPanel__filterGapBtns">
+            <button type="button" className="btn secondary" onClick={() => setRangeMode('all')}>
+              改為顯示全部期間
+            </button>
+            {earliestBookedYm ? (
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => {
+                  setRangeMode('month')
+                  setMonthFilter(earliestBookedYm)
+                  setYearFilter(earliestBookedYm.slice(0, 4))
+                }}
+              >
+                跳到最早一筆所在月份（{earliestBookedYm}）
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <fieldset className="tabFieldset" disabled={!canEdit}>
-        <div className="receivablesTableScroll">
+        <div className="receivablesTableScroll tableScrollSticky">
           <table className="data receivablesTable receivablesTable--flat">
             <thead>
               <tr>
-                <th scope="col">入帳日</th>
-                <th scope="col">案名</th>
-                <th scope="col">階段</th>
-                <th scope="col" className="num">
+                <th scope="col" className="receivablesTable__cellDate">
+                  入帳日
+                </th>
+                <th scope="col" className="receivablesTable__cellProject">
+                  案名
+                </th>
+                <th scope="col" className="receivablesTable__cellBuilding">
+                  棟
+                </th>
+                <th scope="col" className="receivablesTable__cellFloor">
+                  樓層
+                </th>
+                <th
+                  scope="col"
+                  className="receivablesTable__cellPhase"
+                  style={{ minWidth: `${phaseColMinCh}ch` }}
+                >
+                  階段
+                </th>
+                <th scope="col" className="num receivablesTable__cellMoney">
                   金額（未稅）
                 </th>
-                <th scope="col" className="num">
+                <th scope="col" className="num receivablesTable__cellMoney receivablesTable__cellMoney--narrow">
                   稅金
                 </th>
-                <th scope="col" className="num">
+                <th scope="col" className="num receivablesTable__cellMoney">
                   金額（含稅）
                 </th>
-                <th scope="col">備註</th>
+                <th
+                  scope="col"
+                  className="receivablesTable__cellNote"
+                  style={{ minWidth: `${noteColMinCh}ch` }}
+                >
+                  備註
+                </th>
                 <th scope="col" className="receivablesTable__actCol" />
                 <th scope="col" className="receivablesTable__taxCheckCol">
                   算稅
@@ -326,14 +497,14 @@ export function ReceivablesPanel({
             <tbody>
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="receivablesTable__empty muted">
+                  <td colSpan={11} className="receivablesTable__empty muted">
                     此檢視範圍尚無資料。{canEdit ? '請按「新增一列」或切換範圍。' : null}
                   </td>
                 </tr>
               ) : (
                 visibleRows.map((row) => (
                   <tr key={row.id}>
-                    <td>
+                    <td className="receivablesTable__cellDate">
                       <input
                         type="date"
                         className="receivablesTable__inline"
@@ -342,16 +513,24 @@ export function ReceivablesPanel({
                         onChange={(e) => updateBookedDate(row.id, e.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className="receivablesTable__cellProject">
                       <select
                         className="receivablesTable__select"
-                        value={row.projectName}
+                        value={
+                          siteNameSet.has(row.projectName)
+                            ? row.projectName
+                            : isPlaceholderMonthBlockSiteName(row.projectName)
+                              ? ''
+                              : row.projectName
+                        }
                         disabled={!canEdit}
                         onChange={(e) => updateEntry(row.id, { projectName: e.target.value })}
                         aria-label="案名"
                       >
                         <option value="">請選擇案名</option>
-                        {row.projectName && !siteNameSet.has(row.projectName) ? (
+                        {row.projectName &&
+                        !siteNameSet.has(row.projectName) &&
+                        !isPlaceholderMonthBlockSiteName(row.projectName) ? (
                           <option value={row.projectName}>
                             {row.projectName}（舊資料，建議改選月表案名）
                           </option>
@@ -363,41 +542,96 @@ export function ReceivablesPanel({
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td className="receivablesTable__cellBuilding">
                       <input
                         type="text"
                         className="receivablesTable__inline"
+                        placeholder="例：A棟"
+                        value={row.buildingLabel}
+                        disabled={!canEdit}
+                        onChange={(e) => updateEntry(row.id, { buildingLabel: e.target.value })}
+                        aria-label="棟"
+                      />
+                    </td>
+                    <td className="receivablesTable__cellFloor">
+                      {row.projectName.trim() !== '' &&
+                      row.projectName.trim() === quoteSite.name.trim() ? (
+                        <>
+                          <datalist id={`rcv-floor-${row.id}`}>
+                            {quoteSite.floors.map((f, i) => (
+                              <option key={`${row.id}-${i}-${f.name}`} value={f.name} />
+                            ))}
+                          </datalist>
+                          <input
+                            type="text"
+                            className="receivablesTable__inline"
+                            list={`rcv-floor-${row.id}`}
+                            placeholder="例：3F、B1"
+                            value={row.floorLabel}
+                            disabled={!canEdit}
+                            onChange={(e) => updateEntry(row.id, { floorLabel: e.target.value })}
+                            aria-label="樓層"
+                          />
+                        </>
+                      ) : (
+                        <input
+                          type="text"
+                          className="receivablesTable__inline"
+                          placeholder="例：3F、B1"
+                          value={row.floorLabel}
+                          disabled={!canEdit}
+                          onChange={(e) => updateEntry(row.id, { floorLabel: e.target.value })}
+                          aria-label="樓層"
+                        />
+                      )}
+                    </td>
+                    <td
+                      className="receivablesTable__cellPhase"
+                      style={{ minWidth: `${receivableFieldWidthCh(row.phaseLabel, '階段')}ch` }}
+                    >
+                      <input
+                        type="text"
+                        className="receivablesTable__inline receivablesTable__inputGrow"
                         placeholder="階段"
                         value={row.phaseLabel}
                         disabled={!canEdit}
-                        onChange={(e) => updateEntry(row.id, { phaseLabel: e.target.value })}
+                        onChange={(e) =>
+                          updateEntry(row.id, { phaseLabel: singleLineReceivableText(e.target.value) })
+                        }
+                        aria-label="階段"
                       />
                     </td>
-                    <td className="num">
-                      <input
-                        type="number"
+                    <td className="num receivablesTable__cellMoney">
+                      <PayrollNumberInput
                         className="receivablesTable__num"
+                        aria-label="金額（未稅）"
                         value={row.net}
-                        disabled={!canEdit}
-                        onChange={(e) => {
-                          const n = parseFloat(e.target.value) || 0
+                        onCommit={(nv) =>
                           updateEntry(row.id, {
-                            net: n,
-                            tax: row.taxZero ? 0 : taxFromNet(n),
+                            net: nv,
+                            tax: row.taxZero ? 0 : taxFromNet(nv),
                           })
-                        }}
+                        }
                       />
                     </td>
-                    <td className="num receivablesTable__derived">{fmtMoney(entryTax(row))}</td>
-                    <td className="num">{fmtMoney(entryGross(row))}</td>
-                    <td>
+                    <td className="num receivablesTable__cellMoney receivablesTable__cellMoney--narrow receivablesTable__derived">
+                      {fmtMoney(entryTax(row))}
+                    </td>
+                    <td className="num receivablesTable__cellMoney">{fmtMoney(entryGross(row))}</td>
+                    <td
+                      className="receivablesTable__cellNote"
+                      style={{ minWidth: `${receivableFieldWidthCh(row.note, '備註')}ch` }}
+                    >
                       <input
                         type="text"
-                        className="receivablesTable__inline"
+                        className="receivablesTable__inline receivablesTable__inputGrow"
                         placeholder="備註"
                         value={row.note}
                         disabled={!canEdit}
-                        onChange={(e) => updateEntry(row.id, { note: e.target.value })}
+                        onChange={(e) =>
+                          updateEntry(row.id, { note: singleLineReceivableText(e.target.value) })
+                        }
+                        aria-label="備註"
                       />
                     </td>
                     <td className="receivablesTable__actCol">
@@ -437,15 +671,37 @@ export function ReceivablesPanel({
             {visibleRows.length > 0 ? (
               <tfoot>
                 <tr className="receivablesTable__footer">
-                  <th scope="row" colSpan={3}>
+                  <th scope="row" className="receivablesTable__cellDate receivablesTable__footerLead">
                     結算
                   </th>
-                  <td className="num">{fmtMoney(footTotals.net)}</td>
-                  <td className="num">{fmtMoney(footTotals.tax)}</td>
-                  <td className="num">{fmtMoney(footTotals.gross)}</td>
-                  <td />
-                  <td />
-                  <td className="receivablesTable__footerDash muted">—</td>
+                  <td className="receivablesTable__cellProject receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__cellBuilding receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__cellFloor receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__cellPhase receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="num receivablesTable__cellMoney receivablesTable__footerNumCell">
+                    <span className="receivablesTable__footerNumIn">{fmtMoney(footTotals.net)}</span>
+                  </td>
+                  <td className="num receivablesTable__cellMoney receivablesTable__cellMoney--narrow receivablesTable__footerNumCell">
+                    <span className="receivablesTable__footerNumIn">{fmtMoney(footTotals.tax)}</span>
+                  </td>
+                  <td className="num receivablesTable__cellMoney receivablesTable__footerNumCell">
+                    <span className="receivablesTable__footerNumIn">{fmtMoney(footTotals.gross)}</span>
+                  </td>
+                  <td className="receivablesTable__cellNote receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__actCol receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__taxCheckCell receivablesTable__footerDash muted">—</td>
                 </tr>
               </tfoot>
             ) : null}

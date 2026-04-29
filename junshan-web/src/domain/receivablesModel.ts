@@ -8,6 +8,10 @@ export type ReceivableEntry = {
   bookedDate: string
   /** 案名 */
   projectName: string
+  /** 棟別（可空；例：A棟） */
+  buildingLabel: string
+  /** 樓層／區位（可空；例：3F、B1；與估價案名一致時可由清單選） */
+  floorLabel: string
   /** 階段 */
   phaseLabel: string
   net: number
@@ -124,13 +128,30 @@ function str(v: unknown, d = ''): string {
   return typeof v === 'string' ? v : d
 }
 
+/** 階段／備註欄為單行：載入時把舊資料換行轉空白 */
+function receivableSingleLineField(s: string): string {
+  return s.replace(/\r\n|\r|\n/g, ' ')
+}
+
+/** 舊 JSON 可能將 id 存成數字；略過會導致整批收帳消失 */
+function entryIdFromRaw(id: unknown): string {
+  if (typeof id === 'string') {
+    const t = id.trim()
+    return t
+  }
+  if (typeof id === 'number' && Number.isFinite(id)) {
+    return String(Math.trunc(id))
+  }
+  return ''
+}
+
 function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
   const out: ReceivableEntry[] = []
   const seen = new Set<string>()
   for (const row of raw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
-    const id = str(r.id, '').trim()
+    const id = entryIdFromRaw(r.id)
     if (!id || seen.has(id)) continue
     seen.add(id)
     const bookedDate = str(r.bookedDate, str(r.receivedDate, ''))
@@ -143,11 +164,13 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
       id,
       bookedDate,
       projectName: str(r.projectName, ''),
-      phaseLabel: str(r.phaseLabel, ''),
+      buildingLabel: str(r.buildingLabel, ''),
+      floorLabel: str(r.floorLabel, ''),
+      phaseLabel: receivableSingleLineField(str(r.phaseLabel, '')),
       net,
       taxZero,
       tax: 0,
-      note: str(r.note, ''),
+      note: receivableSingleLineField(str(r.note, '')),
     })
   }
   return out
@@ -185,7 +208,7 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
   for (const row of receiptsRaw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
-    const id = str(r.id, '').trim()
+    const id = entryIdFromRaw(r.id)
     const phaseId = str(r.phaseId, '').trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
@@ -199,11 +222,13 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
       id,
       bookedDate: str(r.receivedDate, ''),
       projectName: info?.projectName ?? '',
-      phaseLabel: info?.label ?? '',
+      buildingLabel: '',
+      floorLabel: '',
+      phaseLabel: receivableSingleLineField(info?.label ?? ''),
       net,
       taxZero,
       tax: 0,
-      note: str(r.note, ''),
+      note: receivableSingleLineField(str(r.note, '')),
     })
   }
   return { entries }

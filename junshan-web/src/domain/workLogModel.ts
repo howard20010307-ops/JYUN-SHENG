@@ -2,6 +2,10 @@
 
 import type { QuoteRow } from './quoteEngine'
 import {
+  isPlaceholderMonthBlockSiteName,
+  siteBlockLabelForSummary,
+} from './salaryExcelModel'
+import {
   LEGACY_QUICK_SITE_JUN_ADJUST,
   QUICK_SITE_JUN_ADJUST,
 } from './fieldworkQuickApply'
@@ -248,7 +252,7 @@ export function buildWorkLogContentSummary(e: Pick<WorkLogEntry, 'staffNames' | 
   const parts: string[] = []
   if (e.staffNames.length)
     parts.push(`人員${e.staffNames.length}人：${e.staffNames.join('、')}`)
-  if (e.siteName.trim()) parts.push(`案場：${e.siteName.trim()}`)
+  if (e.siteName.trim()) parts.push(`案場：${siteBlockLabelForSummary(e.siteName)}`)
   if (e.workItem.trim()) parts.push(`內容：${e.workItem.trim()}`)
   if (e.remark.trim()) parts.push(e.remark.trim())
   return parts.join('｜') || '（無摘要）'
@@ -671,13 +675,31 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
   workLabel: string
 } {
   const blocks = doc.blocks ?? []
+  const siteKeyForAgg = (raw: string) => {
+    const t = raw.trim()
+    if (!t) return '（無案場）'
+    if (isPlaceholderMonthBlockSiteName(t)) return '（草稿案場）'
+    return t
+  }
   const sites = [
-    ...new Set(blocks.map((b) => b.siteName.trim()).filter(Boolean)),
+    ...new Set(
+      blocks
+        .map((b) => b.siteName.trim())
+        .filter((t) => t && !isPlaceholderMonthBlockSiteName(t)),
+    ),
   ].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  const hasFormalSiteName = blocks.some(
+    (b) => b.siteName.trim() && !isPlaceholderMonthBlockSiteName(b.siteName),
+  )
+  const hasDraftPlaceholderOnly =
+    !hasFormalSiteName &&
+    blocks.some((b) => isPlaceholderMonthBlockSiteName(b.siteName))
+  const sitesForLabel =
+    sites.length > 0 ? sites : hasDraftPlaceholderOnly ? ['（草稿案場）'] : []
   const uniq = new Set<string>()
   const bySite = new Map<string, Set<string>>()
   for (const b of blocks) {
-    const key = b.siteName.trim() || '（無案場）'
+    const key = siteKeyForAgg(b.siteName)
     let s = bySite.get(key)
     if (!s) {
       s = new Set()
@@ -719,14 +741,14 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
     for (const b of blocks) {
       const w = blockWorkSummaryCompact(b)
       if (!w) continue
-      const label = b.siteName.trim() || '（無案場）'
+      const label = siteKeyForAgg(b.siteName)
       workParts.push(`${label}：\n${w}`)
     }
   }
   const workLabel =
     workParts.length > 0 ? workParts.join('\n') : doc.workItem.trim() || '—'
   return {
-    siteLabel: sites.join('\n') || '—',
+    siteLabel: sitesForLabel.join('\n') || '—',
     staffCount: uniq.size,
     staffLabel,
     workLabel,
@@ -912,7 +934,11 @@ export function newWorkLogDayDocument(logDate: string, blocks?: WorkLogSiteBlock
 
 /** 多案場 UI：具名案場種類數（去重） */
 export function countDistinctNamedSites(blocks: readonly { siteName: string }[]): number {
-  return new Set(blocks.map((b) => b.siteName.trim()).filter(Boolean)).size
+  return new Set(
+    blocks
+      .map((b) => b.siteName.trim())
+      .filter((t) => t && !isPlaceholderMonthBlockSiteName(t)),
+  ).size
 }
 
 export function newWorkLogEntityId(): string {

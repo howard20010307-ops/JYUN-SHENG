@@ -38,6 +38,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (jsonBin.cloudBootstrapPending) return
+      if (jsonBin.cloudUploadBlocked) return
       if (!canEdit) return
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return
       const el = e.target as HTMLElement | null
@@ -48,7 +49,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [undo, canUndo, jsonBin.cloudBootstrapPending, canEdit])
+  }, [undo, canUndo, jsonBin.cloudBootstrapPending, jsonBin.cloudUploadBlocked, canEdit])
 
   const setTab = useCallback(
     (tab: Tab) => setState((s) => ({ ...s, tab })),
@@ -74,7 +75,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     <div className="app">
       <div
         className="appShell"
-        inert={jsonBin.cloudBootstrapPending ? true : undefined}
+        inert={
+          jsonBin.cloudBootstrapPending || jsonBin.cloudUploadBlocked ? true : undefined
+        }
       >
       <header className="top">
         <div className="topMain">
@@ -242,6 +245,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             setSalaryBook={(fn) =>
               setState((s) => ({ ...s, salaryBook: fn(s.salaryBook) }))
             }
+            quoteSite={state.site}
             canEdit={canEdit}
           />
         )}
@@ -296,6 +300,42 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             </p>
             <p className="appCloudGate__hint muted">
               若久未結束，請檢查網路或 JSONBin 服務狀態；未設定雲端時不會出現此畫面。
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {jsonBin.cloudUploadBlocked && jsonBin.cloudUploadBlockMessage ? (
+        <div
+          className="appCloudGate appCloudGate--err"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="appJsonBinUploadErrTitle"
+          aria-describedby="appJsonBinUploadErrDesc"
+        >
+          <div className="appCloudGate__panel">
+            <h2 id="appJsonBinUploadErrTitle" className="appCloudGate__title">
+              JSONBin 上傳失敗
+            </h2>
+            <p id="appJsonBinUploadErrDesc" className="appCloudGate__desc">
+              雲端未更新；您在本機的編輯仍已寫入瀏覽器。在排除問題前，已鎖定操作以免您在不知情下繼續編輯、以為已同步到雲端。
+            </p>
+            <pre className="appCloudGate__errDetail" role="status">
+              {jsonBin.cloudUploadBlockMessage}
+            </pre>
+            <p className="appCloudGate__hint muted">
+              常見原因：超過 JSONBin 免費版大小、網路中斷、金鑰或 Bin id 錯誤。建議先匯出備份，再縮減月表歷史或升級方案。
+            </p>
+            <div className="btnRow appCloudGate__actions">
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => jsonBin.dismissCloudUploadBlock()}
+              >
+                暫停雲端上傳並繼續使用
+              </button>
+            </div>
+            <p className="appCloudGate__hint muted" style={{ marginTop: '0.75rem' }}>
+              按下後僅本工作階段不再自動上傳；重新整理頁面後會再嘗試同步。若要立即重試，可先匯出備份再重新整理。
             </p>
           </div>
         </div>

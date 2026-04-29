@@ -17,6 +17,7 @@ import {
   staffTotalPay,
   mealTotalPay,
   emptyBlock,
+  PLACEHOLDER_MONTH_BLOCK_SITE_NAME,
   buildStaffSummaryRows,
   NET_TAKE_HOME_ROW_PREFIX,
   type SummaryBlockRow,
@@ -24,6 +25,7 @@ import {
   staffKeysAcrossBook,
   renameWorkerInBook,
   addWorkerToBook,
+  addOrEnsureWorkerInMonth,
   removeWorkerFromBook,
   reconcileSalaryBookPeriodColumns,
   renameSiteAcrossBook,
@@ -147,6 +149,10 @@ export function PayrollPanel({
     oldExact: string
   } | null>(null)
   const [newStaffName, setNewStaffName] = useState('')
+  /** 各案場區塊「臨時加人」輸入框，key 為案場區塊 id */
+  const [siteBlockNewWorkerName, setSiteBlockNewWorkerName] = useState<Record<string, string>>(
+    () => ({}),
+  )
   const [activeMonthId, setActiveMonthId] = useState(() =>
     pickActiveMonthIdForToday(salaryBook.months),
   )
@@ -415,7 +421,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>鈞泩／蔡董日薪（本表）</h3>
             <p className="hint">
-              姓名欄可直接修改，游標移開後套用（<strong>全書各月</strong>一併更名）。下方可新增／刪除人員；刪除會清除全書該員日薪與格線等資料。新案場區塊會帶入目前月表所有人員列。
+              姓名欄可直接修改，游標移開後套用（<strong>全書各月</strong>一併更名）。下方可新增／刪除人員；刪除會清除全書該員日薪與格線等資料。新增案場區塊預設案名「{PLACEHOLDER_MONTH_BLOCK_SITE_NAME}」僅供草稿，改名後才會出現在收帳／估價案名等選單；區塊會帶入目前月表所有人員格線。
               <strong>蔡董日薪</strong>僅用於<strong>蔡董調工薪水</strong>與<strong>蔡董加班費</strong>換算；案場格線不計蔡董薪水（總表「蔡董薪水(未扣預支)」為 0）。
             </p>
             <div className="tableScroll tableScrollSticky">
@@ -607,7 +613,7 @@ export function PayrollPanel({
                       blocks: [
                         ...m.blocks,
                         emptyBlock(
-                          '新案場',
+                          PLACEHOLDER_MONTH_BLOCK_SITE_NAME,
                           m.dates.length,
                           staffKeysForMonthDisplay(m),
                         ),
@@ -629,6 +635,43 @@ export function PayrollPanel({
                   }
                 >
                   刪除此案場
+                </button>
+              </div>
+              <div className="btnRow payrollBlockAddWorker" style={{ marginTop: 8 }}>
+                <label style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  <span className="muted">本案場加人（僅本月）</span>
+                  <input
+                    type="text"
+                    className="titleInput"
+                    style={{ maxWidth: '11rem' }}
+                    placeholder="姓名"
+                    value={siteBlockNewWorkerName[block.id] ?? ''}
+                    onChange={(e) =>
+                      setSiteBlockNewWorkerName((p) => ({ ...p, [block.id]: e.target.value }))
+                    }
+                    aria-label={`${block.siteName || '案場'} 新增施工人員姓名`}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => {
+                    const raw = siteBlockNewWorkerName[block.id] ?? ''
+                    const r = addOrEnsureWorkerInMonth(salaryBook, month.id, raw)
+                    if (!r.ok) {
+                      alert(r.message)
+                      return
+                    }
+                    setSalaryBook(() => r.book)
+                    setSiteBlockNewWorkerName((p) => {
+                      const q = { ...p }
+                      delete q[block.id]
+                      return q
+                    })
+                    alert(r.message)
+                  }}
+                >
+                  增加施工人員
                 </button>
               </div>
               <p className="hint">

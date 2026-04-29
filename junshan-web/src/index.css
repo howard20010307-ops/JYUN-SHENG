@@ -177,6 +177,27 @@ html {
   line-height: 1.45;
 }
 
+.appCloudGate--err .appCloudGate__panel {
+  border-color: rgba(240, 113, 120, 0.55);
+  max-width: min(32rem, 100vw - 2rem);
+}
+
+.appCloudGate__errDetail {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.appCloudGate__actions {
+  margin-top: 0.25rem;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -3336,6 +3357,30 @@ fieldset.tabFieldset {
   font-variant-numeric: tabular-nums;
 }
 
+.receivablesPanel__countHint {
+  font-size: 0.84rem;
+}
+
+.receivablesPanel__countHint strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.receivablesPanel__filterGap {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #243041);
+}
+
+.receivablesPanel__filterGapText {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.receivablesPanel__filterGapBtns {
+  margin-bottom: 0;
+}
+
 .receivablesPanel__totalsCap {
   width: 100%;
   font-size: 0.84rem;
@@ -3545,13 +3590,167 @@ fieldset.tabFieldset {
   text-align: center;
 }
 
+/** 結算列：與上方 11 欄同格線；金額區塊與 .receivablesTable__num 同寬靠右 */
+.receivablesTable--flat .receivablesTable__footer th,
+.receivablesTable--flat .receivablesTable__footer td {
+  background: #3a262d;
+  border: 1px solid var(--border, #243041);
+  font-weight: 600;
+}
+
+.receivablesTable--flat .receivablesTable__footer .receivablesTable__footerNumIn {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 10rem;
+  margin-left: auto;
+  margin-right: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 8px;
+  min-height: 2.25rem;
+  line-height: 1.15;
+}
+
+.receivablesTable__footerLead {
+  text-align: start;
+  white-space: nowrap;
+}
+
+.receivablesTable__footerNumCell {
+  font-variant-numeric: tabular-nums;
+}
+
 .receivablesTable__derived {
   color: var(--muted, #8b98a8);
 }
-.receivablesTable--flat .receivablesTable__footer th,
-.receivablesTable--flat .receivablesTable__footer td {
-  background: rgba(200, 72, 72, 0.18);
-  font-weight: 600;
+
+.receivablesTable.receivablesTable--flat {
+  --rcv-flat-row-h: 3rem;
+  width: max(100%, 1180px);
+  min-width: 1180px;
+}
+
+/** 列高一致（表頭／資料；表尾結算列可換行加高） */
+.receivablesTable--flat thead tr,
+.receivablesTable--flat tbody tr:not(:has(> td.receivablesTable__empty)) {
+  height: var(--rcv-flat-row-h);
+}
+
+.receivablesTable--flat tbody tr:has(> td.receivablesTable__empty) {
+  height: auto;
+  min-height: var(--rcv-flat-row-h);
+}
+
+.receivablesTable--flat tfoot tr {
+  height: var(--rcv-flat-row-h);
+}
+
+.tableScrollSticky > table.receivablesTable--flat tfoot th:first-child,
+.tableScrollSticky > table.receivablesTable--flat tfoot td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #3a262d;
+  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+
+.receivablesTable--flat thead th,
+.receivablesTable--flat tbody td,
+.receivablesTable--flat tfoot th,
+.receivablesTable--flat tfoot td {
+  vertical-align: middle;
+}
+
+.receivablesTable--flat .receivablesTable__inline,
+.receivablesTable--flat .receivablesTable__select,
+.receivablesTable--flat .receivablesTable__num {
+  height: 2.25rem;
+  min-height: 2.25rem;
+  max-height: 2.25rem;
+  line-height: 1.15;
+  box-sizing: border-box;
+}
+
+.receivablesTable--flat .receivablesTable__inputGrow {
+  height: 2.25rem;
+  min-height: 2.25rem;
+  max-height: 2.25rem;
+  box-sizing: border-box;
+  max-width: none;
+}
+
+.receivablesTable--flat .receivablesTable__select {
+  max-width: none;
+  min-width: 12rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellDate {
+  min-width: 11.25rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellProject {
+  min-width: 14rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellBuilding {
+  min-width: 7rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellFloor {
+  min-width: 8rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellPhase {
+  width: auto;
+  max-width: none;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.receivablesTable--flat .receivablesTable__cellNote {
+  width: auto;
+  max-width: none;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.receivablesTable--flat .receivablesTable__cellMoney {
+  min-width: 7.5rem;
+}
+
+.receivablesTable--flat .receivablesTable__cellMoney--narrow {
+  min-width: 5.5rem;
+}
+
+.receivablesTable--flat .receivablesTable__inline {
+  min-width: 4.5rem;
+}
+
+.receivablesTable--flat .receivablesTable__num {
+  max-width: 10rem;
+}
+
+/** 階段／備註：欄寬在 td（ch）；輸入填滿儲存格，直線與表頭對齊 */
+.receivablesTable--flat .receivablesTable__inline.receivablesTable__inputGrow {
+  min-width: 0;
+}
+
+.receivablesTable--flat .receivablesTable__cellPhase .receivablesTable__inputGrow,
+.receivablesTable--flat .receivablesTable__cellNote .receivablesTable__inputGrow {
+  width: 100%;
+  max-width: none;
+  overflow-x: visible;
+}
+
+/** Chromium／新版：輸入框隨字長即時變寬，與 td 的 minWidth 雙重避免裁切 */
+@supports (field-sizing: content) {
+  .receivablesTable--flat .receivablesTable__cellPhase .receivablesTable__inputGrow,
+  .receivablesTable--flat .receivablesTable__cellNote .receivablesTable__inputGrow {
+    field-sizing: content;
+    width: auto;
+    min-width: 10ch;
+  }
 }
 
 .receivablesTable__empty {
@@ -3566,15 +3765,24 @@ fieldset.tabFieldset {
 }
 
 .receivablesTableScroll {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   margin: 0 -2px;
   padding: 0 2px;
+}
+
+/** 與 .tableScrollSticky 併用：雙向捲＋表頭／首欄凍結；僅收帳時勿覆蓋成 overflow-x */
+.receivablesTableScroll.tableScrollSticky {
+  overflow: auto;
+  max-height: min(78vh, 920px);
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (max-width: 768px) {
   .receivablesTable {
     min-width: 640px;
+  }
+
+  .receivablesTable.receivablesTable--flat {
+    min-width: 1100px;
   }
 }
 

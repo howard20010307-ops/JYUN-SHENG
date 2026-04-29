@@ -104,7 +104,7 @@ export function migrateAppState(loaded: unknown): AppState {
     }
   }
 
-  return {
+  const merged = {
     ...init,
     ...d,
     tab,
@@ -126,4 +126,8 @@ export function migrateAppState(loaded: unknown): AppState {
         ? migrateReceivablesState(d.receivables)
         : init.receivables,
   }
+  const { billingProgress: _legacyBillingProgress, ...out } = merged as typeof merged & {
+    billingProgress?: unknown
+  }
+  return out
 }
