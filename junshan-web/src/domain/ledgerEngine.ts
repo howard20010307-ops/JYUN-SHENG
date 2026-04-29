@@ -22,7 +22,6 @@ export type MonthLine = {
   tools: number
   bossSalary: number
   instrument: number
-  risk: number
   /** 工程款（未稅入帳合計，手輸或從收帳匯總） */
   revenueNet: number
   tax: number
@@ -41,8 +40,7 @@ export function computeMonth(m: MonthLine): MonthComputed {
     m.meals +
     m.tools +
     m.bossSalary +
-    m.instrument +
-    m.risk
+    m.instrument
   const revenueGross = m.revenueNet + m.tax
   const surplus = revenueGross - totalCost
   return { ...m, totalCost, revenueGross, surplus }
@@ -80,6 +78,27 @@ export const MONTH_ORDER: MonthKey[] = [
   '12',
 ]
 
+/** 載入舊備份時：略過已刪除之欄位（如 risk），並補齊數字欄位 */
+export function normalizeStoredMonthLine(raw: unknown, base: MonthLine): MonthLine {
+  if (!raw || typeof raw !== 'object') return base
+  const m = raw as Record<string, unknown>
+  const num = (v: unknown, d: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? v : d
+  const mo = typeof m.month === 'string' ? m.month : base.month
+  const month = (MONTH_ORDER as readonly string[]).includes(mo) ? (mo as MonthKey) : base.month
+  return {
+    month,
+    salary: num(m.salary, base.salary),
+    overtimePay: num(m.overtimePay, 0),
+    meals: num(m.meals, base.meals),
+    tools: num(m.tools, base.tools),
+    bossSalary: num(m.bossSalary, base.bossSalary),
+    instrument: num(m.instrument, base.instrument),
+    revenueNet: num(m.revenueNet, base.revenueNet),
+    tax: num(m.tax, base.tax),
+  }
+}
+
 function monthNum(m: MonthKey): number {
   return parseInt(m, 10)
 }
@@ -93,7 +112,6 @@ export function defaultLedger(): MonthLine[] {
     tools: 0,
     bossSalary: monthNum(month) >= 5 ? 100000 : 0,
     instrument: 20000,
-    risk: 20000,
     revenueNet: 0,
     tax: 0,
   }))

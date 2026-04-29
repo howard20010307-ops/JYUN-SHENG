@@ -8,7 +8,7 @@ import {
   type QuoteSite,
   type QuoteRow,
 } from './quoteEngine'
-import { defaultLedger, type MonthLine } from './ledgerEngine'
+import { defaultLedger, normalizeStoredMonthLine, type MonthLine } from './ledgerEngine'
 import {
   defaultSalaryBook,
   normalizeSalaryBook,
@@ -19,6 +19,11 @@ import {
   migrateWorkLogState,
   type WorkLogState,
 } from './workLogModel'
+import {
+  initialReceivablesState,
+  migrateReceivablesState,
+  type ReceivablesState,
+} from './receivablesModel'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -32,7 +37,7 @@ function isFlatQuoteLayout(l: QuoteLayout): boolean {
   )
 }
 
-export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog'
+export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog' | 'receivables'
 
 export type AppState = {
   tab: Tab
@@ -43,6 +48,7 @@ export type AppState = {
   quoteRowsSchemaVersion: number
   months: MonthLine[]
   workLog: WorkLogState
+  receivables: ReceivablesState
 }
 
 export function initialAppState(): AppState {
@@ -54,6 +60,7 @@ export function initialAppState(): AppState {
     quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
     months: defaultLedger(),
     workLog: initialWorkLogState(),
+    receivables: initialReceivablesState(),
   }
 }
 
@@ -62,7 +69,11 @@ export function migrateAppState(loaded: unknown): AppState {
   if (!loaded || typeof loaded !== 'object') return init
   const d = loaded as Partial<AppState>
   const tab: Tab =
-    d.tab === 'quote' || d.tab === 'payroll' || d.tab === 'ledger' || d.tab === 'worklog'
+    d.tab === 'quote' ||
+    d.tab === 'payroll' ||
+    d.tab === 'ledger' ||
+    d.tab === 'worklog' ||
+    d.tab === 'receivables'
       ? d.tab
       : 'payroll'
   const workLog =
@@ -106,13 +117,13 @@ export function migrateAppState(loaded: unknown): AppState {
     quoteRows,
     quoteRowsSchemaVersion,
     months: Array.isArray(d.months)
-      ? (d.months as MonthLine[]).map((m) => ({
-          ...m,
-          overtimePay:
-            typeof m.overtimePay === 'number' && Number.isFinite(m.overtimePay)
-              ? m.overtimePay
-              : 0,
-        }))
+      ? (d.months as unknown[]).map((raw, i) =>
+          normalizeStoredMonthLine(raw, init.months[i] ?? defaultLedger()[i] ?? init.months[0]),
+        )
       : init.months,
+    receivables:
+      d.receivables !== undefined && d.receivables !== null
+        ? migrateReceivablesState(d.receivables)
+        : init.receivables,
   }
 }

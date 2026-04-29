@@ -22,11 +22,11 @@ export function LedgerPanel({ months, setMonths }: Props) {
   }
 
   return (
-    <div className="panel">
+    <div className="panel ledgerPanel">
       <h2>公司帳（總成本／損益）</h2>
       <p className="hint">
         結餘（本期）＝（工程款未稅＋稅金）−
-        總成本；總成本＝薪水＋加班費＋餐費＋工具＋老闆薪水＋儀器損耗＋風險。最右欄為累計盈虧。
+        總成本；總成本＝薪水＋加班費＋餐費＋工具＋老闆薪水＋儀器損耗。最右欄為累計盈虧。
       </p>
       <div className="tableScroll">
         <table className="data tight ledgerCompanyTable">
@@ -39,7 +39,6 @@ export function LedgerPanel({ months, setMonths }: Props) {
               <th>工具</th>
               <th>老闆薪</th>
               <th>儀器</th>
-              <th>風險</th>
               <th>工程款</th>
               <th>稅金</th>
               <th>總成本</th>
@@ -96,13 +95,6 @@ export function LedgerPanel({ months, setMonths }: Props) {
                 <td>
                   <PayrollNumberInput
                     className="narrow"
-                    value={r.risk}
-                    onCommit={(nv) => patch(i, { risk: nv })}
-                  />
-                </td>
-                <td>
-                  <PayrollNumberInput
-                    className="narrow"
                     value={r.revenueNet}
                     onCommit={(nv) => patch(i, { revenueNet: nv })}
                   />
@@ -122,8 +114,8 @@ export function LedgerPanel({ months, setMonths }: Props) {
           </tbody>
           <tfoot>
             <tr>
-              <th colSpan={11}>全年累計盈虧</th>
-              <th className="num" colSpan={2}>
+              <th colSpan={9}>全年累計盈虧</th>
+              <th className="num" colSpan={3}>
                 {Math.round(total).toLocaleString()}
               </th>
             </tr>

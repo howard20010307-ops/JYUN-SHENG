@@ -149,13 +149,39 @@ function aggregateWorkLogEntriesForDay(
   }
   const staffArr = [...staff].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   const workArr = [...works].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-  let workLabel = workArr.join('、') || '—'
-  if (list.length > 1) {
-    workLabel = workLabel === '—' ? `（${list.length} 筆）` : `${workLabel}（${list.length} 筆）`
+  let workLabel: string
+  const distinctSiteKeys = new Set(list.map((e) => e.siteName.trim() || '（無案場）'))
+  if (distinctSiteKeys.size > 1) {
+    const workBySite = new Map<string, Set<string>>()
+    for (const e of list) {
+      const key = e.siteName.trim() || '（無案場）'
+      const w = e.workItem.trim()
+      if (!w) continue
+      let ws = workBySite.get(key)
+      if (!ws) {
+        ws = new Set()
+        workBySite.set(key, ws)
+      }
+      ws.add(w)
+    }
+    const siteKeysSorted = [...distinctSiteKeys].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+    workLabel = siteKeysSorted
+      .map((site) => {
+        const ws = [...(workBySite.get(site) ?? [])].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+        return `${site}：\n${ws.length ? ws.join('\n') : '—'}`
+      })
+      .join('\n')
+    if (list.length > 1) {
+      workLabel = workLabel === '—' ? `（${list.length} 筆）` : `${workLabel}（${list.length} 筆）`
+    }
+  } else {
+    workLabel = workArr.join('\n') || '—'
+    if (list.length > 1) {
+      workLabel = workLabel === '—' ? `（${list.length} 筆）` : `${workLabel}（${list.length} 筆）`
+    }
   }
   let staffLabel: string
   let staffCount: number
-  const distinctSiteKeys = new Set(list.map((e) => e.siteName.trim() || '（無案場）'))
   if (distinctSiteKeys.size > 1) {
     const bySite = new Map<string, Set<string>>()
     for (const e of list) {
@@ -172,12 +198,17 @@ function aggregateWorkLogEntriesForDay(
     const siteKeys = [...bySite.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
     const parts = siteKeys.map((site) => {
       const names = [...(bySite.get(site) ?? [])].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-      return `${site}：${names.length ? names.join('\n') : '—'}`
+      return `${site}：\n${names.length ? names.join('\n') : '—'}`
     })
     staffLabel = parts.join('\n')
     staffCount = staffArr.length
   } else {
-    staffLabel = staffArr.join('\n') || '—'
+    const siteKey = [...distinctSiteKeys][0] ?? ''
+    if (siteKey && staffArr.length > 0) {
+      staffLabel = `${siteKey}：\n${staffArr.join('\n')}`
+    } else {
+      staffLabel = staffArr.join('\n') || '—'
+    }
     staffCount = staffArr.length
   }
   return {

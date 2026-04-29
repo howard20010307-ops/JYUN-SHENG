@@ -2399,9 +2399,78 @@ code {
   margin-top: 0.2rem;
 }
 
-/** 公司帳：欄位多，維持橫向捲動避免擠壓 */
+/** 公司帳：欄位多，橫向捲動；字級／欄寬與輸入格一致，避免過窄或與全域 input.narrow(88px) 衝突 */
+.ledgerPanel > h2 {
+  font-size: var(--ui-fs-xl);
+  line-height: var(--ui-lh-tight);
+}
+.ledgerPanel > .hint {
+  font-size: var(--ui-fs-sm);
+  line-height: 1.55;
+  max-width: 48rem;
+}
+
 table.data.ledgerCompanyTable {
-  min-width: 960px;
+  min-width: 1080px;
+  width: max-content;
+  font-size: var(--ui-fs-sm);
+  border-collapse: collapse;
+}
+table.data.ledgerCompanyTable thead th {
+  font-size: var(--ui-fs-xs);
+  font-weight: 600;
+  padding: 10px 8px;
+  white-space: nowrap;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+table.data.ledgerCompanyTable thead th:first-child {
+  width: 3.35rem;
+  min-width: 3.35rem;
+}
+table.data.ledgerCompanyTable tbody td {
+  padding: 8px 7px;
+  vertical-align: middle;
+}
+table.data.ledgerCompanyTable tbody td:first-child {
+  width: 3.35rem;
+  min-width: 3.35rem;
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  color: var(--head);
+  text-align: center;
+}
+/** 可編輯金額欄（第 2–9 欄：薪水～稅金） */
+table.data.ledgerCompanyTable thead th:nth-child(n + 2):nth-child(-n + 9),
+table.data.ledgerCompanyTable tbody td:nth-child(n + 2):nth-child(-n + 9) {
+  width: 5.85rem;
+  min-width: 5.85rem;
+}
+/** 總成本、本期結餘、累計盈虧 */
+table.data.ledgerCompanyTable thead th:nth-child(n + 10),
+table.data.ledgerCompanyTable tbody td.num:nth-child(n + 10) {
+  min-width: 6.25rem;
+  font-size: var(--ui-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+table.data.ledgerCompanyTable input.narrow {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 5.25rem;
+  max-width: none;
+  padding: 6px 8px;
+  font-size: var(--ui-fs-sm);
+  line-height: var(--ui-lh-snug);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+table.data.ledgerCompanyTable tfoot th {
+  font-size: var(--ui-fs-sm);
+  padding: 12px 10px;
+}
+table.data.ledgerCompanyTable tfoot th.num {
+  font-size: var(--ui-fs-md);
+  font-weight: 700;
 }
 
 /**
@@ -2656,14 +2725,39 @@ table.data.ledgerCompanyTable {
     padding: 10px 8px;
   }
 
-  /** 公司帳：輸入格在手機拉寬、易點 */
+  .ledgerPanel > h2 {
+    font-size: 1.08rem;
+  }
+
+  .ledgerPanel > .hint {
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+
+  /** 公司帳：輸入格在手機拉寬、易點；表略加寬減少欄位擠壓感 */
   table.data.ledgerCompanyTable {
-    min-width: 920px;
+    min-width: 1040px;
+    font-size: 0.9rem;
   }
 
   table.data.ledgerCompanyTable thead th {
-    font-size: 0.82rem;
-    padding: 10px 8px;
+    font-size: 0.86rem;
+    padding: 10px 7px;
+  }
+
+  table.data.ledgerCompanyTable tbody td:first-child {
+    font-size: 0.9rem;
+  }
+
+  table.data.ledgerCompanyTable thead th:nth-child(n + 2):nth-child(-n + 9),
+  table.data.ledgerCompanyTable tbody td:nth-child(n + 2):nth-child(-n + 9) {
+    min-width: 5.5rem;
+  }
+
+  table.data.ledgerCompanyTable thead th:nth-child(n + 10),
+  table.data.ledgerCompanyTable tbody td.num:nth-child(n + 10) {
+    font-size: 0.9rem;
+    min-width: 6rem;
   }
 
   table.data.ledgerCompanyTable input.narrow {
@@ -2672,6 +2766,15 @@ table.data.ledgerCompanyTable {
     min-width: 5.25rem;
     min-height: 44px;
     font-size: 1rem;
+    padding: 10px 8px;
+  }
+
+  table.data.ledgerCompanyTable tfoot th {
+    font-size: 0.9rem;
+  }
+
+  table.data.ledgerCompanyTable tfoot th.num {
+    font-size: 0.98rem;
   }
 
   /** 放樣估價：工作表切換、表頭與儲存格（手機以橫捲＋較大字級／點擊區為主） */
@@ -3052,6 +3155,260 @@ table.data.ledgerCompanyTable {
 
   input.titleInput {
     min-height: 44px;
+  }
+}
+
+fieldset.tabFieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.readOnlyBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--muted, #8b98a8);
+  border: 1px solid var(--border, #243041);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.receivablesPanel {
+  max-width: 1200px;
+}
+
+.receivablesPanel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.receivablesPanel__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+}
+
+.receivablesPanel__sub {
+  margin: 0;
+  font-size: 0.9rem;
+  max-width: 42rem;
+}
+
+.receivablesPanel__monthBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 1rem;
+}
+
+.receivablesPanel__monthLabel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92rem;
+}
+
+.receivablesPanel__monthInput {
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+}
+
+.receivablesPanel__monthTotals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 0.92rem;
+}
+
+.receivablesPanel__monthTotals strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.receivablesPanel__empty {
+  margin: 0 0 1rem;
+}
+
+.receivablesPanel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.receivablesCard {
+  padding: 1rem 1.1rem;
+}
+
+.receivablesCard__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.receivablesCard__name {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+}
+
+.receivablesCard__delProj {
+  flex-shrink: 0;
+}
+
+.receivablesCard__noteLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  margin-bottom: 10px;
+}
+
+.receivablesCard__note {
+  width: 100%;
+  resize: vertical;
+  min-height: 3rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesCard__actions {
+  margin-bottom: 12px;
+}
+
+.receivablesCard__noPhase {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.receivablesTable {
+  width: 100%;
+  min-width: 720px;
+  font-size: 0.88rem;
+}
+
+.receivablesTable__phaseRow td {
+  vertical-align: middle;
+}
+
+.receivablesTable__receiptRow td {
+  vertical-align: middle;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.receivablesTable__sub {
+  color: var(--muted, #8b98a8);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.receivablesTable__inline {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesTable__num {
+  width: 100%;
+  max-width: 7rem;
+  margin-left: auto;
+  text-align: right;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.receivablesTable__dash {
+  opacity: 0.45;
+}
+
+.receivablesTable__rowBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.receivablesTable__miniBtn {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.receivablesTable__noteWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.receivablesTable__noteInput {
+  flex: 1 1 10rem;
+  min-width: 6rem;
+}
+
+.receivablesTable--flat .receivablesTable__footer th,
+.receivablesTable--flat .receivablesTable__footer td {
+  background: rgba(200, 72, 72, 0.18);
+  font-weight: 600;
+}
+
+.receivablesTable__empty {
+  text-align: center;
+  padding: 1rem !important;
+}
+
+.receivablesTable__actCol {
+  width: 4.25rem;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.receivablesTableScroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+
+@media (max-width: 768px) {
+  .receivablesTable {
+    min-width: 640px;
   }
 }
 

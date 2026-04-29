@@ -620,7 +620,7 @@ export function renameWorkerInBook(
 }
 
 /** 與快速登記「蔡董調工／調工支援」專用案名衝突時拒絕更名（避免誤用保留字）；含舊鍵「鈞泩調工」 */
-const RESERVED_SITE_NAMES_FOR_QUICK = new Set(['蔡董調工', '調工支援', '鈞泩調工'])
+export const RESERVED_SITE_NAMES_FOR_QUICK = new Set(['蔡董調工', '調工支援', '鈞泩調工'])
 
 /** 同一月內「完整案名字串」重複（不以 trim 等同視為同一） */
 function monthLabelWithDuplicateSiteName(book: SalaryBook): string | null {
@@ -723,6 +723,52 @@ export function renameSiteAcrossBook(
       : `已將與「${oldLabel}」完全相同的案名，同步為「${newT}」（${monthsTouched.size} 張月表、共 ${changedBlocks} 個區塊）。`
 
   return { book: trial, ok: true, message: msg }
+}
+
+/**
+ * 在指定月表新增一個空案場區塊（與薪水頁「新增案場區塊」一致；格線人員與該月顯示列一致）。
+ * 用於收帳「新增案」與月表連動。
+ */
+export function addEmptySiteBlockToMonth(
+  book: SalaryBook,
+  monthId: string,
+  siteNameRaw: string,
+): { book: SalaryBook; ok: boolean; message: string } {
+  const siteT = siteNameRaw.trim()
+  if (!siteT) {
+    return { book, ok: false, message: '案名不可為空白。' }
+  }
+  if (RESERVED_SITE_NAMES_FOR_QUICK.has(siteT)) {
+    return {
+      book,
+      ok: false,
+      message: `「${siteT}」為快速登記保留案名，請改用其他名稱。`,
+    }
+  }
+  const mi = book.months.findIndex((m) => m.id === monthId)
+  if (mi < 0) {
+    return { book, ok: false, message: '找不到該月表。' }
+  }
+  const month = book.months[mi]
+  if (month.blocks.some((b) => b.siteName === siteT)) {
+    return {
+      book,
+      ok: false,
+      message: `「${month.label}」已有相同案名，請勿重複新增。`,
+    }
+  }
+  const staffOrder = staffKeysForMonthDisplay(month)
+  const nb = emptyBlock(siteT, month.dates.length, staffOrder)
+  const nextMonth: MonthSheetData = { ...month, blocks: [...month.blocks, nb] }
+  const nextBook: SalaryBook = {
+    ...book,
+    months: book.months.map((m, i) => (i === mi ? nextMonth : m)),
+  }
+  return {
+    book: nextBook,
+    ok: true,
+    message: `已在「${month.label}」新增案場「${siteT}」。`,
+  }
 }
 
 export function addWorkerToMonth(m: MonthSheetData, name: string): MonthSheetData {

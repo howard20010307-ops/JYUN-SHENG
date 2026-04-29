@@ -8,13 +8,17 @@ import {
 } from 'react'
 import {
   clearLoginSession,
-  readLoginSessionOk,
+  readLoginSessionRole,
   verifyAppLogin,
   writeLoginSessionOk,
+  type AppLoginRole,
 } from '../domain/appLoginCredentials'
 
 export type AppGateAuthContextValue = {
   isUnlocked: boolean
+  role: AppLoginRole | null
+  /** 管理者 howard07 可改寫全站；訪客唯讀 */
+  canEdit: boolean
   tryLogin: (user: string, password: string) => boolean
   logout: () => void
 }
@@ -22,27 +26,30 @@ export type AppGateAuthContextValue = {
 const AppGateAuthContext = createContext<AppGateAuthContextValue | null>(null)
 
 export function AppGateAuthProvider({ children }: { children: ReactNode }) {
-  const [sessionOk, setSessionOk] = useState(() => readLoginSessionOk())
+  const [role, setRole] = useState<AppLoginRole | null>(() => readLoginSessionRole())
 
   const tryLogin = useCallback((user: string, password: string) => {
-    if (!verifyAppLogin(user, password)) return false
-    writeLoginSessionOk()
-    setSessionOk(true)
+    const r = verifyAppLogin(user, password)
+    if (r === null) return false
+    writeLoginSessionOk(r)
+    setRole(r)
     return true
   }, [])
 
   const logout = useCallback(() => {
     clearLoginSession()
-    setSessionOk(false)
+    setRole(null)
   }, [])
 
   const value = useMemo<AppGateAuthContextValue>(
     () => ({
-      isUnlocked: sessionOk,
+      isUnlocked: role !== null,
+      role,
+      canEdit: role === 'admin',
       tryLogin,
       logout,
     }),
-    [sessionOk, tryLogin, logout],
+    [role, tryLogin, logout],
   )
 
   return <AppGateAuthContext.Provider value={value}>{children}</AppGateAuthContext.Provider>

@@ -30,7 +30,9 @@ export function AppLoginGate({ tryLogin }: Props) {
           <h1 id="appLoginGateTitle" className="appLoginGate__title">
             鈞泩放樣 · 營運試算
           </h1>
-          <p className="appLoginGate__desc">請輸入帳號與密碼以登入。</p>
+          <p className="appLoginGate__desc">
+            請輸入帳號與密碼。管理者（howard07）可編輯；訪客帳號僅能瀏覽（唯讀），帳密請見程式設定檔。
+          </p>
           <form className="appLoginGate__form" autoComplete="off" onSubmit={submit}>
             <label className="appLoginGate__label" htmlFor={userId}>
               帳號

@@ -696,11 +696,17 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
     staffLabel = siteKeys
       .map((site) => {
         const names = [...(bySite.get(site) ?? [])].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-        return `${site}：${names.length ? names.join('\n') : '—'}`
+        return `${site}：\n${names.length ? names.join('\n') : '—'}`
       })
       .join('\n')
   } else {
-    staffLabel = [...uniq].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\n') || '—'
+    const sk = siteKeys[0] ?? ''
+    const nameLines = [...uniq].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\n')
+    if (sk && uniq.size > 0) {
+      staffLabel = `${sk}：\n${nameLines}`
+    } else {
+      staffLabel = nameLines || '—'
+    }
   }
   const singleSiteForCalendar = siteKeys.length <= 1
   const workParts: string[] = []
@@ -714,7 +720,7 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
       const w = blockWorkSummaryCompact(b)
       if (!w) continue
       const label = b.siteName.trim() || '（無案場）'
-      workParts.push(`${label}：${w}`)
+      workParts.push(`${label}：\n${w}`)
     }
   }
   const workLabel =

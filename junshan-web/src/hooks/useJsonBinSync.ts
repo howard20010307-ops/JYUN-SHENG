@@ -19,6 +19,7 @@ const SAVE_MS = 700
 export function useJsonBinSync(
   state: AppState,
   setState: React.Dispatch<React.SetStateAction<AppState>>,
+  allowCloudWrite = true,
 ): {
   active: boolean
   ready: boolean
@@ -78,6 +79,7 @@ export function useJsonBinSync(
   }, [envIntent, canUse, keyErr, setState])
 
   useEffect(() => {
+    if (!allowCloudWrite) return
     if (keyErr || !canUse || !ready) return
     if (skipNextUpload.current) {
       skipNextUpload.current = false
@@ -103,7 +105,7 @@ export function useJsonBinSync(
         saveTimer.current = null
       }
     }
-  }, [state, ready, canUse, keyErr])
+  }, [state, ready, canUse, keyErr, allowCloudWrite])
 
   const cloudBootstrapPending = Boolean(envIntent && canUse && !keyErr && !ready)
 

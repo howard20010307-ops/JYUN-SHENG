@@ -415,12 +415,12 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
     for (const site of siteNamesWithWork) {
       const names = payrollGridStaffAtSite(s, site)
       for (const n of names) uniq.add(n)
-      parts.push(`${site}：${names.length ? names.join('\n') : '—'}`)
+      parts.push(`${site}：\n${names.length ? names.join('\n') : '—'}`)
     }
     if (hasUnnamedSiteWork) {
       const un = payrollGridStaffUnnamedBlocks(s)
       for (const n of un) uniq.add(n)
-      parts.push(`（未命名）：${un.length ? un.join('\n') : '—'}`)
+      parts.push(`（未命名）：\n${un.length ? un.join('\n') : '—'}`)
     }
     staffLabel = parts.join('\n')
     staffCount = uniq.size
@@ -428,12 +428,12 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
     const site = siteNamesWithWork[0]
     const scoped = payrollStaffMealForFormSite(s, site)
     const names = scoped?.staffNames ?? []
-    staffLabel = names.join('\n') || '—'
+    staffLabel = names.length ? `${site}：\n${names.join('\n')}` : '—'
     staffCount = names.length
   } else if (hasUnnamedSiteWork) {
     const scoped = payrollStaffMealForFormSite(s, '')
     const names = scoped?.staffNames ?? []
-    staffLabel = names.join('\n') || '—'
+    staffLabel = names.length ? `（未命名）：\n${names.join('\n')}` : '—'
     staffCount = names.length
   } else {
     const hasJun = s.junAdjust.some((x) => x.value !== 0)
@@ -445,7 +445,7 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
     if (siteKey) {
       const scoped = payrollStaffMealForFormSite(s, siteKey)
       const names = scoped?.staffNames ?? []
-      staffLabel = names.join('\n') || '—'
+      staffLabel = names.length ? `${siteKey}：\n${names.join('\n')}` : '—'
       staffCount = names.length
     } else {
       staffLabel = s.staffRates.map((r) => r.name).join('\n') || '—'
