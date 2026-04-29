@@ -1,4 +1,4 @@
-/** 收帳：每列一筆實際入帳（案名、階段、未稅／稅／含稅） */
+/** 收帳：每列一筆實際入帳（案名、階段、未稅；預設 5% 稅，可改 0 稅） */
 
 export type ReceivableEntryId = string
 
@@ -11,18 +11,89 @@ export type ReceivableEntry = {
   /** 階段 */
   phaseLabel: string
   net: number
+  /**
+   * 為 true 時稅金固定 0、含稅＝未稅（調工／免稅等）。
+   * 為 false 時稅金＝未稅×5% 四捨五入。
+   */
+  taxZero: boolean
+  /** 與未稅、taxZero 連動（儲存用） */
   tax: number
   note: string
+}
+
+function safeNet(net: unknown): number {
+  return typeof net === 'number' && Number.isFinite(net) ? net : 0
+}
+
+/** 稅金固定 5%（四捨五入至整數，與慣用發票未稅額對齊） */
+export function taxFromNet(net: number): number {
+  return Math.round(safeNet(net) * 0.05)
+}
+
+/** 單列稅金（含 0 稅） */
+export function entryTax(e: ReceivableEntry): number {
+  if (e.taxZero) return 0
+  return taxFromNet(e.net)
+}
+
+/** 單列含稅 */
+export function entryGross(e: ReceivableEntry): number {
+  return safeNet(e.net) + entryTax(e)
+}
+
+export function grossFromNet(net: number): number {
+  return safeNet(net) + taxFromNet(net)
 }
 
 export type ReceivablesState = {
   entries: ReceivableEntry[]
 }
 
+function isBookedDateYmd(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+}
+
+/** 依入帳日由早到晚；非 YYYY-MM-DD 或空值排在最後，同日再依 id */
+export function compareReceivableEntriesByBookedDate(
+  a: ReceivableEntry,
+  b: ReceivableEntry,
+): number {
+  const aa = isBookedDateYmd(a.bookedDate)
+  const bb = isBookedDateYmd(b.bookedDate)
+  if (aa && bb) {
+    const d = a.bookedDate.localeCompare(b.bookedDate)
+    if (d !== 0) return d
+    return a.id.localeCompare(b.id)
+  }
+  if (aa && !bb) return -1
+  if (!aa && bb) return 1
+  const d = a.bookedDate.localeCompare(b.bookedDate)
+  if (d !== 0) return d
+  return a.id.localeCompare(b.id)
+}
+
+export function sortReceivableEntriesByBookedDate(
+  entries: ReceivableEntry[],
+): ReceivableEntry[] {
+  return entries.slice().sort(compareReceivableEntriesByBookedDate)
+}
+
+/** @deprecated 請用 {@link grossFromNet}；稅金改為固定由未稅推算 */
 export function grossOf(net: number, tax: number): number {
   const n = typeof net === 'number' && Number.isFinite(net) ? net : 0
   const t = typeof tax === 'number' && Number.isFinite(tax) ? tax : 0
   return n + t
+}
+
+function syncEntryTax(e: ReceivableEntry): ReceivableEntry {
+  const net = safeNet(e.net)
+  const taxZero = Boolean(e.taxZero)
+  const tax = taxZero ? 0 : taxFromNet(net)
+  return { ...e, net, taxZero, tax }
+}
+
+function syncEntriesTax(entries: ReceivableEntry[]): ReceivableEntry[] {
+  return entries.map(syncEntryTax)
 }
 
 export function initialReceivablesState(): ReceivablesState {
@@ -37,8 +108,10 @@ export function renameReceivableProjectNames(
 ): ReceivablesState {
   const newT = newNameTrimmed.trim()
   return {
-    entries: state.entries.map((e) =>
-      e.projectName === oldExact ? { ...e, projectName: newT } : e,
+    entries: sortReceivableEntriesByBookedDate(
+      state.entries.map((e) =>
+        e.projectName === oldExact ? { ...e, projectName: newT } : e,
+      ),
     ),
   }
 }
@@ -61,13 +134,19 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
     if (!id || seen.has(id)) continue
     seen.add(id)
     const bookedDate = str(r.bookedDate, str(r.receivedDate, ''))
+    const net = num(r.net, 0)
+    const storedTax = num(r.tax, 0)
+    const tz = r.taxZero
+    const taxZero =
+      tz === true ? true : tz === false ? false : storedTax === 0 && net > 0
     out.push({
       id,
       bookedDate,
       projectName: str(r.projectName, ''),
       phaseLabel: str(r.phaseLabel, ''),
-      net: num(r.net, 0),
-      tax: num(r.tax, 0),
+      net,
+      taxZero,
+      tax: 0,
       note: str(r.note, ''),
     })
   }
@@ -111,13 +190,19 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
     if (!id || seen.has(id)) continue
     seen.add(id)
     const info = phaseInfo.get(phaseId)
+    const net = num(r.net, 0)
+    const storedTax = num(r.tax, 0)
+    const tz = r.taxZero
+    const taxZero =
+      tz === true ? true : tz === false ? false : storedTax === 0 && net > 0
     entries.push({
       id,
       bookedDate: str(r.receivedDate, ''),
       projectName: info?.projectName ?? '',
       phaseLabel: info?.label ?? '',
-      net: num(r.net, 0),
-      tax: num(r.tax, 0),
+      net,
+      taxZero,
+      tax: 0,
       note: str(r.note, ''),
     })
   }
@@ -130,11 +215,19 @@ export function migrateReceivablesState(loaded: unknown): ReceivablesState {
   const o = loaded as Record<string, unknown>
 
   if (Array.isArray(o.entries)) {
-    return { entries: migrateEntriesArray(o.entries) }
+    return {
+      entries: sortReceivableEntriesByBookedDate(
+        syncEntriesTax(migrateEntriesArray(o.entries)),
+      ),
+    }
   }
 
   if (Array.isArray(o.receipts) && (o.receipts as unknown[]).length > 0) {
-    return migrateLegacyNested(o)
+    return {
+      entries: sortReceivableEntriesByBookedDate(
+        syncEntriesTax(migrateLegacyNested(o).entries),
+      ),
+    }
   }
 
   return init
@@ -145,13 +238,14 @@ export function sumEntriesNetTaxGross(entries: ReceivableEntry[]): {
   tax: number
   gross: number
 } {
-  let net = 0
-  let tax = 0
+  let netSum = 0
+  let taxSum = 0
   for (const e of entries) {
-    net += typeof e.net === 'number' && Number.isFinite(e.net) ? e.net : 0
-    tax += typeof e.tax === 'number' && Number.isFinite(e.tax) ? e.tax : 0
+    const n = safeNet(e.net)
+    netSum += n
+    taxSum += entryTax(e)
   }
-  return { net, tax, gross: net + tax }
+  return { net: netSum, tax: taxSum, gross: netSum + taxSum }
 }
 
 /** 依入帳日年月（YYYY-MM）加總，供日後帶入公司帳 */
@@ -167,6 +261,22 @@ export function sumEntriesInMonth(
     (e) => typeof e.bookedDate === 'string' && e.bookedDate.startsWith(prefix),
   )
   return sumEntriesNetTaxGross(inMonth)
+}
+
+/** 依入帳日年份（YYYY）加總 */
+export function sumEntriesInYear(
+  entries: ReceivableEntry[],
+  year: string,
+): { net: number; tax: number; gross: number } {
+  const y = year.trim()
+  if (!/^\d{4}$/.test(y)) {
+    return { net: 0, tax: 0, gross: 0 }
+  }
+  const prefix = `${y}-`
+  const inYear = entries.filter(
+    (e) => typeof e.bookedDate === 'string' && e.bookedDate.startsWith(prefix),
+  )
+  return sumEntriesNetTaxGross(inYear)
 }
 
 export function newReceivableId(): string {

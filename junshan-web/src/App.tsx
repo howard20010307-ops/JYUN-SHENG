@@ -4,11 +4,11 @@ import { PayrollPanel } from './components/PayrollPanel'
 import { LedgerPanel } from './components/LedgerPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
-import type { SalaryBook } from './domain/salaryExcelModel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
+import { renameReceivableProjectNames } from './domain/receivablesModel'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { AppLoginGate } from './components/AppLoginGate'
@@ -211,6 +211,12 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   workLog: fn(s.workLog),
                 }))
               }
+              onSiteNameRenamed={(oldEx, newN) =>
+                setState((s) => ({
+                  ...s,
+                  receivables: renameReceivableProjectNames(s.receivables, oldEx, newN),
+                }))
+              }
             />
           </fieldset>
         )}
@@ -231,6 +237,10 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             receivables={state.receivables}
             setReceivables={(fn) =>
               setState((s) => ({ ...s, receivables: fn(s.receivables) }))
+            }
+            salaryBook={state.salaryBook}
+            setSalaryBook={(fn) =>
+              setState((s) => ({ ...s, salaryBook: fn(s.salaryBook) }))
             }
             canEdit={canEdit}
           />

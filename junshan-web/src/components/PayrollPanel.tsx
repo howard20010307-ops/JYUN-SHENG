@@ -47,6 +47,8 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
+  /** 全書案場更名成功後，同步收帳案名字串（與月表 `siteName` 完全一致者） */
+  onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
 }
 
 function sumRowCells(row: number[] | undefined, len: number): number {
@@ -136,6 +138,7 @@ export function PayrollPanel({
   quoteRows,
   workLog,
   setWorkLog,
+  onSiteNameRenamed,
 }: Props) {
   /** 案場名 blur 時全書連動更名：記錄焦點當下之舊字串 */
   const siteRenameSnapRef = useRef<{
@@ -587,6 +590,9 @@ export function PayrollPanel({
                       ) {
                         return prev
                       }
+                      queueMicrotask(() => {
+                        onSiteNameRenamed?.(snap.oldExact, newT)
+                      })
                       return r.book
                     })
                   }}

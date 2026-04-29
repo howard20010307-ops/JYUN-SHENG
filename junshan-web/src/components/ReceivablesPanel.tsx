@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReceivablesState } from '../domain/receivablesModel'
 import {
-  grossOf,
+  entryGross,
+  entryTax,
   migrateReceivablesState,
   newReceivableId,
+  sortReceivableEntriesByBookedDate,
   sumEntriesInMonth,
+  sumEntriesInYear,
   sumEntriesNetTaxGross,
+  taxFromNet,
   type ReceivableEntry,
 } from '../domain/receivablesModel'
+
+type RangeMode = 'month' | 'year' | 'all'
 
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import { addEmptySiteBlockToMonth, pickActiveMonthIdForToday } from '../domain/salaryExcelModel'
@@ -34,13 +40,6 @@ function todayYmd(): string {
   return `${y}-${m}-${day}`
 }
 
-function compareEntryOrder(a: ReceivableEntry, b: ReceivableEntry): number {
-  const da = a.bookedDate || ''
-  const db = b.bookedDate || ''
-  if (da !== db) return da.localeCompare(db)
-  return a.id.localeCompare(b.id)
-}
-
 export function ReceivablesPanel({
   receivables,
   setReceivables,
@@ -65,45 +64,74 @@ export function ReceivablesPanel({
       return pickActiveMonthIdForToday(salaryBook.months)
     })
   }, [addProjectOpen, salaryBook.months])
+  const [rangeMode, setRangeMode] = useState<RangeMode>('month')
   const [monthFilter, setMonthFilter] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
+  const [yearFilter, setYearFilter] = useState(() => String(new Date().getFullYear()))
 
-  const monthTotals = useMemo(
-    () => sumEntriesInMonth(data.entries, monthFilter),
-    [data.entries, monthFilter],
-  )
-
-  const rowsInMonth = useMemo(() => {
+  const visibleRows = useMemo(() => {
+    const rows = data.entries
+    if (rangeMode === 'all') {
+      return rows
+    }
+    if (rangeMode === 'year') {
+      const y = yearFilter.trim()
+      if (!/^\d{4}$/.test(y)) return []
+      const prefix = `${y}-`
+      return rows.filter(
+        (e) => typeof e.bookedDate === 'string' && e.bookedDate.startsWith(prefix),
+      )
+    }
     const prefix = monthFilter.trim()
     if (!/^\d{4}-\d{2}$/.test(prefix)) return []
-    return data.entries
-      .filter((e) => typeof e.bookedDate === 'string' && e.bookedDate.startsWith(prefix))
-      .slice()
-      .sort(compareEntryOrder)
-  }, [data.entries, monthFilter])
+    return rows.filter(
+      (e) => typeof e.bookedDate === 'string' && e.bookedDate.startsWith(prefix),
+    )
+  }, [data.entries, rangeMode, monthFilter, yearFilter])
 
-  const footTotals = useMemo(() => sumEntriesNetTaxGross(rowsInMonth), [rowsInMonth])
+  const rangeTotals = useMemo(() => {
+    if (rangeMode === 'all') {
+      return sumEntriesNetTaxGross(data.entries)
+    }
+    if (rangeMode === 'year') {
+      return sumEntriesInYear(data.entries, yearFilter)
+    }
+    return sumEntriesInMonth(data.entries, monthFilter)
+  }, [data.entries, rangeMode, monthFilter, yearFilter])
+
+  const footTotals = useMemo(() => sumEntriesNetTaxGross(visibleRows), [visibleRows])
+
+  const rangeTotalsCaption = useMemo(() => {
+    if (rangeMode === 'month') return `本月／${monthFilter}`
+    if (rangeMode === 'year') return `${yearFilter.trim()} 年度`
+    return '全部期間'
+  }, [rangeMode, monthFilter, yearFilter])
 
   const addRow = useCallback(() => {
     if (!canEdit) return
     const id = newReceivableId()
+    const booked = todayYmd()
+    setRangeMode('month')
+    setMonthFilter(booked.slice(0, 7))
+    setYearFilter(booked.slice(0, 4))
     setReceivables((prev) => {
       const p = migrateReceivablesState(prev)
       return {
-        entries: [
+        entries: sortReceivableEntriesByBookedDate([
           ...p.entries,
           {
             id,
-            bookedDate: todayYmd(),
+            bookedDate: booked,
             projectName: '',
             phaseLabel: '',
             net: 0,
+            taxZero: false,
             tax: 0,
             note: '',
           },
-        ],
+        ]),
       }
     })
   }, [canEdit, setReceivables])
@@ -114,11 +142,34 @@ export function ReceivablesPanel({
       setReceivables((prev) => {
         const p = migrateReceivablesState(prev)
         return {
-          entries: p.entries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+          entries: sortReceivableEntriesByBookedDate(
+            p.entries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+          ),
         }
       })
     },
     [canEdit, setReceivables],
+  )
+
+  /** 改入帳日時同步「檢視月份」，否則列會被篩掉、日期輸入卸載導致原生日曆異常關閉 */
+  const updateBookedDate = useCallback(
+    (id: string, value: string) => {
+      if (!canEdit) return
+      if (value.length >= 7) {
+        const ym = value.slice(0, 7)
+        if (/^\d{4}-\d{2}$/.test(ym)) {
+          setMonthFilter(ym)
+        }
+      }
+      if (value.length >= 4) {
+        const y = value.slice(0, 4)
+        if (/^\d{4}$/.test(y)) {
+          setYearFilter(y)
+        }
+      }
+      updateEntry(id, { bookedDate: value })
+    },
+    [canEdit, updateEntry],
   )
 
   const submitAddProject = useCallback(() => {
@@ -140,7 +191,9 @@ export function ReceivablesPanel({
       if (!window.confirm('確定刪除此筆入帳？')) return
       setReceivables((prev) => {
         const p = migrateReceivablesState(prev)
-        return { entries: p.entries.filter((x) => x.id !== id) }
+        return {
+          entries: sortReceivableEntriesByBookedDate(p.entries.filter((x) => x.id !== id)),
+        }
       })
     },
     [canEdit, setReceivables],
@@ -152,7 +205,7 @@ export function ReceivablesPanel({
         <div>
           <h2 className="receivablesPanel__title">收帳</h2>
           <p className="receivablesPanel__sub muted">
-            每列一筆實際入帳。案名與薪水月表連動（下拉選單）；「新增案」會在指定月表新增空案場區塊。階段、未稅／稅／含稅請自行填寫。
+            每列一筆實際入帳。案名與薪水月表連動；列尾勾選「算稅」時依未稅金額計 5% 稅金，取消則為免稅／0 稅。
           </p>
         </div>
         {canEdit ? (
@@ -177,24 +230,70 @@ export function ReceivablesPanel({
       </div>
 
       <section className="receivablesPanel__monthBar card">
-        <label className="receivablesPanel__monthLabel">
-          <span>檢視月份（依入帳日）</span>
-          <input
-            type="month"
-            className="receivablesPanel__monthInput"
-            value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-          />
-        </label>
+        <div className="receivablesPanel__rangeRow">
+          <label className="receivablesPanel__rangeField">
+            <span>檢視範圍</span>
+            <select
+              className="receivablesPanel__rangeMode"
+              value={rangeMode}
+              onChange={(e) => setRangeMode(e.target.value as RangeMode)}
+            >
+              <option value="month">單月</option>
+              <option value="year">整年</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          {rangeMode === 'month' ? (
+            <label className="receivablesPanel__monthLabel">
+              <span>月份（依入帳日）</span>
+              <input
+                type="month"
+                className="receivablesPanel__monthInput"
+                value={monthFilter}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setMonthFilter(v)
+                  if (v.length >= 4) {
+                    setYearFilter(v.slice(0, 4))
+                  }
+                }}
+              />
+            </label>
+          ) : null}
+          {rangeMode === 'year' ? (
+            <label className="receivablesPanel__yearLabel">
+              <span>年度（依入帳日）</span>
+              <input
+                type="number"
+                className="receivablesPanel__yearInput"
+                min={2000}
+                max={2100}
+                step={1}
+                value={yearFilter}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  const n = parseInt(raw, 10)
+                  if (!Number.isFinite(n)) {
+                    setYearFilter(raw)
+                    return
+                  }
+                  const clamped = Math.min(2100, Math.max(2000, n))
+                  setYearFilter(String(clamped))
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
         <div className="receivablesPanel__monthTotals">
+          <span className="receivablesPanel__totalsCap muted">{rangeTotalsCaption}</span>
           <span>
-            未稅 <strong>{fmtMoney(monthTotals.net)}</strong>
+            未稅 <strong>{fmtMoney(rangeTotals.net)}</strong>
           </span>
           <span>
-            稅 <strong>{fmtMoney(monthTotals.tax)}</strong>
+            稅 <strong>{fmtMoney(rangeTotals.tax)}</strong>
           </span>
           <span>
-            含稅 <strong>{fmtMoney(monthTotals.gross)}</strong>
+            含稅 <strong>{fmtMoney(rangeTotals.gross)}</strong>
           </span>
         </div>
       </section>
@@ -218,17 +317,21 @@ export function ReceivablesPanel({
                 </th>
                 <th scope="col">備註</th>
                 <th scope="col" className="receivablesTable__actCol" />
+                <th scope="col" className="receivablesTable__taxCheckCol">
+                  算稅
+                  <span className="receivablesTable__thHint">（5%）</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {rowsInMonth.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="receivablesTable__empty muted">
-                    此月份尚無資料。{canEdit ? '請按「新增一列」。' : null}
+                  <td colSpan={9} className="receivablesTable__empty muted">
+                    此檢視範圍尚無資料。{canEdit ? '請按「新增一列」或切換範圍。' : null}
                   </td>
                 </tr>
               ) : (
-                rowsInMonth.map((row) => (
+                visibleRows.map((row) => (
                   <tr key={row.id}>
                     <td>
                       <input
@@ -236,7 +339,7 @@ export function ReceivablesPanel({
                         className="receivablesTable__inline"
                         value={row.bookedDate}
                         disabled={!canEdit}
-                        onChange={(e) => updateEntry(row.id, { bookedDate: e.target.value })}
+                        onChange={(e) => updateBookedDate(row.id, e.target.value)}
                       />
                     </td>
                     <td>
@@ -276,23 +379,17 @@ export function ReceivablesPanel({
                         className="receivablesTable__num"
                         value={row.net}
                         disabled={!canEdit}
-                        onChange={(e) =>
-                          updateEntry(row.id, { net: parseFloat(e.target.value) || 0 })
-                        }
+                        onChange={(e) => {
+                          const n = parseFloat(e.target.value) || 0
+                          updateEntry(row.id, {
+                            net: n,
+                            tax: row.taxZero ? 0 : taxFromNet(n),
+                          })
+                        }}
                       />
                     </td>
-                    <td className="num">
-                      <input
-                        type="number"
-                        className="receivablesTable__num"
-                        value={row.tax}
-                        disabled={!canEdit}
-                        onChange={(e) =>
-                          updateEntry(row.id, { tax: parseFloat(e.target.value) || 0 })
-                        }
-                      />
-                    </td>
-                    <td className="num">{fmtMoney(grossOf(row.net, row.tax))}</td>
+                    <td className="num receivablesTable__derived">{fmtMoney(entryTax(row))}</td>
+                    <td className="num">{fmtMoney(entryGross(row))}</td>
                     <td>
                       <input
                         type="text"
@@ -314,11 +411,30 @@ export function ReceivablesPanel({
                         </button>
                       ) : null}
                     </td>
+                    <td className="receivablesTable__taxCheckCell">
+                      <label className="receivablesTable__taxCheck">
+                        <input
+                          type="checkbox"
+                          checked={!row.taxZero}
+                          disabled={!canEdit}
+                          onChange={(e) => {
+                            const applyTax = e.target.checked
+                            const n = row.net
+                            updateEntry(row.id, {
+                              taxZero: !applyTax,
+                              tax: applyTax ? taxFromNet(n) : 0,
+                            })
+                          }}
+                          aria-label="計算 5% 稅金"
+                        />
+                        <span className="receivablesTable__taxCheckText">計稅</span>
+                      </label>
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
-            {rowsInMonth.length > 0 ? (
+            {visibleRows.length > 0 ? (
               <tfoot>
                 <tr className="receivablesTable__footer">
                   <th scope="row" colSpan={3}>
@@ -327,13 +443,70 @@ export function ReceivablesPanel({
                   <td className="num">{fmtMoney(footTotals.net)}</td>
                   <td className="num">{fmtMoney(footTotals.tax)}</td>
                   <td className="num">{fmtMoney(footTotals.gross)}</td>
-                  <td colSpan={2} />
+                  <td />
+                  <td />
+                  <td className="receivablesTable__footerDash muted">—</td>
                 </tr>
               </tfoot>
             ) : null}
           </table>
         </div>
       </fieldset>
+
+      {addProjectOpen ? (
+        <div
+          className="receivablesAddProject"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="receivablesAddProjectTitle"
+          onClick={() => setAddProjectOpen(false)}
+        >
+          <div
+            className="receivablesAddProject__panel card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="receivablesAddProjectTitle" className="receivablesAddProject__title">
+              新增案（月表）
+            </h3>
+            <p className="receivablesAddProject__desc muted">
+              將在選定的薪水月表新增一個空案場區塊，與「薪水統計」內新增案場區塊相同。
+            </p>
+            <label className="receivablesAddProject__field">
+              案名
+              <input
+                type="text"
+                className="receivablesAddProject__input"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="與月表區塊名稱一致"
+                autoFocus
+              />
+            </label>
+            <label className="receivablesAddProject__field">
+              加入月表
+              <select
+                className="receivablesAddProject__input"
+                value={newProjectMonthId}
+                onChange={(e) => setNewProjectMonthId(e.target.value)}
+              >
+                {salaryBook.months.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="receivablesAddProject__actions">
+              <button type="button" className="btn secondary" onClick={() => setAddProjectOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="btn primary" onClick={submitAddProject}>
+                確認新增
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

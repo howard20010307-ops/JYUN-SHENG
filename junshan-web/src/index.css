@@ -3191,6 +3191,81 @@ fieldset.tabFieldset {
   margin-bottom: 1rem;
 }
 
+.receivablesPanel__headBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.receivablesTable__select {
+  width: 100%;
+  min-width: 7rem;
+  max-width: 14rem;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesAddProject {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+}
+
+.receivablesAddProject__panel {
+  width: 100%;
+  max-width: 22rem;
+  padding: 1.1rem 1.15rem;
+}
+
+.receivablesAddProject__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.receivablesAddProject__desc {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.receivablesAddProject__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+}
+
+.receivablesAddProject__input {
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesAddProject__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
 .receivablesPanel__title {
   margin: 0 0 0.35rem;
   font-size: 1.35rem;
@@ -3205,11 +3280,74 @@ fieldset.tabFieldset {
 .receivablesPanel__monthBar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
   margin-bottom: 1rem;
+}
+
+.receivablesPanel__rangeRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+
+.receivablesPanel__rangeField,
+.receivablesPanel__yearLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.receivablesPanel__rangeMode {
+  min-height: 40px;
+  min-width: 7rem;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesPanel__yearInput {
+  width: 6.5rem;
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #243041);
+  background: var(--panel2, #151c24);
+  color: inherit;
+  font: inherit;
+}
+
+.receivablesPanel__monthTotals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 0.92rem;
+}
+
+.receivablesPanel__monthTotals strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.receivablesPanel__totalsCap {
+  width: 100%;
+  font-size: 0.84rem;
+  margin-bottom: 2px;
+}
+
+@media (min-width: 720px) {
+  .receivablesPanel__totalsCap {
+    width: auto;
+    margin-bottom: 0;
+    margin-right: 8px;
+  }
 }
 
 .receivablesPanel__monthLabel {
@@ -3227,17 +3365,6 @@ fieldset.tabFieldset {
   border: 1px solid var(--border, #243041);
   background: var(--panel2, #151c24);
   color: inherit;
-}
-
-.receivablesPanel__monthTotals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  font-size: 0.92rem;
-}
-
-.receivablesPanel__monthTotals strong {
-  font-variant-numeric: tabular-nums;
 }
 
 .receivablesPanel__empty {
@@ -3382,6 +3509,45 @@ fieldset.tabFieldset {
   min-width: 6rem;
 }
 
+.receivablesTable__taxCheckCol {
+  min-width: 5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.receivablesTable__taxCheckCell {
+  vertical-align: middle;
+  text-align: center;
+}
+
+.receivablesTable__taxCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  user-select: none;
+}
+
+.receivablesTable__taxCheck input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent, #5b8cff);
+  cursor: pointer;
+}
+
+.receivablesTable__taxCheckText {
+  color: var(--muted, #8b98a8);
+  font-size: 0.82rem;
+}
+
+.receivablesTable__footerDash {
+  text-align: center;
+}
+
+.receivablesTable__derived {
+  color: var(--muted, #8b98a8);
+}
 .receivablesTable--flat .receivablesTable__footer th,
 .receivablesTable--flat .receivablesTable__footer td {
   background: rgba(200, 72, 72, 0.18);
