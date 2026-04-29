@@ -854,12 +854,8 @@ export function WorkLogPanel({
               key={block.id}
               className={`worklogSiteBlock${multiSiteMode ? ' worklogSiteBlock--multi' : ''}`}
             >
-              <div className="worklogSiteBlockHead">
-                <span className="worklogSiteBlockTitle">
-                  案場區塊 {bi + 1}
-                  {multiSiteMode ? <span className="muted">（多案場模式）</span> : null}
-                </span>
-                {dayDraft.blocks.length > 1 ? (
+              {dayDraft.blocks.length > 1 ? (
+                <div className="worklogSiteBlockHead" style={{ justifyContent: 'flex-end' }}>
                   <button
                     type="button"
                     className="btn secondary ghost"
@@ -868,8 +864,8 @@ export function WorkLogPanel({
                   >
                     移除此區塊
                   </button>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
               <label className="worklogFormLabel" style={{ margin: '0 0 10px', width: '100%' }}>
                 <span className="worklogDayInfoLabel">案場地點</span>
                 <select

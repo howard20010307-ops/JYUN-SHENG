@@ -1372,12 +1372,6 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   gap: 8px;
   margin-bottom: 10px;
 }
-.worklogSiteBlockTitle {
-  font-weight: 700;
-  font-size: var(--ui-fs-sm);
-  line-height: var(--ui-lh-tight);
-  color: var(--head);
-}
 .worklogStaffLineTableWrap {
   overflow-x: auto;
   margin-top: var(--ui-unit);
