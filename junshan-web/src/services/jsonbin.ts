@@ -1,5 +1,5 @@
 import { migrateAppState, type AppState } from '../domain/appState'
-import { stringifyAppBackupCompact } from '../domain/appStateBackup'
+import { assertJsonBinBackupWireStringComplete, stringifyAppBackupCompact } from '../domain/appStateBackup'
 
 const BASE = 'https://api.jsonbin.io/v3/b'
 
@@ -8,8 +8,36 @@ const JSONBIN_FREE_MAX_BYTES = 99_000
 
 /** 本機 localStorage：上次自動上傳 JSONBin 成功時間（ISO），重新整理後仍顯示 */
 const LOCALSTORAGE_LAST_UPLOAD_OK_AT = 'junshan.jsonBin.lastUploadSuccessAt'
+/** 含收帳筆數之上傳紀錄（新） */
+const LOCALSTORAGE_LAST_UPLOAD_META = 'junshan.jsonBin.lastUploadMeta'
 
-export function readLastJsonBinUploadSuccessAt(): Date | null {
+export type JsonBinLastUploadMeta = {
+  at: Date | null
+  receivablesCount: number | null
+}
+
+export function readLastJsonBinUploadMeta(): JsonBinLastUploadMeta {
+  if (typeof localStorage === 'undefined') return { at: null, receivablesCount: null }
+  try {
+    const raw = localStorage.getItem(LOCALSTORAGE_LAST_UPLOAD_META)
+    if (raw != null && raw.trim() !== '') {
+      const o = JSON.parse(raw) as { at?: string; receivablesCount?: number }
+      const d = typeof o.at === 'string' ? new Date(o.at) : null
+      const at = d && !Number.isNaN(d.getTime()) ? d : null
+      const receivablesCount =
+        typeof o.receivablesCount === 'number' && Number.isFinite(o.receivablesCount)
+          ? Math.max(0, Math.floor(o.receivablesCount))
+          : null
+      if (at) return { at, receivablesCount }
+    }
+  } catch {
+    /* ignore */
+  }
+  const legacy = readLastJsonBinUploadSuccessAtLegacy()
+  return { at: legacy, receivablesCount: null }
+}
+
+function readLastJsonBinUploadSuccessAtLegacy(): Date | null {
   if (typeof localStorage === 'undefined') return null
   try {
     const raw = localStorage.getItem(LOCALSTORAGE_LAST_UPLOAD_OK_AT)
@@ -21,13 +49,26 @@ export function readLastJsonBinUploadSuccessAt(): Date | null {
   }
 }
 
-export function writeLastJsonBinUploadSuccessAt(d: Date): void {
+export function readLastJsonBinUploadSuccessAt(): Date | null {
+  return readLastJsonBinUploadMeta().at
+}
+
+export function writeLastJsonBinUploadMeta(d: Date, receivablesCount: number): void {
   if (typeof localStorage === 'undefined') return
   try {
+    localStorage.setItem(
+      LOCALSTORAGE_LAST_UPLOAD_META,
+      JSON.stringify({ at: d.toISOString(), receivablesCount }),
+    )
     localStorage.setItem(LOCALSTORAGE_LAST_UPLOAD_OK_AT, d.toISOString())
   } catch {
     /* 配額／隱私模式等 */
   }
+}
+
+/** @deprecated 請用 {@link writeLastJsonBinUploadMeta} */
+export function writeLastJsonBinUploadSuccessAt(d: Date): void {
+  writeLastJsonBinUploadMeta(d, 0)
 }
 
 const JUNSHAN_GZIP = 1 as const
@@ -179,6 +220,7 @@ function isUsableAppPayload(loaded: unknown): boolean {
 
 /**
  * 讀取雲端 record；回傳可套用之 AppState，若尚無有效資料則回傳 null。
+ * 內文經 {@link jsonBinRecordToRootObject} 解出與上傳相同之備份 JSON，再 {@link migrateAppState}。
  */
 export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
   if (!isJsonBinConfigured()) return null
@@ -201,12 +243,24 @@ export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
   return migrateAppState(payload)
 }
 
+/**
+ * JSONBin 與本機「匯出備份」共用同一條線路：
+ * - **上傳**：`stringifyAppBackupCompact` → 結構校驗 → Gzip → Base64 → `PUT`；若 Gzip 解回字串與原始 JSON **逐字元相同**，則線上數值／文字在壓縮層**零損耗**。
+ * - **下載**：`GET` → 解 gzip → 解析與上傳相同之 JSON → `migrateAppState` 正規化各子域（薪水／估價／收帳／日誌等）。
+ */
 export async function uploadAppStateToJsonBin(state: AppState): Promise<void> {
   if (!isJsonBinConfigured()) return
   const id = binId()
   const key = masterKey()
   const raw = stringifyAppBackupCompact(state)
+  assertJsonBinBackupWireStringComplete(raw)
   const g = await gzipTextToB64(raw)
+  const roundTrip = await gunzipB64ToText(g)
+  if (roundTrip !== raw) {
+    throw new Error(
+      '內部錯誤：Gzip 壓縮還原後與原始備份字串不一致（全站任一欄位皆須無損），已中止上傳。請改用最新 Chrome／Edge 或匯出備份。',
+    )
+  }
   const wrapper: JsonBinRecordGzipV1 = { junshanJsonBin: JUNSHAN_GZIP, g }
   const body = JSON.stringify(wrapper)
   if (body.length > JSONBIN_FREE_MAX_BYTES) {

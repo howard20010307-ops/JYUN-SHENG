@@ -408,9 +408,6 @@ export function PayrollPanel({
       {sub === 'summary' && (
         <section className="card">
           <h3>員工總出工及薪水計算</h3>
-          <p className="hint muted" style={{ marginTop: '-0.25rem', marginBottom: '0.5rem' }}>
-            橫向分期欄為所選<strong>資料年份</strong>之曆年分期（每月 11～25 日、26 日～次月 10 日，含 12/26～次年 1/10），與上方「資料年份」一致。
-          </p>
           <label className="payrollSummaryOptionRow">
             <input
               type="checkbox"

@@ -320,10 +320,6 @@ export function ReceivablesPanel({
       <div className="receivablesPanel__head">
         <div>
           <h2 className="receivablesPanel__title">收帳</h2>
-          <p className="receivablesPanel__sub muted">
-            每列一筆實際入帳。案名與薪水月表連動；可選填<strong>棟</strong>、<strong>樓層</strong>（案名與估價案場名稱相同時，樓層可從估價樓層表選用或手打）。「階段」「備註」為<strong>單行</strong>，欄寬會隨字數加寬（表過寬時請橫向捲動）。列尾勾選「算稅」時依未稅金額計
-            5% 稅金，取消則為免稅／0 稅。
-          </p>
         </div>
         {canEdit ? (
           <div className="receivablesPanel__headBtns">

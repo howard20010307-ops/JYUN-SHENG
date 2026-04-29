@@ -323,7 +323,7 @@ export function FieldworkQuickSection({
         </datalist>
       </label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-        <span>使用儀器（全站儀／旋轉雷射／墨線儀；填台數，0 或空白＝未使用）</span>
+        <span>使用儀器</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
             <span>全站儀（台）</span>
@@ -371,7 +371,7 @@ export function FieldworkQuickSection({
         <fieldset style={fieldsetStyle}>
           <legend>餐費</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>加帳金額（可正負，0 表示不加）</span>
+            <span>加帳金額</span>
             <input
               type="number"
               className="narrow"
@@ -386,7 +386,7 @@ export function FieldworkQuickSection({
         <fieldset style={fieldsetStyle}>
           <legend>雜項（入公司帳「工具」）</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>金額（可正負，0 表示不加）</span>
+            <span>金額</span>
             <input
               type="number"
               className="narrow"

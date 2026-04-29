@@ -310,3 +310,20 @@ export function newReceivableId(): string {
   }
   return `rcv-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
+
+/**
+ * JSONBin 下載套用時合併收帳：同 `id` 以**本機**為準，其餘 id 併入（雲端舊備份常不含收帳，避免整包覆寫後收帳消失）。
+ */
+export function mergeReceivablesPreferLocal(
+  local: ReceivablesState,
+  remote: ReceivablesState,
+): ReceivablesState {
+  const l = migrateReceivablesState(local)
+  const r = migrateReceivablesState(remote)
+  const byId = new Map<string, ReceivableEntry>()
+  for (const e of r.entries) byId.set(e.id, e)
+  for (const e of l.entries) byId.set(e.id, e)
+  return {
+    entries: sortReceivableEntriesByBookedDate([...byId.values()]),
+  }
+}
