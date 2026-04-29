@@ -1577,36 +1577,56 @@ table.data.quoteItemPricingTable {
 }
 table.data.quoteCostTable,
 table.data.quoteCostTableExcel {
-  min-width: 2400px;
-  /** 與 A 欄寬一致，供 B 欄 sticky `left` 對齊（橫式工程模組名需較寬） */
-  --quote-sticky-col-a: 8rem;
+  /** 依欄位內容撐寬，至少約 1560px；橫向捲動區內可完整顯示長文 */
+  table-layout: auto;
+  width: max-content;
+  min-width: 1560px;
+  max-width: none;
+  font-size: clamp(0.72rem, 1.65vw, 0.8125rem);
+  line-height: var(--ui-lh-tight);
+}
+
+/** 成本估算列：表頭允許換行（覆寫全站 thead nowrap），欄名不被 max-width 截斷 */
+table.data.quoteCostTableExcel thead th {
+  white-space: normal;
+}
+table.data.quoteCostTableExcel .quoteExcelTH {
+  max-width: none;
+  min-width: 3rem;
+}
+table.data.quoteCostTableExcel .quoteExcelTHAct {
+  max-width: none;
+  min-width: 3.75rem;
+}
+table.data.quoteCostTableExcel thead tr:first-child th.quoteExcelTH .excelLbl {
+  overflow-wrap: anywhere;
 }
 .quoteExcelTH {
-  min-width: 5.2rem;
-  max-width: 7.2rem;
+  min-width: 3.85rem;
+  max-width: 5.25rem;
   vertical-align: bottom;
-  padding: 6px 5px !important;
-  line-height: 1.15;
+  padding: 4px 3px !important;
+  line-height: 1.12;
 }
 .quoteExcelTH .excelLet {
   display: block;
-  font-size: 0.64rem;
+  font-size: 0.58rem;
   font-weight: 700;
   color: var(--accent2);
-  margin-bottom: 2px;
-  letter-spacing: 0.04em;
+  margin-bottom: 1px;
+  letter-spacing: 0.03em;
 }
 .quoteExcelTH .excelLbl {
   display: block;
-  font-size: 0.64rem;
+  font-size: 0.58rem;
   font-weight: 600;
   color: var(--muted);
   hyphens: auto;
   word-break: break-word;
 }
 .quoteExcelTHAct {
-  min-width: 5.2rem;
-  max-width: 6rem;
+  min-width: 3.85rem;
+  max-width: 4.85rem;
 }
 .quoteExcelTH.quoteExcelTHLblOnly {
   vertical-align: middle;
@@ -1617,156 +1637,192 @@ table.data.quoteCostTableExcel {
 
 .quoteRowActCell {
   vertical-align: middle;
-  padding: 6px 4px !important;
+  padding: 2px 2px !important;
 }
 .quoteRowActBtns {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+  justify-content: flex-start;
 }
 .quoteRowActBtns .btn {
-  font-size: 0.78rem;
-  padding: 4px 6px;
-  white-space: nowrap;
+  font-size: 0.65rem;
+  padding: 2px 5px !important;
+  min-height: 1.35rem;
+  line-height: 1.2;
+  white-space: normal;
+  text-align: center;
 }
 
 /**
- * 成本估算：A「樓層／階段」＋ B「細項」兩欄左凍結（B 用 .quoteStickyItemCol 標記）。
- * 目前工程模組名稱顯示於表頭第二列左側（A+B colspan，sticky top ＋ left，與凍結欄同寬）；tbody 之 .quoteZoneSep 為區段細線與捲動偵測用。
+ * 成本估算：首欄「細項」左凍結＋表頭列頂凍結（.quoteStickyItemCol）；底色不透明以免透出橫捲內容。
+ * tbody 之 .quoteZoneBannerRow 為各模組整列橫幅（捲動偵測錨點 data-zone）。
  */
-.tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
+/** 表頭第一列（細項～操作）整列鎖在捲動區頂端 */
+.tableScrollSticky > table.quoteCostTableExcel thead tr:first-child > th {
   position: sticky;
-  left: var(--quote-sticky-col-a);
   top: 0;
-  min-width: 8rem;
-  max-width: 13rem;
-  background: #0b0f14;
+}
+.tableScrollSticky > table.quoteCostTableExcel thead tr:first-child th.quoteStickyItemCol {
+  position: sticky;
+  left: 0;
+  top: 0;
+  min-width: 7rem;
+  width: max-content;
+  max-width: none;
+  background: linear-gradient(180deg, #1a2330 0%, #0f151c 100%) !important;
+  padding: 10px 7px !important;
   box-shadow:
     6px 0 14px -6px rgba(0, 0, 0, 0.75),
     0 1px 0 var(--border),
     0 6px 12px -4px rgba(0, 0, 0, 0.35);
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol {
+.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
   position: sticky;
-  left: var(--quote-sticky-col-a);
+  left: 0;
   z-index: 3;
-  min-width: 8rem;
-  max-width: 13rem;
+  min-width: 7rem;
+  width: max-content;
+  max-width: none;
   background: var(--card);
   box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
   vertical-align: middle;
+  padding: 2px 4px !important;
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol input {
-  width: 100%;
+/** 細項：欄寬隨文字長度變化（橫向）；單行、不手動調高度 */
+table.data.quoteCostTableExcel input.quoteStickyItemText {
+  display: inline-block;
+  width: auto;
+  min-width: 6.5rem;
+  max-width: none;
+  min-height: 1.45rem !important;
+  padding: 2px 5px !important;
+  font-size: 0.78rem !important;
+  line-height: 1.25;
+  font-family: inherit;
   box-sizing: border-box;
+  white-space: nowrap;
+  field-sizing: content;
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowHilite:not(.quoteZoneSep) td.quoteStickyItemCol {
-  background: rgba(255, 214, 10, 0.07);
+@supports not (field-sizing: content) {
+  /** 不支援 field-sizing 時由 React 傳入的 size 屬性決定近似字寬 */
+  table.data.quoteCostTableExcel input.quoteStickyItemText {
+    min-width: 0;
+  }
 }
-/** 基礎工程模組：與 1F／正常樓（淡黃）區隔之底色 */
-.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowZoneFoundation:not(.quoteZoneSep) td.quoteStickyItemCol {
-  background: rgba(90, 212, 168, 0.1);
+/** 覆寫全站 input 高度；成本估算列緊湊（列高主要由輸入框撐開） */
+table.data.quoteCostTableExcel input[type='text'],
+table.data.quoteCostTableExcel input[type='number'] {
+  min-height: 1.45rem !important;
+  padding: 2px 4px !important;
+  font-size: 0.78rem !important;
+  line-height: 1.25;
 }
 
-.tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
-  min-width: 7rem;
-  max-width: 11rem;
-  width: 8rem;
-  vertical-align: middle;
-  padding: 10px 6px !important;
+table.data.quoteCostTableExcel thead tr:first-child th.quoteExcelTH {
+  padding: 10px 7px !important;
+  vertical-align: bottom;
+  background: linear-gradient(180deg, #1a2330 0%, #0f151c 100%);
+  border-bottom: 2px solid rgba(61, 156, 245, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.tableScrollSticky > table.quoteCostTableExcel thead th:first-child .excelLbl {
+table.data.quoteCostTableExcel thead tr:first-child th.quoteExcelTH .excelLbl {
   display: block;
-  margin: 0;
-  letter-spacing: 0.02em;
+  font-size: clamp(0.8rem, 1.4vw, 0.98rem);
+  font-weight: 700;
+  color: #dff3ff;
+  letter-spacing: 0.05em;
   line-height: 1.3;
+  hyphens: auto;
   word-break: break-word;
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child {
-  min-width: 7rem;
-  max-width: 11rem;
-  width: 8rem;
-  vertical-align: middle;
-  padding: 6px 6px !important;
+/** 與下方儲存格對齊：細項靠左、數字欄靠右、勾選與操作置中（16 資料欄＋操作） */
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(1) {
+  text-align: start;
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child input {
-  width: 100%;
-  min-height: 2.5rem;
-  box-sizing: border-box;
-  text-align: left;
-  padding: 8px 6px;
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(n + 2):nth-child(-n + 7) {
+  text-align: end;
 }
-/**
- * 表頭第二列：左側併欄 A+B，橫向捲動時與樓層／細項凍結欄同寬鎖定（z-index 低於第一列欄名，避免蓋住）。
- */
-.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThStickyAB {
-  position: sticky;
-  left: 0;
-  top: var(--quote-cost-head-row1-h, 44px);
-  z-index: 6;
-  padding: 8px 10px !important;
-  vertical-align: middle;
-  text-align: left;
-  background: rgba(56, 139, 253, 0.2);
-  border-bottom: 1px solid var(--border);
-  box-shadow:
-    6px 0 14px -6px rgba(0, 0, 0, 0.75),
-    0 4px 12px -6px rgba(0, 0, 0, 0.45);
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(8),
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(9),
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(10) {
+  text-align: center;
 }
-.tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThRest {
-  position: sticky;
-  top: var(--quote-cost-head-row1-h, 44px);
-  z-index: 5;
-  padding: 0 !important;
-  vertical-align: middle;
-  background: #0b0f14;
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.45);
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(n + 11):nth-child(-n + 16) {
+  text-align: end;
 }
-.quoteCostActiveZoneInner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
+table.data.quoteCostTableExcel thead tr:first-child th:last-child {
+  text-align: center;
 }
-.quoteCostActiveZoneTitle {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--head);
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(n + 2):nth-child(-n + 7) .excelLbl,
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(n + 11):nth-child(-n + 16) .excelLbl {
+  text-align: end;
 }
-.quoteCostActiveZoneSub {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.04em;
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(8) .excelLbl,
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(9) .excelLbl,
+table.data.quoteCostTableExcel thead tr:first-child th:nth-child(10) .excelLbl,
+table.data.quoteCostTableExcel thead tr:first-child th:last-child .excelLbl {
+  text-align: center;
 }
 
+.tableScrollSticky > table.quoteCostTableExcel tbody td.num {
+  padding: 2px 4px !important;
+}
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowHilite:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
+  background: color-mix(in srgb, var(--card) 88%, rgb(255, 214, 10) 12%);
+}
+/** 基礎工程模組：與 1F／正常樓（淡黃）區隔之底色（不透明） */
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteRowZoneFoundation:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
+  background: color-mix(in srgb, var(--card) 85%, rgb(90, 212, 168) 15%);
+}
 /**
- * tbody 工程模組區段分隔：細線＋捲動偵測錨點（不 sticky）。
+ * tbody：各工程模組開頭整列橫幅（捲動偵測錨點 data-zone）
  */
-.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneSep td.quoteZoneSepMark {
-  height: 5px;
-  padding: 0 !important;
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow td.quoteZoneBannerCell {
+  text-align: center;
   vertical-align: middle;
-  background: rgba(56, 139, 253, 0.1);
-  border-top: 1px solid var(--accent);
-  border-bottom: none;
+  padding: 0.7rem 14px !important;
+  border-top: 2px solid rgba(255, 255, 255, 0.06);
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneSep[data-zone='基礎工程'] td.quoteZoneSepMark {
-  background: rgba(90, 212, 168, 0.16);
-  border-top: 1px solid rgba(90, 212, 168, 0.55);
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow--foundation td.quoteZoneBannerCell {
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.26), rgba(14, 26, 22, 0.97));
+  border-top-color: rgba(90, 212, 168, 0.45);
 }
-
-tr.quoteZoneSep td {
-  border-top: 1px solid var(--border);
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow--spot td.quoteZoneBannerCell {
+  background: linear-gradient(180deg, rgba(255, 214, 10, 0.22), rgba(28, 24, 8, 0.97));
+  border-top-color: rgba(255, 200, 80, 0.4);
 }
-.quoteZoneRenameBtn {
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  padding: 3px 6px;
-  white-space: nowrap;
-  align-self: center;
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow--default td.quoteZoneBannerCell {
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.24), rgba(12, 18, 28, 0.97));
+  border-top-color: rgba(61, 156, 245, 0.4);
+}
+.quoteZoneBannerTitle {
+  display: block;
+  font-size: clamp(1.02rem, 2.1vw, 1.32rem);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1.32;
+  word-break: break-word;
+}
+tr.quoteZoneBannerRow--foundation .quoteZoneBannerTitle {
+  color: #c8ffeb;
+  text-shadow:
+    0 0 24px rgba(90, 212, 168, 0.4),
+    0 1px 0 rgba(0, 0, 0, 0.45);
+}
+tr.quoteZoneBannerRow--spot .quoteZoneBannerTitle {
+  color: #fff3c2;
+  text-shadow:
+    0 0 22px rgba(255, 214, 10, 0.35),
+    0 1px 0 rgba(0, 0, 0, 0.4);
+}
+tr.quoteZoneBannerRow--default .quoteZoneBannerTitle {
+  color: #dff0ff;
+  text-shadow:
+    0 0 22px rgba(61, 156, 245, 0.38),
+    0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
 table.data.quoteCostTableExcel tbody tr.quoteRowHilite td {
@@ -1776,18 +1832,9 @@ table.data.quoteCostTableExcel tbody tr.quoteRowZoneFoundation td {
   background: rgba(90, 212, 168, 0.09);
 }
 
-table.data.quoteCostTableExcel td.quoteStageBlank {
-  padding: 8px 6px;
-  background: transparent;
-}
-
 table.data.quoteCostTableExcel td.quoteSameFloorsCell {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child.quoteStageBlank {
-  padding: 6px 5px !important;
 }
 
 .grid2 {
@@ -1958,6 +2005,13 @@ td.emptyTableMsg {
   -webkit-overflow-scrolling: touch;
 }
 
+/** 成本估算列：與其他 Sticky 表相同，區塊內可垂直捲動，表頭第一列（欄名）鎖在頂端 */
+.tableScrollSticky.quoteCostScrollWrap {
+  max-height: min(78vh, 920px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /** 表頭整列：捲動內容時留在區塊頂端，方便對照日期／分期 */
 .tableScrollSticky > table.data thead th {
   position: sticky;
@@ -1989,7 +2043,7 @@ td.emptyTableMsg {
 .tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
   z-index: 8;
 }
-.tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
+.tableScrollSticky > table.quoteCostTableExcel thead tr:first-child th:first-child {
   z-index: 9;
 }
 
@@ -2010,10 +2064,10 @@ td.emptyTableMsg {
 }
 
 /** 放樣估價：覆寫通用 tbody 首欄 z-index，使凍結欄正確疊在橫向捲動內容之上 */
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child {
+.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td:first-child {
   z-index: 4;
 }
-.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol {
+.tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
   z-index: 3;
 }
 .tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child {
@@ -2716,121 +2770,91 @@ table.data.ledgerCompanyTable {
 
   table.data.quoteCostTable,
   table.data.quoteCostTableExcel {
-    min-width: 1980px;
-    --quote-sticky-col-a: 6.25rem;
+    min-width: 1340px;
   }
 
-  .tableScrollSticky > table.quoteCostTableExcel thead th:first-child {
-    min-width: 6.25rem;
-    max-width: 9rem;
-    width: 6.25rem;
-    padding: 10px 6px !important;
+  .tableScrollSticky > table.quoteCostTableExcel thead tr:first-child th.quoteStickyItemCol {
+    min-width: 6rem;
+    width: max-content;
+    max-width: none;
+    left: 0;
+    padding: 9px 6px !important;
   }
 
-  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child {
-    min-width: 6.25rem;
-    max-width: 9rem;
-    width: 6.25rem;
-    padding: 8px 6px !important;
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td.quoteStickyItemCol {
+    min-width: 6rem;
+    width: max-content;
+    max-width: none;
+    left: 0;
+    padding: 6px 5px !important;
   }
 
-  .tableScrollSticky > table.quoteCostTableExcel thead th.quoteStickyItemCol {
-    min-width: 7rem;
-    max-width: 11rem;
-    left: var(--quote-sticky-col-a);
-    padding: 10px 6px !important;
-  }
-
-  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol {
-    min-width: 7rem;
-    max-width: 11rem;
-    left: var(--quote-sticky-col-a);
-    padding: 8px 6px !important;
-  }
-
-  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td:first-child input {
-    min-height: 44px;
-    font-size: 0.95rem;
-    padding: 8px 6px;
-  }
-
-  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneSep) td.quoteStickyItemCol input {
-    min-height: 44px;
-    font-size: 0.95rem;
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr:not(.quoteZoneBannerRow) td.quoteStickyItemCol input.quoteStickyItemText {
+    min-height: 36px;
+    font-size: 0.85rem;
+    padding: 4px 5px;
   }
 
   .tableScrollSticky > table.quoteCostTableExcel tbody td input:not([type='checkbox']):not([type='radio']) {
-    min-height: 42px;
-    font-size: 0.95rem;
+    min-height: 34px;
+    font-size: 0.85rem;
     box-sizing: border-box;
   }
 
   .tableScrollSticky > table.quoteCostTableExcel tbody td.num {
-    font-size: 0.88rem;
-    padding: 10px 7px !important;
+    font-size: 0.8rem;
+    padding: 4px 5px !important;
   }
 
-  .tableScrollSticky > table.quoteCostTableExcel thead tr.quoteCostActiveZoneHead th.quoteCostActiveZoneThStickyAB {
-    padding: 10px 8px !important;
+  .quoteZoneBannerTitle {
+    font-size: 1.05rem;
+    letter-spacing: 0.1em;
   }
 
-  .quoteCostActiveZoneInner {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .quoteCostActiveZoneTitle {
-    font-size: 0.92rem;
-  }
-
-  .quoteCostActiveZoneSub {
-    font-size: 0.72rem;
-  }
-
-  .quoteZoneRenameBtn {
-    min-height: 40px;
-    padding: 6px 10px;
-    font-size: 0.78rem;
+  .tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow td.quoteZoneBannerCell {
+    padding: 0.65rem 10px !important;
   }
 
   .quoteExcelTH {
-    min-width: 4.75rem;
-    max-width: 6.25rem;
-    padding: 9px 6px !important;
-    line-height: 1.2;
+    min-width: 3.5rem;
+    max-width: 5rem;
+    padding: 6px 4px !important;
+    line-height: 1.15;
   }
 
   .quoteExcelTH .excelLet {
-    font-size: 0.66rem;
-    margin-bottom: 3px;
+    font-size: 0.58rem;
+    margin-bottom: 2px;
   }
 
   .quoteExcelTH .excelLbl {
-    font-size: 0.72rem;
-    line-height: 1.25;
+    font-size: 0.64rem;
+    line-height: 1.2;
   }
 
   .quoteExcelTHAct {
-    min-width: 4.75rem;
-    max-width: 5.5rem;
+    min-width: 3.5rem;
+    max-width: 4.75rem;
   }
 
   .quoteRowActCell {
-    padding: 8px 6px !important;
+    padding: 4px 4px !important;
     vertical-align: middle;
   }
 
   .quoteRowActBtns {
-    gap: 8px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
   }
 
   .quoteRowActBtns .btn {
-    min-height: 44px;
-    font-size: 0.82rem;
-    padding: 8px 8px;
+    min-height: 36px;
+    font-size: 0.76rem;
+    padding: 5px 6px;
     white-space: normal;
-    line-height: 1.25;
+    line-height: 1.2;
     text-align: center;
   }
 
