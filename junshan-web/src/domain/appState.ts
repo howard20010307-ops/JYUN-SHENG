@@ -8,9 +8,10 @@ import {
   type QuoteSite,
   type QuoteRow,
 } from './quoteEngine'
-import { defaultLedger, normalizeStoredMonthLine, type MonthLine } from './ledgerEngine'
+import { defaultLedger, mergeStoredMonthLines, type MonthLine } from './ledgerEngine'
 import {
   defaultSalaryBook,
+  inferPayrollYearFromBook,
   normalizeSalaryBook,
   type SalaryBook,
 } from './salaryExcelModel'
@@ -47,18 +48,22 @@ export type AppState = {
   /** 估價列結構版本；低於目前常數時載入會依 site.layout 重建 quoteRows */
   quoteRowsSchemaVersion: number
   months: MonthLine[]
+  /** 公司帳：收帳／月表薪水自動帶入所依西元年（畫面上可切換） */
+  ledgerYear: number
   workLog: WorkLogState
   receivables: ReceivablesState
 }
 
 export function initialAppState(): AppState {
+  const salaryBook = defaultSalaryBook()
   return {
     tab: 'payroll',
-    salaryBook: defaultSalaryBook(),
+    salaryBook,
     site: migrateQuoteSite({}),
     quoteRows: [],
     quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
     months: defaultLedger(),
+    ledgerYear: inferPayrollYearFromBook(salaryBook),
     workLog: initialWorkLogState(),
     receivables: initialReceivablesState(),
   }
@@ -104,23 +109,30 @@ export function migrateAppState(loaded: unknown): AppState {
     }
   }
 
+  const salaryBook =
+    d.salaryBook && Array.isArray(d.salaryBook.months)
+      ? normalizeSalaryBook(d.salaryBook as SalaryBook)
+      : init.salaryBook
+
+  const ledgerYear =
+    typeof d.ledgerYear === 'number' &&
+    Number.isFinite(d.ledgerYear) &&
+    d.ledgerYear >= 2000 &&
+    d.ledgerYear <= 2100
+      ? Math.trunc(d.ledgerYear)
+      : inferPayrollYearFromBook(salaryBook)
+
   const merged = {
     ...init,
     ...d,
     tab,
     workLog,
-    salaryBook:
-      d.salaryBook && Array.isArray(d.salaryBook.months)
-        ? normalizeSalaryBook(d.salaryBook as SalaryBook)
-        : init.salaryBook,
+    salaryBook,
     site: siteOut,
     quoteRows,
     quoteRowsSchemaVersion,
-    months: Array.isArray(d.months)
-      ? (d.months as unknown[]).map((raw, i) =>
-          normalizeStoredMonthLine(raw, init.months[i] ?? defaultLedger()[i] ?? init.months[0]),
-        )
-      : init.months,
+    ledgerYear,
+    months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     receivables:
       d.receivables !== undefined && d.receivables !== null
         ? migrateReceivablesState(d.receivables)

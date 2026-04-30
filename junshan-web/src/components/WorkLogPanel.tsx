@@ -629,18 +629,6 @@ export function WorkLogPanel({
   return (
     <div className="panel">
       <h2>工作日誌</h2>
-      <p className="hint" style={{ marginBottom: 14 }}>
-        {calendarCompact ? (
-          <>
-            <strong>月曆</strong>於窄螢幕僅以<strong>記號</strong>顯示是否有<strong>日誌</strong>與<strong>預支</strong>；完整摘要與編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／
-          </>
-        ) : (
-          <>
-            <strong>月曆</strong>顯示當日摘要（地點／人數／人員／工作）；格內過長可<strong>上下捲動</strong>，完整編輯請<strong>點選日期</strong>開<strong>全螢幕</strong>（內文不截斷）。案場／人員／
-          </>
-        )}
-        <strong>餐費</strong>以<strong>薪水月表</strong>為準並自動帶入（鎖定時隨月表同步）；<strong>工作內容、儀器</strong>依<strong>案場區塊</strong>填寫，<strong>餐費與雜項</strong>為<strong>整日一筆</strong>。表單預設<strong>鎖定</strong>。與公司帳、快速登記連動；工作內容選項<strong>參考</strong>放樣估價之細項字串（儲存為純文字）。
-      </p>
 
       <section
         className={`card worklogCalendarCard${calendarCompact ? ' worklogCalendarCard--compact' : ''}`}

@@ -105,18 +105,22 @@ export function initialReceivablesState(): ReceivablesState {
   return { entries: [] }
 }
 
-/** 與月表「全書案場更名」同步：僅 `projectName` 字元完全等於 `oldExact` 者更新 */
+/** 與月表「全書案場更名」同步：`projectName` 與 `oldExact` **字元完全相等**，或**去頭尾空白後相等**且舊名非純空白者更新為 `newNameTrimmed`（trim 後） */
 export function renameReceivableProjectNames(
   state: ReceivablesState,
   oldExact: string,
   newNameTrimmed: string,
 ): ReceivablesState {
   const newT = newNameTrimmed.trim()
+  const oldTrim = oldExact.trim()
   return {
     entries: sortReceivableEntriesByBookedDate(
-      state.entries.map((e) =>
-        e.projectName === oldExact ? { ...e, projectName: newT } : e,
-      ),
+      state.entries.map((e) => {
+        const p = e.projectName
+        const match =
+          p === oldExact || (oldTrim !== '' && p.trim() === oldTrim)
+        return match ? { ...e, projectName: newT } : e
+      }),
     ),
   }
 }

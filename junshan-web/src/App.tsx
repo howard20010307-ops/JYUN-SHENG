@@ -9,6 +9,9 @@ import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { renameReceivableProjectNames } from './domain/receivablesModel'
+import { renameQuoteSiteIfProjectNameMatches } from './domain/quoteEngine'
+import { renameWorkLogSiteNames } from './domain/workLogModel'
+import { withAutoLedgerDerived } from './domain/ledgerEngine'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { AppLoginGate } from './components/AppLoginGate'
@@ -60,6 +63,34 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     () => (p: Partial<AppState>) => setState((s) => ({ ...s, ...p })),
     [setState],
   )
+
+  useEffect(() => {
+    setState((s) => {
+      const nextMonths = withAutoLedgerDerived(
+        s.months,
+        s.salaryBook,
+        s.receivables,
+        s.ledgerYear,
+        s.workLog,
+      )
+      if (nextMonths.length !== s.months.length) return { ...s, months: nextMonths }
+      for (let i = 0; i < s.months.length; i++) {
+        const a = s.months[i]!
+        const b = nextMonths[i]!
+        if (
+          a.salary !== b.salary ||
+          a.overtimePay !== b.overtimePay ||
+          a.meals !== b.meals ||
+          a.tools !== b.tools ||
+          a.revenueNet !== b.revenueNet ||
+          a.tax !== b.tax
+        ) {
+          return { ...s, months: nextMonths }
+        }
+      }
+      return s
+    })
+  }, [setState, state.salaryBook, state.receivables, state.ledgerYear, state.workLog])
 
   const quoteJobSites = useMemo(
     () => jobSitesFromSalaryBook(state.salaryBook),
@@ -220,7 +251,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               onSiteNameRenamed={(oldEx, newN) =>
                 setState((s) => ({
                   ...s,
+                  site: renameQuoteSiteIfProjectNameMatches(s.site, oldEx, newN),
                   receivables: renameReceivableProjectNames(s.receivables, oldEx, newN),
+                  workLog: renameWorkLogSiteNames(s.workLog, oldEx, newN),
                 }))
               }
             />
@@ -253,12 +286,16 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           />
         )}
         {state.tab === 'ledger' && (
-          <fieldset className="tabFieldset" disabled={!canEdit}>
-            <LedgerPanel
-              months={state.months}
-              setMonths={(months) => patch({ months })}
-            />
-          </fieldset>
+          <LedgerPanel
+            months={state.months}
+            setMonths={(months) => patch({ months })}
+            ledgerYear={state.ledgerYear}
+            setLedgerYear={(ledgerYear) => patch({ ledgerYear })}
+            salaryBook={state.salaryBook}
+            receivables={state.receivables}
+            workLog={state.workLog}
+            canEdit={canEdit}
+          />
         )}
         {state.tab === 'worklog' && (
           <fieldset className="tabFieldset" disabled={!canEdit}>

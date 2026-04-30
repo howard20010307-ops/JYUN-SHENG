@@ -579,6 +579,31 @@ export function datesWithAnyLogInMonth(state: WorkLogState, year: number, month1
   return set
 }
 
+/**
+ * 公司帳「工具」帶入：該曆月工作日誌雜項加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
+ */
+export function sumWorkLogMiscCostInCalendarMonth(
+  workLog: WorkLogState,
+  year: number,
+  month1to12: number,
+): number {
+  const prefix = `${year}-${String(month1to12).padStart(2, '0')}-`
+  let sum = 0
+  const docDates = new Set((workLog.dayDocuments ?? []).map((d) => d.logDate))
+  for (const d of workLog.dayDocuments ?? []) {
+    if (!d.logDate.startsWith(prefix)) continue
+    const v = d.miscCost
+    sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
+  }
+  for (const e of workLog.entries ?? []) {
+    if (!e.logDate.startsWith(prefix)) continue
+    if (docDates.has(e.logDate)) continue
+    const v = e.miscCost
+    sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
+  }
+  return Math.round(sum)
+}
+
 /** 同日多筆舊 entries 合併為整日文件（供首次開啟編輯） */
 export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): WorkLogDayDocument | null {
   if (entries.length === 0) return null
@@ -930,6 +955,35 @@ export function newWorkLogDayDocument(logDate: string, blocks?: WorkLogSiteBlock
     createdAt: t,
     updatedAt: t,
   }
+}
+
+function workLogSiteRenameMatch(siteName: string, oldExact: string): boolean {
+  const oldTrim = oldExact.trim()
+  const p = siteName
+  return p === oldExact || (oldTrim !== '' && p.trim() === oldTrim)
+}
+
+/**
+ * 與月表「全書案場更名」同步：單筆 `entries` 與整日 `dayDocuments` 區塊之案名相符者改為新名，並重算單筆 `content`。
+ */
+export function renameWorkLogSiteNames(
+  state: WorkLogState,
+  oldExact: string,
+  newNameTrimmed: string,
+): WorkLogState {
+  const newT = newNameTrimmed.trim()
+  const entries = state.entries.map((e) => {
+    if (!workLogSiteRenameMatch(e.siteName, oldExact)) return e
+    const next = { ...e, siteName: newT }
+    return { ...next, content: buildWorkLogContentSummary(next) }
+  })
+  const dayDocuments = (state.dayDocuments ?? []).map((doc) => ({
+    ...doc,
+    blocks: doc.blocks.map((b) =>
+      workLogSiteRenameMatch(b.siteName, oldExact) ? { ...b, siteName: newT } : b,
+    ),
+  }))
+  return { ...state, entries, dayDocuments }
 }
 
 /** 多案場 UI：具名案場種類數（去重） */

@@ -351,6 +351,24 @@ export function periodColumnFromMonthSheet(m: MonthSheetData): PeriodColumn | nu
 }
 
 /**
+ * 單張月表：分期區間內各案場餐列金額加總（與該表餐列逐日加總、總表該期區間一致）。
+ */
+export function mealMoneyTotalInMonthSheetPeriod(m: MonthSheetData): number {
+  const period = periodColumnFromMonthSheet(m)
+  if (!period) return 0
+  const n = m.dates.length
+  let sum = 0
+  for (const b of m.blocks) {
+    const meal = padArray(b.meal, n)
+    for (let j = 0; j < n; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      sum += meal[j] ?? 0
+    }
+  }
+  return sum
+}
+
+/**
  * 總表橫向分期：依 `book.months` 順序，一欄對應一張月表；日期範圍取自該表日期列（自動對齊）。
  * 若尚無任何有效日期欄，回傳空陣列（呼叫端可改採 {@link autoPayrollPeriodColumns}）。
  */
@@ -1859,7 +1877,7 @@ function junSalaryLinesBySite(
 }
 
 /** 該期鈞泩格線薪水加總（各月·案場依當月 rateJun），等同 {@link junSalaryLinesBySite} 金額合計 */
-function junGridSalaryTotalInPeriod(
+export function junGridSalaryTotalInPeriod(
   book: SalaryBook,
   staffName: string,
   period: PeriodColumn,

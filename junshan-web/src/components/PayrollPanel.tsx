@@ -52,7 +52,7 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
-  /** 全書案場更名成功後，同步收帳案名字串（與月表 `siteName` 完全一致者） */
+  /** 全書案場更名成功後：同步收帳案名、放樣估價案名、工作日誌案場（與月表 `siteName` 完全或 trim 相等者） */
   onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
 }
 
@@ -154,12 +154,10 @@ export function PayrollPanel({
   setWorkLog,
   onSiteNameRenamed,
 }: Props) {
-  /** 案場名 blur 時全書連動更名：記錄焦點當下之舊字串 */
-  const siteRenameSnapRef = useRef<{
-    monthId: string
-    bi: number
-    oldExact: string
-  } | null>(null)
+/** 案場名 blur 時全書連動更名：依區塊 id 記錄焦點當下之舊字串（避免切至他案場輸入框時單一 ref 被覆寫而略過更名／收帳同步） */
+  const siteRenameBlurMetaByBlockIdRef = useRef(
+    new Map<string, { monthId: string; bi: number; oldExact: string }>(),
+  )
   const [newStaffName, setNewStaffName] = useState('')
   /** 各案場區塊「臨時加人」輸入框，key 為案場區塊 id */
   const [siteBlockNewWorkerName, setSiteBlockNewWorkerName] = useState<Record<string, string>>(
@@ -168,7 +166,7 @@ export function PayrollPanel({
   const initSel = initialPayrollSelection(salaryBook)
   const [activeMonthId, setActiveMonthId] = useState(initSel.activeMonthId)
   const [payrollYear, setPayrollYear] = useState(initSel.payrollYear)
-  const [sub, setSub] = useState<'month' | 'quick' | 'summary'>('month')
+  const [sub, setSub] = useState<'month' | 'quick' | 'summary' | 'sites'>('month')
 
   const yearsInBook = useMemo(() => {
     const s = new Set<number>()
@@ -329,9 +327,16 @@ export function PayrollPanel({
         >
           員工總出工及薪水計算
         </button>
+        <button
+          type="button"
+          className={`tab ${sub === 'sites' ? 'on' : ''}`}
+          onClick={() => setSub('sites')}
+        >
+          案場出工明細
+        </button>
       </div>
 
-      {(sub === 'month' || sub === 'summary') && (
+      {(sub === 'month' || sub === 'summary' || sub === 'sites') && (
         <div className="btnRow payrollYearScopeBar" style={{ marginBottom: 12 }}>
           <label>
             資料年份
@@ -382,6 +387,8 @@ export function PayrollPanel({
           ) : null}
         </div>
       )}
+
+      {sub === 'sites' && <PayrollSitesByMonthReadonly salaryBook={salaryBookForSitesYear} />}
 
       {sub === 'quick' && (
         <FieldworkQuickSection
@@ -497,7 +504,6 @@ export function PayrollPanel({
 
       {sub === 'month' && (
         <>
-          <PayrollSitesByMonthReadonly salaryBook={salaryBookForSitesYear} />
           <section className="card">
             <h3>鈞泩／蔡董日薪（本表）</h3>
             <div className="tableScroll tableScrollSticky">
@@ -625,11 +631,11 @@ export function PayrollPanel({
                   className="titleInput"
                   value={block.siteName}
                   onFocus={() => {
-                    siteRenameSnapRef.current = {
+                    siteRenameBlurMetaByBlockIdRef.current.set(block.id, {
                       monthId: month.id,
                       bi,
                       oldExact: block.siteName,
-                    }
+                    })
                   }}
                   onChange={(e) => {
                     const v = e.target.value
@@ -641,12 +647,12 @@ export function PayrollPanel({
                     }))
                   }}
                   onBlur={(e) => {
-                    const snap = siteRenameSnapRef.current
-                    siteRenameSnapRef.current = null
-                    if (!snap || snap.monthId !== month.id || snap.bi !== bi) return
+                    const meta = siteRenameBlurMetaByBlockIdRef.current.get(block.id)
+                    siteRenameBlurMetaByBlockIdRef.current.delete(block.id)
+                    if (!meta || meta.monthId !== month.id || meta.bi !== bi) return
                     const newT = e.target.value.trim()
                     setSalaryBook((prev) => {
-                      const r = renameSiteAcrossBook(prev, snap.oldExact, newT, {
+                      const r = renameSiteAcrossBook(prev, meta.oldExact, newT, {
                         monthId: month.id,
                         blockIndex: bi,
                       })
@@ -655,12 +661,12 @@ export function PayrollPanel({
                         return {
                           ...prev,
                           months: prev.months.map((m) =>
-                            m.id !== snap.monthId
+                            m.id !== meta.monthId
                               ? m
                               : {
                                   ...m,
                                   blocks: m.blocks.map((b, j) =>
-                                    j === snap.bi ? { ...b, siteName: snap.oldExact } : b,
+                                    j === meta.bi ? { ...b, siteName: meta.oldExact } : b,
                                   ),
                                 },
                           ),
@@ -673,7 +679,7 @@ export function PayrollPanel({
                         return prev
                       }
                       queueMicrotask(() => {
-                        onSiteNameRenamed?.(snap.oldExact, newT)
+                        onSiteNameRenamed?.(meta.oldExact, newT)
                       })
                       return r.book
                     })
@@ -754,7 +760,7 @@ export function PayrollPanel({
                 區塊合計(P)：{Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
                 ；數值大於 0 的出工／餐費格與該日欄標頭以紅字標示。
                 全月出工天數合計為 0 者，不顯示人員列；可從「快速登記」寫入格線後即出現。
-                案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步全書各月所有同名區塊（放樣估價案名選單亦跟著更新）。
+                案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步全書各月所有同名區塊，並更新<strong>收帳、放樣估價案名、工作日誌</strong>內相同案場字串。
               </p>
               <div className="tableScroll tableScrollSticky">
                 <table className="data tight">

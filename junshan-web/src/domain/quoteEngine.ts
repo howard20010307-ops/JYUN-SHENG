@@ -238,6 +238,19 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
   }
 }
 
+/** 與月表「全書案場更名」同步：估價案名與 `oldExact` 完全相等或 trim 後相同時改為 `newNameTrimmed`（trim 後）。 */
+export function renameQuoteSiteIfProjectNameMatches(
+  site: QuoteSite,
+  oldExact: string,
+  newNameTrimmed: string,
+): QuoteSite {
+  const newT = newNameTrimmed.trim()
+  const oldTrim = oldExact.trim()
+  const n = site.name
+  const match = n === oldExact || (oldTrim !== '' && n.trim() === oldTrim)
+  return match ? { ...site, name: newT } : site
+}
+
 /**
  * 總坪數（用於作圖總額、每坪成本）：樓層㎡換算後加總，**不含**名稱為「基礎工程」之列（該列不計入坪數）。
  */

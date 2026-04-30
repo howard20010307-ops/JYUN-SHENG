@@ -1,6 +1,23 @@
-/** 公司帳：對應《總成本》《收帳》的月度結餘與累計盈虧 */
+/** 公司帳：對應《總成本》《收帳》之月度結餘與累計盈虧 */
+
+import type { MonthSheetData, SalaryBook } from './salaryExcelModel'
+import {
+  inferPayrollYearFromBook,
+  inferYearFromMonthSheet,
+  junGridSalaryTotalInPeriod,
+  junOtPayInPeriod,
+  mealMoneyTotalInMonthSheetPeriod,
+  monthSheetCalendarMonth,
+  periodColumnFromMonthSheet,
+  staffKeysForMonthDisplay,
+} from './salaryExcelModel'
+import type { ReceivablesState } from './receivablesModel'
+import { sumEntriesInMonth } from './receivablesModel'
+import type { WorkLogState } from './workLogModel'
+import { sumWorkLogMiscCostInCalendarMonth } from './workLogModel'
 
 export type MonthKey =
+  | '1'
   | '2'
   | '3'
   | '4'
@@ -15,15 +32,24 @@ export type MonthKey =
 
 export type MonthLine = {
   month: MonthKey
+  /**
+   * 與薪水總表「鈞泩薪水(未扣預支)」同義：由月表自動寫入公司帳，**不含**調工、**未扣**預支。
+   * 數值來自 {@link withAutoLedgerDerived}／{@link withAutoLedgerJunSalary}（依公司帳選定年度之月表，加總該曆月所有人員格線×日薪）。
+   */
   salary: number
-  /** 加班費（與月表鈞泩日薪÷8×時數邏輯一致，可手動或快速登記加總） */
+  /** 加班費：鈞泩加班費加總（時數×鈞泩日薪÷8），由月表自動帶入；不含蔡董加班。 */
   overtimePay: number
+  /** 餐費：月表各案場餐列金額加總，自動帶入。 */
   meals: number
+  /** 工具（雜項）：工作日誌該曆月雜項支出加總，自動帶入。 */
   tools: number
   bossSalary: number
   instrument: number
-  /** 工程款（未稅入帳合計，手輸或從收帳匯總） */
+  /**
+   * 工程款（未稅）：由收帳依入帳日加總至對應曆月（年為公司帳選定之年分 `ledgerYear`）。
+   */
   revenueNet: number
+  /** 稅金：同月收帳列稅金加總（與未稅一併自動帶入）。 */
   tax: number
 }
 
@@ -34,6 +60,7 @@ export type MonthComputed = MonthLine & {
 }
 
 export function computeMonth(m: MonthLine): MonthComputed {
+  /** 總成本：第一項為鈞泩薪水(未扣預支)，與 {@link MonthLine.salary} 語意一致 */
   const totalCost =
     m.salary +
     (m.overtimePay ?? 0) +
@@ -65,6 +92,7 @@ export function runningCumulative(months: MonthLine[]): number[] {
 }
 
 export const MONTH_ORDER: MonthKey[] = [
+  '1',
   '2',
   '3',
   '4',
@@ -99,6 +127,165 @@ export function normalizeStoredMonthLine(raw: unknown, base: MonthLine): MonthLi
   }
 }
 
+/** 單張月表：全員格線鈞泩薪水合計（與總表該月分期欄同式） */
+function junGridSalaryTotalForMonthSheet(book: SalaryBook, m: MonthSheetData): number {
+  const period = periodColumnFromMonthSheet(m)
+  if (!period) return 0
+  let s = 0
+  for (const name of staffKeysForMonthDisplay(m)) {
+    s += junGridSalaryTotalInPeriod(book, name, period)
+  }
+  return s
+}
+
+/** 單張月表：全員鈞泩加班費合計（與總表「鈞泩加班費」同式；不含蔡董）。 */
+function junOtPayTotalForMonthSheet(book: SalaryBook, m: MonthSheetData): number {
+  const period = periodColumnFromMonthSheet(m)
+  if (!period) return 0
+  let s = 0
+  for (const name of staffKeysForMonthDisplay(m)) {
+    s += junOtPayInPeriod(book, name, period)
+  }
+  return s
+}
+
+/** 公司帳某一曆月列：`ledgerYear` 年該月，各月表鈞泩加班費加總。 */
+export function autoLedgerJunOtPayForMonthKeyInYear(
+  book: SalaryBook,
+  monthKey: MonthKey,
+  year: number,
+): number {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal)) return 0
+  const yOk =
+    Number.isFinite(year) && year >= 2000 && year <= 2100
+      ? Math.trunc(year)
+      : inferPayrollYearFromBook(book)
+  let sum = 0
+  for (const m of book.months) {
+    if (monthSheetCalendarMonth(m) !== cal) continue
+    if (inferYearFromMonthSheet(m) !== yOk) continue
+    sum += junOtPayTotalForMonthSheet(book, m)
+  }
+  return Math.round(sum)
+}
+
+/** 公司帳某一曆月列：月表餐列金額加總（`ledgerYear` 年該月）。 */
+export function autoLedgerMealsForMonthKeyInYear(
+  book: SalaryBook,
+  monthKey: MonthKey,
+  year: number,
+): number {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal)) return 0
+  const yOk =
+    Number.isFinite(year) && year >= 2000 && year <= 2100
+      ? Math.trunc(year)
+      : inferPayrollYearFromBook(book)
+  let sum = 0
+  for (const m of book.months) {
+    if (monthSheetCalendarMonth(m) !== cal) continue
+    if (inferYearFromMonthSheet(m) !== yOk) continue
+    sum += mealMoneyTotalInMonthSheetPeriod(m)
+  }
+  return Math.round(sum)
+}
+
+/** 公司帳「工具」：工作日誌該年該曆月雜項支出加總。 */
+export function autoLedgerToolsForMonthKeyInYear(
+  workLog: WorkLogState,
+  monthKey: MonthKey,
+  year: number,
+): number {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal) || cal < 1 || cal > 12) return 0
+  const yOk =
+    Number.isFinite(year) && year >= 2000 && year <= 2100 ? Math.trunc(year) : 2026
+  return sumWorkLogMiscCostInCalendarMonth(workLog, yOk, cal)
+}
+
+/**
+ * 公司帳某一曆月列：加總該西元年、該曆月之月表鈞泩格線薪水（未扣預支、不含調工）。
+ * 同年同曆月多張月表會一併加總。
+ */
+export function autoLedgerJunSalaryForMonthKeyInYear(
+  book: SalaryBook,
+  monthKey: MonthKey,
+  year: number,
+): number {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal)) return 0
+  const yOk =
+    Number.isFinite(year) && year >= 2000 && year <= 2100
+      ? Math.trunc(year)
+      : inferPayrollYearFromBook(book)
+  let sum = 0
+  for (const m of book.months) {
+    if (monthSheetCalendarMonth(m) !== cal) continue
+    if (inferYearFromMonthSheet(m) !== yOk) continue
+    sum += junGridSalaryTotalForMonthSheet(book, m)
+  }
+  return Math.round(sum)
+}
+
+/** 等同 {@link autoLedgerJunSalaryForMonthKeyInYear}（`year`＝{@link inferPayrollYearFromBook}）。 */
+export function autoLedgerJunSalaryForMonthKey(book: SalaryBook, monthKey: MonthKey): number {
+  return autoLedgerJunSalaryForMonthKeyInYear(book, monthKey, inferPayrollYearFromBook(book))
+}
+
+/** 將各月 `salary` 改為依 {@link autoLedgerJunSalaryForMonthKey} 自薪水月表帶入之值（其餘欄不變）。 */
+export function withAutoLedgerJunSalary(months: MonthLine[], book: SalaryBook): MonthLine[] {
+  const y = inferPayrollYearFromBook(book)
+  return months.map((row) => ({
+    ...row,
+    salary: autoLedgerJunSalaryForMonthKeyInYear(book, row.month, y),
+  }))
+}
+
+/**
+ * 公司帳某一列：收帳中入帳日為 `ledgerYear` 年該曆月之未稅、稅金加總。
+ */
+export function autoLedgerRevenueTaxForMonthKey(
+  receivables: ReceivablesState,
+  payrollYear: number,
+  monthKey: MonthKey,
+): { revenueNet: number; tax: number } {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal) || cal < 1 || cal > 12) return { revenueNet: 0, tax: 0 }
+  const ym = `${payrollYear}-${String(cal).padStart(2, '0')}`
+  const { net, tax } = sumEntriesInMonth(receivables.entries, ym)
+  return { revenueNet: Math.round(net), tax: Math.round(tax) }
+}
+
+/**
+ * 自動帶入公司帳：`salary`／`overtimePay`（僅鈞泩）／`meals` 依薪水月表；`tools` 依工作日誌雜項；
+ * `revenueNet`／`tax` 依收帳；皆限 `ledgerYear` 該年之曆月。
+ */
+export function withAutoLedgerDerived(
+  months: MonthLine[],
+  book: SalaryBook,
+  receivables: ReceivablesState,
+  ledgerYear: number,
+  workLog: WorkLogState,
+): MonthLine[] {
+  const year =
+    Number.isFinite(ledgerYear) && ledgerYear >= 2000 && ledgerYear <= 2100
+      ? Math.trunc(ledgerYear)
+      : inferPayrollYearFromBook(book)
+  return months.map((row) => {
+    const { revenueNet, tax } = autoLedgerRevenueTaxForMonthKey(receivables, year, row.month)
+    return {
+      ...row,
+      salary: autoLedgerJunSalaryForMonthKeyInYear(book, row.month, year),
+      overtimePay: autoLedgerJunOtPayForMonthKeyInYear(book, row.month, year),
+      meals: autoLedgerMealsForMonthKeyInYear(book, row.month, year),
+      tools: autoLedgerToolsForMonthKeyInYear(workLog, row.month, year),
+      revenueNet,
+      tax,
+    }
+  })
+}
+
 function monthNum(m: MonthKey): number {
   return parseInt(m, 10)
 }
@@ -115,4 +302,48 @@ export function defaultLedger(): MonthLine[] {
     revenueNet: 0,
     tax: 0,
   }))
+}
+
+/** 舊版公司帳僅 2～12 月、陣列順序即曆月時，用此對照還原 `month` 缺漏之列。 */
+const LEGACY_MONTH_ORDER_FEB_TO_DEC: MonthKey[] = [
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  '11',
+  '12',
+]
+
+/**
+ * 合併備份中的公司帳列與目前預設列（1～12 月）：依 `month` 欄對位；無 `month` 且恰 11 筆時依舊版順序視為 2～12 月。
+ */
+export function mergeStoredMonthLines(rawRows: unknown[] | undefined): MonthLine[] {
+  const defaults = defaultLedger()
+  const map = new Map<MonthKey, MonthLine>()
+  for (const row of defaults) map.set(row.month, { ...row })
+  if (!rawRows?.length) return MONTH_ORDER.map((k) => map.get(k)!)
+  rawRows.forEach((raw, idx) => {
+    let guess: MonthKey | undefined
+    if (raw && typeof raw === 'object') {
+      const mo = (raw as Record<string, unknown>).month
+      if (typeof mo === 'string' && (MONTH_ORDER as readonly string[]).includes(mo)) {
+        guess = mo as MonthKey
+      }
+    }
+    if (!guess && rawRows.length === 11 && idx < LEGACY_MONTH_ORDER_FEB_TO_DEC.length) {
+      guess = LEGACY_MONTH_ORDER_FEB_TO_DEC[idx]
+    }
+    const base =
+      guess !== undefined
+        ? (defaults.find((t) => t.month === guess) ?? defaults[0]!)
+        : defaults[Math.min(idx, defaults.length - 1)]!
+    const line = normalizeStoredMonthLine(raw, base)
+    map.set(line.month, line)
+  })
+  return MONTH_ORDER.map((k) => map.get(k)!)
 }

@@ -17,6 +17,7 @@ const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'quoteRows',
   'quoteRowsSchemaVersion',
   'months',
+  'ledgerYear',
   'workLog',
   'receivables',
 ]
@@ -116,6 +117,10 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   }
   if (!Array.isArray(data.months)) {
     throw new Error('上傳中止：公司帳 months 必須為陣列。')
+  }
+  const ly = data.ledgerYear
+  if (typeof ly !== 'number' || !Number.isFinite(ly)) {
+    throw new Error('上傳中止：ledgerYear 必須為有限數字。')
   }
   if (!data.workLog || typeof data.workLog !== 'object') {
     throw new Error('上傳中止：workLog 必須為物件。')
