@@ -634,11 +634,17 @@ function mergePayrollSkeletonWithDayDocument(
 
   const mergedBlocks = skeleton.blocks.map((sb, bi) => {
     const sigSb = staffSignatureFromLinkedStaffLines(sb.staffLines)
+    const sbKey = siteKey(sb.siteName)
+    const sbIsAdjust = sbKey === QUICK_SITE_JUN_ADJUST || sbKey === QUICK_SITE_TSAI_ADJUST
     const unused = docBlocks.filter((b) => !usedDocBlockIds.has(b.id))
     const candidates = unused.filter((b) => {
-      if (siteKey(b.siteName) === siteKey(sb.siteName)) return true
+      const bKey = siteKey(b.siteName)
+      if (bKey === sbKey) return true
+      const bIsAdjust = bKey === QUICK_SITE_JUN_ADJUST || bKey === QUICK_SITE_TSAI_ADJUST
+      // 調工支援／蔡董調工不可用「同人員簽名」借位，否則會被一般案場誤吞。
+      if (bIsAdjust || sbIsAdjust) return false
       if (!sigSb) return false
-      if (skeletonSiteKeys.has(siteKey(b.siteName))) return false
+      if (skeletonSiteKeys.has(bKey)) return false
       return staffSignatureFromSiteBlock(b) === sigSb
     })
     let ob: WorkLogSiteBlock | undefined
