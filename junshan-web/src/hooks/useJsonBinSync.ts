@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppState } from '../domain/appState'
+import { stringifyAppBackupFingerprint } from '../domain/appStateBackup'
 import {
   downloadAppStateFromJsonBin,
   getJsonBinKeyErrorMessage,
@@ -10,6 +11,7 @@ import {
   type JsonBinLastUploadMeta,
 } from '../services/jsonbin'
 import { mergeReceivablesPreferLocal } from '../domain/receivablesModel'
+import { readJunshanLocalStorageSavedAtMs } from './usePersistentState'
 
 export type JsonBinLine = { text: string; isError: boolean } | null
 
@@ -65,8 +67,13 @@ export function useJsonBinSync(
   const latestStateRef = useRef(state)
   latestStateRef.current = state
 
+  /** 同一條 Promise 鏈串行 PUT，避免「舊請求晚到」覆寫雲端較新版本（單分頁亦可能因 flush＋防抖重疊）。 */
+  const uploadQueueRef = useRef(Promise.resolve())
+
   const performUpload = useCallback((s: AppState) => {
-    return uploadAppStateToJsonBin(s)
+    const chained = uploadQueueRef.current
+      .catch(() => undefined)
+      .then(() => uploadAppStateToJsonBin(s))
       .then((r) => {
         if (!r.skippedDuplicate) {
           setUploadMeta(readLastJsonBinUploadMeta())
@@ -82,6 +89,8 @@ export function useJsonBinSync(
         })
         throw e
       })
+    uploadQueueRef.current = chained.then(() => undefined).catch(() => undefined)
+    return chained
   }, [])
 
   const dismissCloudUploadBlock = useCallback(() => {
@@ -122,14 +131,28 @@ export function useJsonBinSync(
     let dead = false
     ;(async () => {
       try {
-        const fromCloud = await downloadAppStateFromJsonBin()
+        const dl = await downloadAppStateFromJsonBin()
         if (dead) return
-        if (fromCloud) {
+        if (dl) {
+          const { state: fromCloud, exportedAtMs: cloudExportedAtMs } = dl
+          const diskSavedAtMs = readJunshanLocalStorageSavedAtMs()
           skipNextUpload.current = true
-          setState((prev) => ({
-            ...fromCloud,
-            receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
-          }))
+          setState((prev) => {
+            const preferLocal =
+              diskSavedAtMs > cloudExportedAtMs &&
+              stringifyAppBackupFingerprint(prev) !== stringifyAppBackupFingerprint(fromCloud)
+            if (preferLocal) {
+              return {
+                ...fromCloud,
+                ...prev,
+                receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+              }
+            }
+            return {
+              ...fromCloud,
+              receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+            }
+          })
           setLine({ text: '已從 JSONBin 載入（收帳已與本機合併）。', isError: false })
           window.setTimeout(() => setLine(null), 3200)
         }

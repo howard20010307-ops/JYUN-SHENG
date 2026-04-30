@@ -262,11 +262,25 @@ function isUsableAppPayload(loaded: unknown): boolean {
   return Array.isArray(months)
 }
 
+function exportedAtMsFromBackupRoot(root: unknown): number {
+  if (!root || typeof root !== 'object') return 0
+  const o = root as Record<string, unknown>
+  if (typeof o.exportedAt !== 'string') return 0
+  const t = Date.parse(o.exportedAt)
+  return Number.isFinite(t) ? t : 0
+}
+
+export type JsonBinDownloadResult = {
+  state: AppState
+  /** 備份根層 `exportedAt`（ISO）轉毫秒；缺欄或舊格式為 0 */
+  exportedAtMs: number
+}
+
 /**
- * 讀取雲端 record；回傳可套用之 AppState，若尚無有效資料則回傳 null。
+ * 讀取雲端 record；回傳可套用之 AppState 與備份時間，若尚無有效資料則回傳 null。
  * 內文經 {@link jsonBinRecordToRootObject} 解出與上傳相同之備份 JSON，再 {@link migrateAppState}。
  */
-export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
+export async function downloadAppStateFromJsonBin(): Promise<JsonBinDownloadResult | null> {
   if (!isJsonBinConfigured()) return null
   const id = binId()
   const key = masterKey()
@@ -282,9 +296,10 @@ export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
   const j = (await res.json()) as { record?: unknown }
   const record = j.record !== undefined ? j.record : (j as unknown)
   const root = await jsonBinRecordToRootObject(record)
+  const exportedAtMs = exportedAtMsFromBackupRoot(root)
   const payload = extractAppStatePayload(root)
   if (payload == null || !isUsableAppPayload(payload)) return null
-  return migrateAppState(payload)
+  return { state: migrateAppState(payload), exportedAtMs }
 }
 
 /**

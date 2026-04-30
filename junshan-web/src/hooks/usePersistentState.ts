@@ -7,10 +7,32 @@ const PERSIST_DEBOUNCE_MS = 500
 
 function flushPersist<T>(latest: T): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ data: latest }))
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ data: latest, savedAt: new Date().toISOString() }),
+    )
   } catch {
     /* 配額／隱私模式等 */
   }
+}
+
+/**
+ * 本機持久化信封之 `savedAt`（ISO 時間 → 毫秒），供 JSONBin 首載與雲端 `exportedAt` 比新舊。
+ * 舊版僅 `{ data }` 無 `savedAt` 時回傳 0（仍依雲端為主，與舊行為相容；寫入磁碟後即會帶時間戳）。
+ */
+export function readJunshanLocalStorageSavedAtMs(): number {
+  try {
+    const raw = localStorage.getItem(KEY)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw) as { savedAt?: unknown }
+    if (typeof parsed.savedAt === 'string') {
+      const t = Date.parse(parsed.savedAt)
+      return Number.isFinite(t) ? t : 0
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0
 }
 
 /** 以頂層欄位參考比對是否「實質相同」，避免對大型 state 做 JSON.stringify（會卡死主執行緒）。 */
