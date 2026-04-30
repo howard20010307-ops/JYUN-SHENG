@@ -14,6 +14,7 @@ import {
   repairWorkLogDayDocumentsAgainstPayroll,
   salaryBookNamedSitesFingerprint,
 } from './domain/workLogPayrollLink'
+import { sortWorkItemLabelsList } from './domain/workLogModel'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { AppLoginGate } from './components/AppLoginGate'
@@ -39,6 +40,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     initialAppState,
     migrateAppState,
   )
+  /** 供案場全書更名：blur 須同步讀到最新 state 並回傳訊息，避免依賴 flushSync 卡整頁。 */
+  const appStateRef = useRef(state)
+  appStateRef.current = state
   const jsonBin = useJsonBinSync(state, setState, canEdit)
   /** 遞增時強制重掛薪水頁「快速登記」：登入／雲端首載後同步選項；快速登記成功後清空表單 */
   const [fieldworkQuickResetKey, setFieldworkQuickResetKey] = useState(0)
@@ -86,6 +90,16 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
 
   const patch = useMemo(
     () => (p: Partial<AppState>) => setState((s) => ({ ...s, ...p })),
+    [setState],
+  )
+
+  const ensureWorkItemLabelsInPresets = useCallback(
+    (labels: readonly string[]) => {
+      setState((s) => ({
+        ...s,
+        workItemPresetLabels: sortWorkItemLabelsList([...s.workItemPresetLabels, ...labels]),
+      }))
+    },
     [setState],
   )
 
@@ -280,7 +294,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               }
               months={state.months}
               setMonths={(months) => patch({ months })}
-              quoteRows={state.quoteRows}
+              workItemPresetLabels={state.workItemPresetLabels}
+              ensureWorkItemLabelsInPresets={ensureWorkItemLabelsInPresets}
               workLog={state.workLog}
               setWorkLog={(fn) =>
                 setState((s) => ({
@@ -293,14 +308,29 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 setFieldworkQuickResetKey((k) => k + 1)
               }
               commitSiteRenameAcrossApp={({ oldExact, newTrimmed, edited }) => {
-                let out: { ok: boolean; message: string } = { ok: false, message: '' }
-                setState((s) => {
-                  const r = applySiteRenameAcrossAppState(s, oldExact, newTrimmed, edited)
-                  out = { ok: r.ok, message: r.message }
-                  if (!r.ok) return s
-                  return r.state
-                })
-                return out
+                try {
+                  const r = applySiteRenameAcrossAppState(
+                    appStateRef.current,
+                    oldExact,
+                    newTrimmed,
+                    edited,
+                  )
+                  const msg =
+                    typeof r.message === 'string' && r.message.trim() !== ''
+                      ? r.message
+                      : r.ok
+                        ? r.message
+                        : '無法完成此次更名（未回傳原因）。'
+                  if (!r.ok) return { ok: false, message: msg }
+                  setState(r.state)
+                  appStateRef.current = r.state
+                  return { ok: true, message: msg }
+                } catch (e) {
+                  return {
+                    ok: false,
+                    message: e instanceof Error ? e.message : String(e),
+                  }
+                }
               }}
             />
           </fieldset>
@@ -317,14 +347,27 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               commitSiteRenameFromQuoteNameBlur={
                 canEdit
                   ? (oldEx, newT) => {
-                      let out: { ok: boolean; message: string } = { ok: false, message: '' }
-                      setState((s) => {
-                        const r = applySiteRenameAcrossAppState(s, oldEx, newT)
-                        out = { ok: r.ok, message: r.message }
-                        if (!r.ok) return { ...s, site: { ...s.site, name: oldEx } }
-                        return r.state
-                      })
-                      return out
+                      try {
+                        const r = applySiteRenameAcrossAppState(appStateRef.current, oldEx, newT)
+                        const msg =
+                          typeof r.message === 'string' && r.message.trim() !== ''
+                            ? r.message
+                            : r.ok
+                              ? r.message
+                              : '無法完成此次更名（未回傳原因）。'
+                        if (!r.ok) {
+                          setState((s) => ({ ...s, site: { ...s.site, name: oldEx } }))
+                          return { ok: false, message: msg }
+                        }
+                        setState(r.state)
+                        appStateRef.current = r.state
+                        return { ok: true, message: msg }
+                      } catch (e) {
+                        return {
+                          ok: false,
+                          message: e instanceof Error ? e.message : String(e),
+                        }
+                      }
                     }
                   : undefined
               }
@@ -368,7 +411,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 }))
               }
               siteOptions={quoteJobSites}
-              quoteRows={state.quoteRows}
+              workItemPresetLabels={state.workItemPresetLabels}
+              ensureWorkItemLabelsInPresets={ensureWorkItemLabelsInPresets}
               staffOptions={worklogStaffKeys}
               salaryBook={state.salaryBook}
               setSalaryBook={(fn) =>

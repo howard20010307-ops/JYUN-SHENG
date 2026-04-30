@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { QuoteRow } from '../domain/quoteEngine'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import { isPlaceholderMonthBlockSiteName } from '../domain/salaryExcelModel'
 import type { WorkLogEntry, WorkLogState } from '../domain/workLogModel'
@@ -16,6 +15,7 @@ import {
   WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER,
   WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION,
   replaceDayDocument,
+  removeDayDocumentAndEntries,
   summarizeWorkLogDayDocument,
   effectiveEntriesForCalendar,
   datesWithAnyLogInMonth,
@@ -29,8 +29,11 @@ import {
 } from '../domain/workLogModel'
 import {
   buildLinkedDayDraftFromState,
+  clearPayrollBookDayDataForDate,
+  clearPayrollBookWorkGridMealAndAdjustForDate,
   linkedDayDraftToDayDocument,
-  syncPayrollBookMealTotalFromWorkLogDay,
+  pruneDayDocumentToPayroll,
+  syncPayrollBookFromDayDocument,
   type LinkedDayBlockDraft,
   type LinkedDayDraft,
   type LinkedDayStaffLineDraft,
@@ -50,7 +53,10 @@ type Props = {
   workLog: WorkLogState
   setWorkLog: (v: WorkLogState | ((prev: WorkLogState) => WorkLogState)) => void
   siteOptions: readonly { id: string; name: string }[]
-  quoteRows: readonly QuoteRow[]
+  /** 全站「工作內容」datalist 預設（與放樣估價分開） */
+  workItemPresetLabels: readonly string[]
+  /** 將新字串併入預設清單（去重、依字長排序） */
+  ensureWorkItemLabelsInPresets: (labels: readonly string[]) => void
   staffOptions: readonly string[]
   salaryBook: SalaryBook
   /** 儲存整日日誌時，將「餐費」寫回薪水月表該日餐列（與月表連動） */
@@ -59,7 +65,7 @@ type Props = {
 
 type StaffLineDraft = LinkedDayStaffLineDraft
 type BlockDraft = LinkedDayBlockDraft
-/** 表單狀態：餐費／整日工具為整日；工作內容／儀器與人員在案場區塊；案場／人員與月表連動 */
+/** 表單狀態：餐費／整日工具為整日；工作內容／儀器台數與人員在案場區塊；儀器支出全日欄唯讀（依台數加總）；案場／人員與月表連動 */
 type DayDraft = LinkedDayDraft
 
 function daysInMonth(year: number, month1to12: number): number {
@@ -240,7 +246,8 @@ export function WorkLogPanel({
   workLog,
   setWorkLog,
   siteOptions,
-  quoteRows,
+  workItemPresetLabels,
+  ensureWorkItemLabelsInPresets,
   staffOptions,
   salaryBook,
   setSalaryBook,
@@ -260,14 +267,14 @@ export function WorkLogPanel({
   )
   /** 各工作列「加入選項」輸入暫存（key = block.id:workLine.id） */
   const [blockCustomWorkLine, setBlockCustomWorkLine] = useState<Record<string, string>>({})
+  /** 頂部「工作內容選項」全域新增 */
+  const [globalPresetDraft, setGlobalPresetDraft] = useState('')
   const [formUnlocked, setFormUnlocked] = useState(false)
   /** 全螢幕編輯：月曆格顯示摘要，完整內容於 overlay（可捲、不截斷） */
   const [dayOverlayOpen, setDayOverlayOpen] = useState(false)
   const calendarCompact = useWorklogCalendarCompact()
-
-  useEffect(() => {
-    setFormUnlocked(false)
-  }, [selectedYmd])
+  /** 本次全螢幕編輯自月曆選定的日期；若儲存時 {@link LinkedDayDraft.logDate} 已改，須自 state 移除原日之整日文件以免重複 */
+  const dayEditSessionSourceYmdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!dayOverlayOpen) return
@@ -320,9 +327,30 @@ export function WorkLogPanel({
   }, [siteOptions, payrollDayPrefill, dayDraft.blocks])
 
   const workItemOptions = useMemo(
-    () => mergedWorkItemOptions(quoteRows, workLog.customWorkItemLabels ?? []),
-    [quoteRows, workLog.customWorkItemLabels],
+    () => mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? []),
+    [workItemPresetLabels, workLog.customWorkItemLabels],
   )
+
+  const commitGlobalPresetDraft = useCallback(() => {
+    const v = globalPresetDraft.trim()
+    if (!v) {
+      window.alert('請輸入要新增的工作內容。')
+      return
+    }
+    const opts = mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? [])
+    if (opts.includes(v)) {
+      window.alert('此項目已在選項清單中。')
+      setGlobalPresetDraft('')
+      return
+    }
+    ensureWorkItemLabelsInPresets([v])
+    setGlobalPresetDraft('')
+  }, [
+    globalPresetDraft,
+    workItemPresetLabels,
+    workLog.customWorkItemLabels,
+    ensureWorkItemLabelsInPresets,
+  ])
 
   const datesWithPayroll = useMemo(
     () => datesWithPayrollActivityInCalendarMonth(salaryBook, viewYear, viewMonth),
@@ -414,6 +442,7 @@ export function WorkLogPanel({
 
   const resetDraftForDay = useCallback(
     (ymdStr: string) => {
+      dayEditSessionSourceYmdRef.current = ymdStr
       setDayDraft(buildLinkedDayDraftFromState(ymdStr, workLog, salaryBook, staffOptions))
       setFormUnlocked(false)
     },
@@ -510,19 +539,41 @@ export function WorkLogPanel({
       window.alert('請選擇有效日期。')
       return
     }
+    const existing = getDayDocument(workLog, dayDraft.logDate)
+    const docRaw = linkedDayDraftToDayDocument(dayDraft, existing)
+    const snapForSave = buildPayrollDaySnapshot(salaryBook, docRaw.logDate)
+    const doc = snapForSave ? pruneDayDocumentToPayroll(salaryBook, docRaw.logDate, docRaw) : docRaw
+    if (snapForSave) {
+      const sig = (d: typeof doc) =>
+        JSON.stringify(
+          (d.blocks ?? []).map((b) => ({
+            site: (b.siteName ?? '').trim(),
+            staff: (b.staffLines ?? [])
+              .map((ln) => ln.name.trim())
+              .filter(Boolean)
+              .sort((a, b2) => a.localeCompare(b2, 'zh-Hant')),
+          })),
+        )
+      if (sig(docRaw) !== sig(doc)) {
+        window.alert(
+          '已依「該日月表」自動移除：月表上沒有的案場區塊、或不在該月表人員清單的姓名（日誌與月表須一致）。',
+        )
+      }
+    }
+
     const namedLines: { blockIdx: number; name: string }[] = []
-    for (let bi = 0; bi < dayDraft.blocks.length; bi++) {
-      for (const ln of dayDraft.blocks[bi].staffLines) {
+    for (let bi = 0; bi < doc.blocks.length; bi++) {
+      for (const ln of doc.blocks[bi].staffLines) {
         if (ln.name.trim()) namedLines.push({ blockIdx: bi, name: ln.name.trim() })
       }
     }
     if (namedLines.length === 0) {
-      window.alert('請至少於某一案場區塊新增一位施工人員（姓名）。')
+      window.alert('請至少於某一案場區塊新增一位施工人員（姓名）；若該日有月表，人員須為月表清單內、案場須為月表列名。')
       return
     }
     const seen = new Set<string>()
     for (const { blockIdx, name } of namedLines) {
-      const site = dayDraft.blocks[blockIdx].siteName.trim() || ''
+      const site = doc.blocks[blockIdx].siteName.trim() || ''
       const key = `${site}\0${name}`
       if (seen.has(key)) {
         window.alert(`案場「${site || '（未填）'}」內，${name} 重複；同人同場請併成一列。`)
@@ -530,40 +581,97 @@ export function WorkLogPanel({
       }
       seen.add(key)
     }
-    const existing = getDayDocument(workLog, dayDraft.logDate)
-    const doc = linkedDayDraftToDayDocument(dayDraft, existing)
-    const mealTotal = Math.round(
-      Number.isFinite(parseFloat(String(dayDraft.mealCost).trim()))
-        ? parseFloat(String(dayDraft.mealCost).trim())
-        : 0,
+    const mergedWorkOpts = mergedWorkItemOptions(
+      workItemPresetLabels,
+      workLog.customWorkItemLabels ?? [],
     )
-    const primarySite =
-      dayDraft.blocks.find((b) => b.staffLines.some((ln) => ln.name.trim()))?.siteName?.trim() ?? ''
+    const workLabelsFromDraft: string[] = []
+    for (const b of dayDraft.blocks) {
+      for (const wl of b.workLines ?? []) {
+        const t = wl.label.trim()
+        if (t) workLabelsFromDraft.push(t)
+      }
+    }
+    const workLabelsToAddPreset = sortWorkItemLabelsList(workLabelsFromDraft).filter(
+      (l) => !mergedWorkOpts.includes(l),
+    )
+    if (workLabelsToAddPreset.length) ensureWorkItemLabelsInPresets(workLabelsToAddPreset)
+
+    const sessionOrigin = dayEditSessionSourceYmdRef.current
     setWorkLog((w) => {
-      const next = replaceDayDocument(w, doc)
+      let next = replaceDayDocument(w, doc)
+      if (sessionOrigin && sessionOrigin !== doc.logDate) {
+        next = removeDayDocumentAndEntries(next, sessionOrigin)
+      }
       queueMicrotask(() => {
-        const bookForDraft =
-          setSalaryBook && payrollSnapshotForWorkLogDay
-            ? syncPayrollBookMealTotalFromWorkLogDay(
-                salaryBook,
-                doc.logDate,
-                mealTotal,
-                primarySite,
-              )
-            : salaryBook
-        setDayDraft(
-          buildLinkedDayDraftFromState(doc.logDate, next, bookForDraft, staffOptions),
-        )
-        if (setSalaryBook && payrollSnapshotForWorkLogDay) {
-          setSalaryBook((book) =>
-            syncPayrollBookMealTotalFromWorkLogDay(book, doc.logDate, mealTotal, primarySite),
-          )
+        dayEditSessionSourceYmdRef.current = doc.logDate
+        const bookForDraft = setSalaryBook
+          ? (() => {
+              let b = syncPayrollBookFromDayDocument(salaryBook, doc.logDate, doc)
+              if (sessionOrigin && sessionOrigin !== doc.logDate) {
+                b = clearPayrollBookWorkGridMealAndAdjustForDate(b, sessionOrigin)
+              }
+              return b
+            })()
+          : salaryBook
+        setDayDraft(buildLinkedDayDraftFromState(doc.logDate, next, bookForDraft, staffOptions))
+        if (setSalaryBook) {
+          setSalaryBook((book) => {
+            let b = syncPayrollBookFromDayDocument(book, doc.logDate, doc)
+            if (sessionOrigin && sessionOrigin !== doc.logDate) {
+              b = clearPayrollBookWorkGridMealAndAdjustForDate(b, sessionOrigin)
+            }
+            return b
+          })
         }
       })
       return next
     })
     setFormUnlocked(false)
-  }, [dayDraft, formUnlocked, payrollSnapshotForWorkLogDay, setSalaryBook, setWorkLog, workLog, salaryBook, staffOptions])
+  }, [
+    dayDraft,
+    formUnlocked,
+    setSalaryBook,
+    setWorkLog,
+    workLog,
+    salaryBook,
+    staffOptions,
+    workItemPresetLabels,
+    workLog.customWorkItemLabels,
+    ensureWorkItemLabelsInPresets,
+  ])
+
+  const onDeleteCurrentDayLog = useCallback(() => {
+    if (!formUnlocked) return
+    const iso = (dayDraft.logDate || '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      window.alert('請選擇有效日期。')
+      return
+    }
+    if (
+      !window.confirm(
+        `確定刪除「${formatYmdChinese(iso)}」（${iso}）的整日工作日誌與同日舊筆？\n同時會清空該日在「薪水月表」的出工格線、餐費、預支／調工／加班等當日欄。\n此動作無法復原。`,
+      )
+    ) {
+      return
+    }
+    setWorkLog((w) => {
+      const next = removeDayDocumentAndEntries(w, iso)
+      queueMicrotask(() => {
+        dayEditSessionSourceYmdRef.current = iso
+        setSelectedYmd(iso)
+        const bookForDraft = setSalaryBook
+          ? clearPayrollBookDayDataForDate(salaryBook, iso)
+          : salaryBook
+        setDayDraft(buildLinkedDayDraftFromState(iso, next, bookForDraft, staffOptions))
+        if (setSalaryBook) {
+          setSalaryBook((book) => clearPayrollBookDayDataForDate(book, iso))
+        }
+      })
+      return next
+    })
+    setFormUnlocked(false)
+  }, [dayDraft, formUnlocked, setSalaryBook, setWorkLog, salaryBook, staffOptions])
 
   const addCustomWorkItemForBlock = useCallback(
     (blockIdx: number, lineIdx: number) => {
@@ -574,11 +682,10 @@ export function WorkLogPanel({
       const key = `${block.id}:${wl.id}`
       const v = (blockCustomWorkLine[key] ?? '').trim()
       if (!v) return
-      setWorkLog((w) => {
-        const cur = w.customWorkItemLabels ?? []
-        if (cur.includes(v)) return w
-        return { ...w, customWorkItemLabels: sortWorkItemLabelsList([...cur, v]) }
-      })
+      const opts = mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? [])
+      if (!opts.includes(v)) {
+        ensureWorkItemLabelsInPresets([v])
+      }
       setDayDraft((d) => ({
         ...d,
         blocks: d.blocks.map((b, i) =>
@@ -596,7 +703,7 @@ export function WorkLogPanel({
         return next
       })
     },
-    [blockCustomWorkLine, dayDraft.blocks, setWorkLog],
+    [blockCustomWorkLine, dayDraft.blocks, ensureWorkItemLabelsInPresets, workItemPresetLabels, workLog.customWorkItemLabels],
   )
 
   const addWorkLine = useCallback((blockIdx: number) => {
@@ -708,6 +815,39 @@ export function WorkLogPanel({
     <div className="panel">
       <h2>工作日誌</h2>
 
+      <section className="card" style={{ marginBottom: 14 }}>
+        <h3 style={{ marginTop: 0, fontSize: '1.05rem' }}>工作內容選項</h3>
+        <p className="hint" style={{ marginTop: 4, marginBottom: 10 }}>
+          與「放樣估價」分開儲存；清單依字長排序。可在此新增項目，或在編輯整日時由工作列旁「加入選項」新增。
+        </p>
+        <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 260px' }}>
+            <span>新增到選項清單</span>
+            <input
+              type="text"
+              value={globalPresetDraft}
+              onChange={(e) => setGlobalPresetDraft(e.target.value)}
+              list="worklog-workitem-preset-global-dl"
+              placeholder="輸入後按「新增」或 Enter"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitGlobalPresetDraft()
+                }
+              }}
+            />
+          </label>
+          <button type="button" className="btn secondary" onClick={commitGlobalPresetDraft}>
+            新增
+          </button>
+        </div>
+        <datalist id="worklog-workitem-preset-global-dl">
+          {workItemOptions.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      </section>
+
       <section
         className={`card worklogCalendarCard${calendarCompact ? ' worklogCalendarCard--compact' : ''}`}
       >
@@ -748,7 +888,6 @@ export function WorkLogPanel({
                 onClick={() => {
                   setSelectedYmd(cellYmd)
                   resetDraftForDay(cellYmd)
-                  setFormUnlocked(false)
                   setDayOverlayOpen(true)
                 }}
               >
@@ -824,7 +963,14 @@ export function WorkLogPanel({
             已選取 <strong>{formatYmdChinese(selectedYmd)}</strong>（{selectedYmd}）。再點該日格或下方按鈕以全螢幕編輯。
           </p>
           <div className="btnRow" style={{ marginTop: 10 }}>
-            <button type="button" className="btn" onClick={() => setDayOverlayOpen(true)}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                if (selectedYmd) resetDraftForDay(selectedYmd)
+                setDayOverlayOpen(true)
+              }}
+            >
               開啟當日編輯
             </button>
           </div>
@@ -886,6 +1032,7 @@ export function WorkLogPanel({
               type="date"
               className="titleInput"
               disabled={!formUnlocked}
+              title="僅變更本筆要儲存的日期；表單內已填內容會保留"
               value={dayDraft.logDate}
               onChange={(e) => {
                 const v = e.target.value
@@ -895,8 +1042,7 @@ export function WorkLogPanel({
                 }
                 setSelectedYmd(v)
                 jumpCalendarToYmd(v)
-                setFormUnlocked(false)
-                setDayDraft(buildLinkedDayDraftFromState(v, workLog, salaryBook, staffOptions))
+                setDayDraft((d) => ({ ...d, logDate: v }))
               }}
             />
           </div>
@@ -1048,12 +1194,16 @@ export function WorkLogPanel({
               <p className="hint muted" style={{ margin: '4px 0 6px', fontSize: 12 }}>
                 單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
                 {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
-                {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。下方各案場有填台數時，此欄依台數自動加總（無法手改）。
+                {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
+                {instrumentUsesStructuredQty
+                  ? ' 各案場有填台數時由此欄自動加總（唯讀）。'
+                  : ' 此欄唯讀；請於各案場填寫儀器台數後儲存，即會依台數自動計入；僅舊資料無台數時顯示已存金額。'}
               </p>
               <input
                 type="number"
                 className="titleInput"
-                disabled={!formUnlocked || instrumentUsesStructuredQty}
+                disabled
+                readOnly
                 value={
                   instrumentUsesStructuredQty
                     ? instrumentExpenseAuto
@@ -1061,12 +1211,11 @@ export function WorkLogPanel({
                       ? ''
                       : dayDraft.instrumentCost
                 }
-                onChange={(e) => setDayDraft((d) => ({ ...d, instrumentCost: e.target.value }))}
                 placeholder="0"
                 title={
                   instrumentUsesStructuredQty
-                    ? '已依各案場儀器台數與單價自動計算'
-                    : '無台數時可手填；公司損益表「儀器」欄依檢視年度曆月加總此欄'
+                    ? '依各案場儀器台數與單價自動加總（唯讀）'
+                    : '唯讀：無台數時顯示已存金額，請改由各案場填寫台數後自動計算'
                 }
               />
             </label>
@@ -1452,6 +1601,25 @@ export function WorkLogPanel({
                   })}
                 </div>
               </div>
+              <div className="worklogDayInfoField" style={{ marginTop: 12 }}>
+                <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
+                  <span className="worklogDayInfoLabel">備註（本案場）</span>
+                  <textarea
+                    className="titleInput"
+                    disabled={!formUnlocked}
+                    value={block.remark}
+                    onChange={(e) =>
+                      setDayDraft((d) => ({
+                        ...d,
+                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, remark: e.target.value } : b)),
+                      }))
+                    }
+                    placeholder="該案場施工重點、注意事項、與月表／放樣相關說明等"
+                    rows={3}
+                    style={{ width: '100%', minHeight: '5.5rem', resize: 'vertical' }}
+                  />
+                </label>
+              </div>
             </div>
           ))}
 
@@ -1522,7 +1690,7 @@ export function WorkLogPanel({
             </div>
           ) : null}
 
-          <div className="btnRow" style={{ marginTop: 12 }}>
+          <div className="btnRow" style={{ marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
             <button type="button" className="btn" disabled={!formUnlocked} onClick={onSave}>
               儲存當日日誌
             </button>
@@ -1533,6 +1701,15 @@ export function WorkLogPanel({
               onClick={() => selectedYmd && resetDraftForDay(selectedYmd)}
             >
               還原未儲存
+            </button>
+            <button
+              type="button"
+              className="btn danger ghost"
+              disabled={!formUnlocked}
+              title="刪除整日文件與同日舊筆，並清空該日在薪水月表的出工、餐費、預支／調工／加班等當日欄"
+              onClick={onDeleteCurrentDayLog}
+            >
+              刪除當日日誌
             </button>
           </div>
               </section>

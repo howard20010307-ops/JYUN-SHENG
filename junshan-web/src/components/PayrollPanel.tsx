@@ -1,6 +1,5 @@
 import {
   useMemo,
-  useRef,
   useState,
   useCallback,
   useEffect,
@@ -37,7 +36,6 @@ import {
   autoPayrollPeriodColumns,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
-import type { QuoteRow } from '../domain/quoteEngine'
 import type { WorkLogState } from '../domain/workLogModel'
 import { FieldworkQuickSection } from './FieldworkQuickSection'
 import { PayrollSitesByMonthReadonly } from './PayrollSitesByMonthReadonly'
@@ -50,14 +48,15 @@ type Props = {
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
   months: MonthLine[]
   setMonths: (m: MonthLine[]) => void
-  quoteRows: readonly QuoteRow[]
+  workItemPresetLabels: readonly string[]
+  ensureWorkItemLabelsInPresets: (labels: readonly string[]) => void
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
   /** 遞增時重掛快速登記區塊（登入／雲端首載完成後與最新資料同步；登記成功後清空表單） */
   fieldworkQuickResetKey?: number
   onFieldworkQuickApplySuccess?: () => void
   /**
-   * 案場名稱 blur 完成時：一次同步月表、日誌、估價、收帳（優先使用；與 {@link onSiteNameRenamed} 二擇一即可）。
+   * 案場名稱：在欄位內編輯時僅暫存於本元件；**離開欄位**（點旁邊、Tab）或按 **Enter** 時才寫回月表並同步日誌、估價、收帳（以您第一次點進此欄位時的案名為舊名）。
    * 失敗時請還原該輸入框為 `oldExact`。
    */
   commitSiteRenameAcrossApp?: (args: {
@@ -162,7 +161,8 @@ export function PayrollPanel({
   setSalaryBook,
   months,
   setMonths,
-  quoteRows,
+  workItemPresetLabels,
+  ensureWorkItemLabelsInPresets,
   workLog,
   setWorkLog,
   fieldworkQuickResetKey = 0,
@@ -170,10 +170,12 @@ export function PayrollPanel({
   commitSiteRenameAcrossApp,
   onSiteNameRenamed,
 }: Props) {
-  /** 案場名 blur 時全書連動更名：依區塊 id 記錄焦點當下之舊字串（避免切至他案場輸入框時單一 ref 被覆寫而略過更名／收帳同步） */
-  const siteRenameBlurMetaByBlockIdRef = useRef(
-    new Map<string, { monthId: string; bi: number; oldExact: string }>(),
-  )
+  /** 各案場區塊更名錨點：第一次點進案名欄時記錄舊字串，供 blur／Enter 與全書同步比對 */
+  const [siteRenameAnchorByBlockId, setSiteRenameAnchorByBlockId] = useState<
+    Record<string, { monthId: string; bi: number; oldExact: string }>
+  >({})
+  /** 案場名只存本地，blur／Enter 才寫入月表並同步全書，避免每字觸發大狀態更新而卡頓 */
+  const [siteNameDraftByBlockId, setSiteNameDraftByBlockId] = useState<Record<string, string>>({})
   const [newStaffName, setNewStaffName] = useState('')
   /** 各案場區塊「臨時加人」輸入框，key 為案場區塊 id */
   const [siteBlockNewWorkerName, setSiteBlockNewWorkerName] = useState<Record<string, string>>(
@@ -219,6 +221,10 @@ export function PayrollPanel({
       setActiveMonthId(monthsInPayrollYear[0]!.id)
     }
   }, [monthsInPayrollYear, activeMonthId])
+
+  useEffect(() => {
+    setSiteNameDraftByBlockId({})
+  }, [activeMonthId])
 
   const summaryMonthDatesSig = useMemo(
     () =>
@@ -288,6 +294,115 @@ export function PayrollPanel({
       }))
     },
     [setSalaryBook],
+  )
+
+  const finishPayrollSiteNameCommit = useCallback(
+    (monthId: string, bi: number, blockId: string, rawValue: string) => {
+      const anchor = siteRenameAnchorByBlockId[blockId]
+      setSiteNameDraftByBlockId((p) => {
+        const n = { ...p }
+        delete n[blockId]
+        return n
+      })
+      if (!anchor || anchor.monthId !== monthId || anchor.bi !== bi) return
+
+      if (anchor.oldExact === rawValue) {
+        setSiteRenameAnchorByBlockId((p) => {
+          const n = { ...p }
+          delete n[blockId]
+          return n
+        })
+        return
+      }
+
+      const newT = rawValue.trim()
+      if (!newT) {
+        queueMicrotask(() => alert('案場名稱不可為空白。'))
+        patchMonth(monthId, (m) => ({
+          ...m,
+          blocks: m.blocks.map((b, j) =>
+            j === bi ? { ...b, siteName: anchor.oldExact } : b,
+          ),
+        }))
+        setSiteRenameAnchorByBlockId((p) => {
+          const n = { ...p }
+          delete n[blockId]
+          return n
+        })
+        return
+      }
+
+      if (commitSiteRenameAcrossApp) {
+        const res = commitSiteRenameAcrossApp({
+          oldExact: anchor.oldExact,
+          newTrimmed: newT,
+          edited: { monthId: anchor.monthId, blockIndex: bi },
+        })
+        if (!res.ok) {
+          queueMicrotask(() => alert(res.message))
+          patchMonth(anchor.monthId, (m) => ({
+            ...m,
+            blocks: m.blocks.map((b, j) =>
+              j === anchor.bi ? { ...b, siteName: anchor.oldExact } : b,
+            ),
+          }))
+          return
+        }
+        setSiteRenameAnchorByBlockId((p) => {
+          const n = { ...p }
+          delete n[blockId]
+          return n
+        })
+        if (
+          res.message &&
+          res.message !== '名稱相同，無需變更。' &&
+          res.message !== '無需變更。'
+        ) {
+          queueMicrotask(() => alert(res.message))
+        }
+        return
+      }
+
+      const r = renameSiteAcrossBook(salaryBook, anchor.oldExact, newT, {
+        monthId,
+        blockIndex: bi,
+      })
+      if (!r.ok) {
+        queueMicrotask(() => alert(r.message))
+        patchMonth(anchor.monthId, (m) => ({
+          ...m,
+          blocks: m.blocks.map((b, j) =>
+            j === anchor.bi ? { ...b, siteName: anchor.oldExact } : b,
+          ),
+        }))
+        return
+      }
+      if (r.message === '名稱相同，無需變更。' || r.message === '無需變更。') {
+        setSiteRenameAnchorByBlockId((p) => {
+          const n = { ...p }
+          delete n[blockId]
+          return n
+        })
+        return
+      }
+      setSalaryBook(() => r.book)
+      setSiteRenameAnchorByBlockId((p) => {
+        const n = { ...p }
+        delete n[blockId]
+        return n
+      })
+      queueMicrotask(() => {
+        onSiteNameRenamed?.(anchor.oldExact, newT)
+      })
+    },
+    [
+      siteRenameAnchorByBlockId,
+      patchMonth,
+      commitSiteRenameAcrossApp,
+      salaryBook,
+      setSalaryBook,
+      onSiteNameRenamed,
+    ],
   )
 
   /** 必須在任一 early return 之前呼叫，否則會觸發「Rendered fewer hooks than expected」 */
@@ -414,7 +529,8 @@ export function PayrollPanel({
           months={months}
           setSalaryBook={setSalaryBook}
           setMonths={setMonths}
-          quoteRows={quoteRows}
+          workItemPresetLabels={workItemPresetLabels}
+          ensureWorkItemLabelsInPresets={ensureWorkItemLabelsInPresets}
           workLog={workLog}
           setWorkLog={setWorkLog}
           onApplySuccess={onFieldworkQuickApplySuccess}
@@ -644,80 +760,30 @@ export function PayrollPanel({
 
           {month.blocks.map((block, bi) => (
             <section key={block.id} className="card">
-              <div className="panelHead">
+              <div className="panelHead" style={{ flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
                 <input
                   className="titleInput"
-                  value={block.siteName}
+                  value={siteNameDraftByBlockId[block.id] ?? block.siteName}
                   onFocus={() => {
-                    siteRenameBlurMetaByBlockIdRef.current.set(block.id, {
-                      monthId: month.id,
-                      bi,
-                      oldExact: block.siteName,
+                    setSiteRenameAnchorByBlockId((prev) => {
+                      if (prev[block.id]) return prev
+                      return {
+                        ...prev,
+                        [block.id]: { monthId: month.id, bi, oldExact: block.siteName },
+                      }
                     })
                   }}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    patchMonth(month.id, (m) => ({
-                      ...m,
-                      blocks: m.blocks.map((b, j) =>
-                        j === bi ? { ...b, siteName: v } : b,
-                      ),
-                    }))
-                  }}
+                  onChange={(e) =>
+                    setSiteNameDraftByBlockId((p) => ({ ...p, [block.id]: e.target.value }))
+                  }
                   onBlur={(e) => {
-                    const meta = siteRenameBlurMetaByBlockIdRef.current.get(block.id)
-                    siteRenameBlurMetaByBlockIdRef.current.delete(block.id)
-                    if (!meta || meta.monthId !== month.id || meta.bi !== bi) return
-                    const newT = e.target.value.trim()
-                    if (commitSiteRenameAcrossApp) {
-                      const res = commitSiteRenameAcrossApp({
-                        oldExact: meta.oldExact,
-                        newTrimmed: newT,
-                        edited: { monthId: meta.monthId, blockIndex: bi },
-                      })
-                      if (!res.ok) {
-                        queueMicrotask(() => alert(res.message))
-                        patchMonth(meta.monthId, (m) => ({
-                          ...m,
-                          blocks: m.blocks.map((b, j) =>
-                            j === meta.bi ? { ...b, siteName: meta.oldExact } : b,
-                          ),
-                        }))
-                      }
-                      return
-                    }
-                    setSalaryBook((prev) => {
-                      const r = renameSiteAcrossBook(prev, meta.oldExact, newT, {
-                        monthId: month.id,
-                        blockIndex: bi,
-                      })
-                      if (!r.ok) {
-                        queueMicrotask(() => alert(r.message))
-                        return {
-                          ...prev,
-                          months: prev.months.map((m) =>
-                            m.id !== meta.monthId
-                              ? m
-                              : {
-                                  ...m,
-                                  blocks: m.blocks.map((b, j) =>
-                                    j === meta.bi ? { ...b, siteName: meta.oldExact } : b,
-                                  ),
-                                },
-                          ),
-                        }
-                      }
-                      if (
-                        r.message === '名稱相同，無需變更。' ||
-                        r.message === '無需變更。'
-                      ) {
-                        return prev
-                      }
-                      queueMicrotask(() => {
-                        onSiteNameRenamed?.(meta.oldExact, newT)
-                      })
-                      return r.book
-                    })
+                    const raw = (e.target as HTMLInputElement).value
+                    finishPayrollSiteNameCommit(month.id, bi, block.id, raw)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    ;(e.currentTarget as HTMLInputElement).blur()
                   }}
                   placeholder="案場名稱"
                 />
@@ -795,7 +861,8 @@ export function PayrollPanel({
                 區塊合計(P)：{Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
                 ；數值大於 0 的出工／餐費格與該日欄標頭以紅字標示。
                 全月出工天數合計為 0 者，不顯示人員列；可從「快速登記」寫入格線後即出現。
-                案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步<strong>全書各月</strong>同名區塊，並一併更新<strong>放樣估價主案名、收帳案名、工作日誌（含整日文件）</strong>。
+                案場名稱請在此欄編輯；<strong>點旁邊離開欄位</strong>或按 <strong>Enter</strong>
+                時，會寫回<strong>全書各月</strong>、<strong>放樣估價主案名</strong>、<strong>收帳案名</strong>、<strong>工作日誌（含整日文件）</strong>（以您<strong>第一次點進此欄位時的案名</strong>為舊名）。輸入時不即時寫入，可避免卡頓。
               </p>
               <div className="tableScroll tableScrollSticky">
                 <table className="data tight">

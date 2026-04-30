@@ -1,0 +1,22 @@
+---
+description: 手動輸入資料一律採收帳式合併以防不見；持久化／雲端／本機為高風險。
+alwaysApply: true
+---
+
+# 規則（一條）
+
+**只要是使用者手動輸入的資料（數字、文字、列、區塊等），在「本機 vs 雲端／備份還原／首載合併／任何會用其中一邊整包蓋另一邊」的路徑上，一律要依照「收帳模式」處理：為該域定出穩定鍵（如列 `id`、整日 `logDate`），做兩邊聯集，同一鍵以本機為準（或專案內已約定的等價策略），禁止只靠整包 `state` 用雲端或本機其中一邊直接覆寫而沒有鍵級合併——除非使用者白紙黑字同意「該域永遠只信雲端」。** 目的只有一個：**防止手輸資料不見。**
+
+## 模式定義（收帳式）
+
+1. 每筆可獨立的使用者輸入須有**穩定、可重複比對的鍵**（已有則沿用，沒有須先補欄位／遷移再談合併）。  
+2. 合併時：**兩邊都出現的鍵 → 本機優先**（與 `mergeReceivablesPreferLocal` 一致）；**只在一邊出現的鍵 → 保留**。  
+3. 新開域或改欄位：先寫合併函式與測試路徑，再接到 JSONBin 首載／匯入；變更後跑 `npx tsc --noEmit`。
+
+**現有參考實作**：`mergeReceivablesPreferLocal`、`mergeWorkLogPreferLocal`、`mergeSalaryBookPreferLocal`（薪水整本含月表 id／案場區塊 id）。**尚未套用此模式之域**（須補齊才能當完成）：估價 `site`／`quoteRows`、公司損益 `months`（與薪水月表不同）等。
+
+---
+
+## 持久化共通（高風險技術面）
+
+凡動到 `localStorage`、信封格式、`usePersistentState*`、`useJsonBinSync`、`jsonbin.ts`、備份 stringify／migrate、整包 `setState`、防抖／關頁 flush、上傳佇列：先想最壞情況（空 state、無 `exportedAt`、`0` 時間戳、舊格式、雙掛載、並行 PUT）；**禁止**不可靠的「只比指紋或時間就整包蓋」啟發式；語意或鍵名變更須讓使用者知情；能 additive 就 additive。

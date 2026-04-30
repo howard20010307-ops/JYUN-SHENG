@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   buildQuoteRowsFromLayout,
   computeFloorPricingTable,
@@ -29,7 +29,7 @@ type Props = {
   rows: QuoteRow[]
   setRows: (r: QuoteRow[]) => void
   /**
-   * 案名輸入 blur 時：與薪水月表、日誌、收帳全書同步（與月表案場更名同一套邏輯）。
+   * 估價案名：先順暢編輯；按「同步全書」才與薪水月表、日誌、收帳全書同步。
    * 失敗時父層會還原案名；此處仍應呼叫以顯示錯誤。
    */
   commitSiteRenameFromQuoteNameBlur?: (
@@ -153,7 +153,8 @@ export function QuotePanel({
   commitSiteRenameFromQuoteNameBlur,
 }: Props) {
   const { bindDecimal, bindInt } = useLooseNumericDrafts()
-  const quoteSiteNameOnFocusRef = useRef(site.name)
+  /** 第一次點進案名欄時的舊字串；按「同步全書」前不寫回月表／日誌等 */
+  const [quoteSiteRenameOldExact, setQuoteSiteRenameOldExact] = useState<string | null>(null)
   const result = useMemo(() => computeQuote(site, rows), [site, rows])
   const floorPricingRows = useMemo(() => computeFloorPricingTable(site, rows), [site, rows])
   const floorPricingTotals = useMemo(() => {
@@ -502,25 +503,48 @@ export function QuotePanel({
         <div className="grid2">
           <label>
             案名
-            <input
-              value={site.name}
-              onFocus={() => {
-                quoteSiteNameOnFocusRef.current = site.name
-              }}
-              onChange={(e) => setSite({ ...site, name: e.target.value })}
-              onBlur={() => {
-                if (!commitSiteRenameFromQuoteNameBlur) return
-                const oldEx = quoteSiteNameOnFocusRef.current
-                const newT = site.name.trim()
-                if (oldEx === newT) return
-                const r = commitSiteRenameFromQuoteNameBlur(oldEx, newT)
-                if (!r.ok) {
-                  window.alert(r.message)
-                  setSite({ ...site, name: oldEx })
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <input
+                value={site.name}
+                onFocus={() => {
+                  setQuoteSiteRenameOldExact((o) => (o === null ? site.name : o))
+                }}
+                onChange={(e) => setSite({ ...site, name: e.target.value })}
+                placeholder="新案估價請填本案名稱"
+                style={{ minWidth: '12rem', flex: '1 1 10rem' }}
+              />
+              <button
+                type="button"
+                className="btn secondary"
+                title="以第一次點進此欄時的案名為舊名，與目前內容比對後同步至月表、日誌、收帳"
+                disabled={
+                  !commitSiteRenameFromQuoteNameBlur ||
+                  quoteSiteRenameOldExact === null ||
+                  site.name.trim() === quoteSiteRenameOldExact.trim()
                 }
-              }}
-              placeholder="新案估價請填本案名稱"
-            />
+                onClick={() => {
+                  if (!commitSiteRenameFromQuoteNameBlur || quoteSiteRenameOldExact === null) return
+                  const newT = site.name.trim()
+                  const r = commitSiteRenameFromQuoteNameBlur(quoteSiteRenameOldExact, newT)
+                  if (!r.ok) {
+                    window.alert(r.message)
+                    setSite({ ...site, name: quoteSiteRenameOldExact })
+                    setQuoteSiteRenameOldExact(null)
+                    return
+                  }
+                  setQuoteSiteRenameOldExact(null)
+                  if (
+                    r.message &&
+                    r.message !== '名稱相同，無需變更。' &&
+                    r.message !== '無需變更。'
+                  ) {
+                    window.alert(r.message)
+                  }
+                }}
+              >
+                同步全書
+              </button>
+            </div>
           </label>
           <div className="stat">
             <span>總坪數（㎡換算；不含「基礎工程」列）</span>

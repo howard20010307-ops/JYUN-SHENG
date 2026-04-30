@@ -18,6 +18,7 @@ const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'quoteRowsSchemaVersion',
   'months',
   'ledgerYear',
+  'workItemPresetLabels',
   'workLog',
   'receivables',
 ]
@@ -113,6 +114,9 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   }
   if (!Array.isArray(data.quoteRows)) {
     throw new Error('上傳中止：quoteRows 必須為陣列。')
+  }
+  if (!Array.isArray(data.workItemPresetLabels)) {
+    throw new Error('上傳中止：workItemPresetLabels 必須為陣列。')
   }
   const qv = data.quoteRowsSchemaVersion
   if (typeof qv !== 'number' || !Number.isFinite(qv)) {

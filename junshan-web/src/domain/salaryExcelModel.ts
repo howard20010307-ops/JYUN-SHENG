@@ -2405,3 +2405,190 @@ export function buildStaffSummaryRows(
     ),
   }))
 }
+
+// --- JSONBin 首載：月表與收帳同策略（穩定 id 聯集、同鍵本機優先）---
+
+function mergeRecordNumArraysPreferLocal(
+  local: Record<string, number[]>,
+  remote: Record<string, number[]>,
+  dateLen: number,
+): Record<string, number[]> {
+  const out: Record<string, number[]> = {}
+  const keys = new Set([...Object.keys(remote), ...Object.keys(local)])
+  for (const k of keys) {
+    if (local[k] !== undefined) out[k] = padArray(local[k], dateLen)
+    else out[k] = padArray(remote[k], dateLen)
+  }
+  return out
+}
+
+function cloneSiteBlockPadded(b: SiteBlock, dateLen: number): SiteBlock {
+  const grid: Record<string, number[]> = {}
+  for (const k of Object.keys(b.grid ?? {})) {
+    grid[k] = padArray(b.grid[k], dateLen)
+  }
+  return {
+    ...b,
+    grid,
+    meal: padArray(b.meal, dateLen),
+  }
+}
+
+function mergeSiteBlockPairPreferLocal(l: SiteBlock, r: SiteBlock, dateLen: number): SiteBlock {
+  const siteName =
+    typeof l.siteName === 'string' && l.siteName.trim() !== '' ? l.siteName : r.siteName
+  return {
+    ...r,
+    ...l,
+    id: l.id,
+    siteName,
+    grid: mergeRecordNumArraysPreferLocal(l.grid, r.grid, dateLen),
+    meal: padArray(l.meal, dateLen),
+  }
+}
+
+function mergeSiteBlocksPreferLocal(
+  localBlocks: readonly SiteBlock[],
+  remoteBlocks: readonly SiteBlock[],
+  dateLen: number,
+): SiteBlock[] {
+  const byId = new Map<string, SiteBlock>()
+  for (const b of remoteBlocks) {
+    byId.set(b.id, cloneSiteBlockPadded(b, dateLen))
+  }
+  for (const b of localBlocks) {
+    const r0 = byId.get(b.id)
+    if (r0) byId.set(b.id, mergeSiteBlockPairPreferLocal(b, r0, dateLen))
+    else byId.set(b.id, cloneSiteBlockPadded(b, dateLen))
+  }
+  const out: SiteBlock[] = []
+  const seen = new Set<string>()
+  for (const b of localBlocks) {
+    if (seen.has(b.id)) continue
+    const x = byId.get(b.id)
+    if (x) {
+      out.push(x)
+      seen.add(b.id)
+    }
+  }
+  for (const b of remoteBlocks) {
+    if (seen.has(b.id)) continue
+    const x = byId.get(b.id)
+    if (x) {
+      out.push(x)
+      seen.add(b.id)
+    }
+  }
+  return out
+}
+
+function mergeMonthSheetPairPreferLocal(l: MonthSheetData, r: MonthSheetData): MonthSheetData {
+  const dates = l.dates.length > 0 ? [...l.dates] : [...r.dates]
+  const len = dates.length
+  const blocks = mergeSiteBlocksPreferLocal(l.blocks, r.blocks, len)
+  return {
+    ...r,
+    ...l,
+    id: l.id,
+    dates,
+    blocks,
+    rateJun: { ...r.rateJun, ...l.rateJun },
+    rateTsai: { ...r.rateTsai, ...l.rateTsai },
+    advances: mergeRecordNumArraysPreferLocal(l.advances, r.advances, len),
+    junAdjustDays: mergeRecordNumArraysPreferLocal(l.junAdjustDays, r.junAdjustDays, len),
+    tsaiAdjustDays: mergeRecordNumArraysPreferLocal(l.tsaiAdjustDays, r.tsaiAdjustDays, len),
+    junOtHours: mergeRecordNumArraysPreferLocal(l.junOtHours, r.junOtHours, len),
+    tsaiOtHours: mergeRecordNumArraysPreferLocal(l.tsaiOtHours, r.tsaiOtHours, len),
+  }
+}
+
+function mergeMonthsArrayPreferLocal(
+  localMonths: readonly MonthSheetData[],
+  remoteMonths: readonly MonthSheetData[],
+): MonthSheetData[] {
+  const pair = new Map<string, { l?: MonthSheetData; r?: MonthSheetData }>()
+  for (const m of remoteMonths) {
+    const e = pair.get(m.id) ?? {}
+    pair.set(m.id, { ...e, r: m })
+  }
+  for (const m of localMonths) {
+    const e = pair.get(m.id) ?? {}
+    pair.set(m.id, { ...e, l: m })
+  }
+  const out: MonthSheetData[] = []
+  const seen = new Set<string>()
+  for (const m of localMonths) {
+    if (seen.has(m.id)) continue
+    const p = pair.get(m.id)
+    if (!p) continue
+    if (p.l && p.r) out.push(mergeMonthSheetPairPreferLocal(p.l, p.r))
+    else if (p.l) out.push({ ...p.l })
+    else if (p.r) out.push({ ...p.r })
+    seen.add(m.id)
+  }
+  for (const m of remoteMonths) {
+    if (seen.has(m.id)) continue
+    const p = pair.get(m.id)
+    if (p?.r) {
+      out.push({ ...p.r })
+      seen.add(m.id)
+    }
+  }
+  return out
+}
+
+function payrollPeriodColumnKey(c: PeriodColumn): string {
+  return `${c.label}\0${c.startIso}\0${c.endIso}\0${String(c.monthSheetId ?? '')}\0${c.summaryTotal ? '1' : '0'}`
+}
+
+function mergePayrollPeriodColumnsPreferLocal(
+  localCols: readonly PeriodColumn[],
+  remoteCols: readonly PeriodColumn[],
+): PeriodColumn[] {
+  const byKey = new Map<string, PeriodColumn>()
+  for (const c of remoteCols) {
+    byKey.set(payrollPeriodColumnKey(c), { ...c })
+  }
+  for (const c of localCols) {
+    const k = payrollPeriodColumnKey(c)
+    const r0 = byKey.get(k)
+    byKey.set(k, r0 ? { ...r0, ...c } : { ...c })
+  }
+  const out: PeriodColumn[] = []
+  const seen = new Set<string>()
+  for (const c of localCols) {
+    const k = payrollPeriodColumnKey(c)
+    if (seen.has(k)) continue
+    const x = byKey.get(k)
+    if (x) {
+      out.push(x)
+      seen.add(k)
+    }
+  }
+  for (const c of remoteCols) {
+    const k = payrollPeriodColumnKey(c)
+    if (seen.has(k)) continue
+    const x = byKey.get(k)
+    if (x) {
+      out.push(x)
+      seen.add(k)
+    }
+  }
+  return out
+}
+
+/**
+ * 與收帳／工作日誌相同策略：月表以 `MonthSheetData.id`、案場區塊以 `SiteBlock.id` 聯集，同 id 本機優先；
+ * 月內 `grid`／預支／調工／加班等 `Record<string, number[]>` 為列鍵聯集，同鍵本機列優先；餐列隨區塊本機優先。
+ * 供 JSONBin 首載，避免整包雲端覆寫抹掉本機手輸月表。
+ */
+export function mergeSalaryBookPreferLocal(local: SalaryBook, remote: SalaryBook): SalaryBook {
+  const l = normalizeSalaryBook(local)
+  const r = normalizeSalaryBook(remote)
+  const merged: SalaryBook = {
+    version: 1,
+    periodColumns: mergePayrollPeriodColumnsPreferLocal(l.periodColumns, r.periodColumns),
+    months: mergeMonthsArrayPreferLocal(l.months, r.months),
+  }
+  return normalizeSalaryBook(merged)
+}

@@ -3,8 +3,18 @@
  */
 
 import type { MonthSheetData, SalaryBook } from './salaryExcelModel'
-import { staffKeysAcrossBook, padArray } from './salaryExcelModel'
-import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
+import {
+  staffKeysAcrossBook,
+  padArray,
+  ensureGridWorker,
+  staffKeysForMonthDisplay,
+} from './salaryExcelModel'
+import {
+  LEGACY_QUICK_SITE_JUN_ADJUST,
+  normalizeQuickSiteKey,
+  QUICK_SITE_JUN_ADJUST,
+  QUICK_SITE_TSAI_ADJUST,
+} from './fieldworkQuickApply'
 import {
   buildPayrollDaySnapshot,
   dayIndexInSheet,
@@ -971,6 +981,195 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
   return out
 }
 
+/** 與月表／快速登記鍵一致之案場字串（含舊「鈞泩調工」→「調工支援」） */
+function normDocPayrollSiteKey(raw: string): string {
+  const t = (raw ?? '').trim()
+  const u = t === LEGACY_QUICK_SITE_JUN_ADJUST ? QUICK_SITE_JUN_ADJUST : t
+  return normalizeQuickSiteKey(u)
+}
+
+/**
+ * 整日工作日誌僅保留「該日月表上存在」之案場與人員（月表沒有的，日誌也不能存）。
+ * 該日不在任何月表時回傳原文件不變。
+ */
+export function pruneDayDocumentToPayroll(
+  book: SalaryBook,
+  iso: string,
+  doc: WorkLogDayDocument,
+): WorkLogDayDocument {
+  const sheet = findMonthSheetContainingDate(book, iso)
+  if (!sheet) return doc
+
+  const allowedStaff = new Set(staffKeysForMonthDisplay(sheet))
+  const nextBlocks: WorkLogSiteBlock[] = []
+
+  for (const b of doc.blocks ?? []) {
+    const sn = normDocPayrollSiteKey(b.siteName ?? '')
+
+    if (sn === QUICK_SITE_JUN_ADJUST || sn === QUICK_SITE_TSAI_ADJUST) {
+      const canonSite = sn === QUICK_SITE_JUN_ADJUST ? QUICK_SITE_JUN_ADJUST : QUICK_SITE_TSAI_ADJUST
+      const staffLines = (b.staffLines ?? [])
+        .map((ln) => {
+          const name = (ln.name ?? '').trim()
+          if (!name || !allowedStaff.has(name)) {
+            return { ...ln, name: '' }
+          }
+          return { ...ln, name }
+        })
+        .filter((ln) => ln.name.trim())
+      if (staffLines.length === 0) continue
+      nextBlocks.push({ ...b, siteName: canonSite, staffLines })
+      continue
+    }
+
+    const bi = sheet.blocks.findIndex((sb) => normDocPayrollSiteKey(sb.siteName) === sn)
+    if (bi < 0) continue
+    const sheetSiteName = sheet.blocks[bi]!.siteName
+    const staffLines = (b.staffLines ?? [])
+      .map((ln) => {
+        const name = (ln.name ?? '').trim()
+        if (!name || !allowedStaff.has(name)) {
+          return { ...ln, name: '' }
+        }
+        return { ...ln, name }
+      })
+      .filter((ln) => ln.name.trim())
+    if (staffLines.length === 0) continue
+    nextBlocks.push({ ...b, siteName: sheetSiteName, staffLines })
+  }
+
+  return { ...doc, blocks: nextBlocks }
+}
+
+/**
+ * 清空該日在月表之「出工格線、各案場餐、鈞泩／蔡董調工天數欄」；不動預支與加班時數欄。
+ * 若 `iso` 不在任何月表，`book` 不變。
+ */
+export function clearPayrollBookWorkGridMealAndAdjustForDate(book: SalaryBook, iso: string): SalaryBook {
+  const sheet = findMonthSheetContainingDate(book, iso)
+  if (!sheet) return book
+  const j = dayIndexInSheet(sheet, iso)
+  if (j < 0) return book
+  const len = sheet.dates.length
+  if (len === 0) return book
+
+  const blocks = sheet.blocks.map((b) => {
+    const mealRow = [...padArray(b.meal, len)]
+    if (j < mealRow.length) mealRow[j] = 0
+    const grid: Record<string, number[]> = {}
+    for (const [name, arr] of Object.entries(b.grid)) {
+      const row = [...padArray(arr, len)]
+      if (j < row.length) row[j] = 0
+      grid[name] = row
+    }
+    return { ...b, meal: mealRow, grid }
+  })
+
+  const clearAdjustCol = (rec: Record<string, number[]>): Record<string, number[]> => {
+    const out: Record<string, number[]> = {}
+    for (const [name, arr] of Object.entries(rec)) {
+      const row = [...padArray(arr, len)]
+      if (j < row.length) row[j] = 0
+      out[name] = row
+    }
+    return out
+  }
+
+  const nextSheet: MonthSheetData = {
+    ...sheet,
+    blocks,
+    junAdjustDays: clearAdjustCol(sheet.junAdjustDays),
+    tsaiAdjustDays: clearAdjustCol(sheet.tsaiAdjustDays),
+  }
+
+  const mi = book.months.findIndex((m) => m.id === sheet.id)
+  if (mi < 0) return book
+  return {
+    ...book,
+    months: book.months.map((m, i) => (i === mi ? nextSheet : m)),
+  }
+}
+
+/**
+ * 依整日工作日誌（須已與月表修剪一致）覆寫該日：案場格線、調工支援／蔡董調工天數、整日餐費。
+ * 日誌沒有的出工／調工／餐費欄位會先歸零再依文件寫入（與日誌一致）。
+ */
+export function syncPayrollBookFromDayDocument(
+  book: SalaryBook,
+  iso: string,
+  doc: WorkLogDayDocument,
+): SalaryBook {
+  const sheet0 = findMonthSheetContainingDate(book, iso)
+  if (!sheet0) return book
+
+  let book1 = clearPayrollBookWorkGridMealAndAdjustForDate(book, iso)
+  const sheet = findMonthSheetContainingDate(book1, iso)
+  if (!sheet) return book1
+  const j = dayIndexInSheet(sheet, iso)
+  if (j < 0) return book1
+  const len = sheet.dates.length
+  const mi = book1.months.findIndex((m) => m.id === sheet.id)
+  if (mi < 0) return book1
+
+  let blocks = sheet.blocks.map((b) => ({ ...b }))
+  let junAdjustDays = { ...sheet.junAdjustDays }
+  let tsaiAdjustDays = { ...sheet.tsaiAdjustDays }
+
+  for (const db of doc.blocks ?? []) {
+    const sn = normDocPayrollSiteKey(db.siteName ?? '')
+    const names = (db.staffLines ?? [])
+      .map((ln) => (ln.name ?? '').trim())
+      .filter(Boolean)
+
+    if (sn === QUICK_SITE_JUN_ADJUST) {
+      for (const w of names) {
+        const row = [...padArray(junAdjustDays[w], len)]
+        if (j < row.length) row[j] = 1
+        junAdjustDays = { ...junAdjustDays, [w]: row }
+      }
+      continue
+    }
+    if (sn === QUICK_SITE_TSAI_ADJUST) {
+      for (const w of names) {
+        const row = [...padArray(tsaiAdjustDays[w], len)]
+        if (j < row.length) row[j] = 1
+        tsaiAdjustDays = { ...tsaiAdjustDays, [w]: row }
+      }
+      continue
+    }
+
+    const bi = blocks.findIndex((b) => normDocPayrollSiteKey(b.siteName) === sn)
+    if (bi < 0) continue
+    let bl = blocks[bi]!
+    for (const w of names) {
+      bl = ensureGridWorker(bl, w, len)
+      const row = [...padArray(bl.grid[w], len)]
+      if (j < row.length) row[j] = 1
+      bl = { ...bl, grid: { ...bl.grid, [w]: row } }
+    }
+    blocks = blocks.map((x, i) => (i === bi ? bl : x))
+  }
+
+  const nextSheet: MonthSheetData = {
+    ...sheet,
+    blocks,
+    junAdjustDays,
+    tsaiAdjustDays,
+  }
+  const book2: SalaryBook = {
+    ...book1,
+    months: book1.months.map((m, i) => (i === mi ? nextSheet : m)),
+  }
+
+  const mealTotal = Math.round(
+    typeof doc.mealCost === 'number' && Number.isFinite(doc.mealCost) ? doc.mealCost : 0,
+  )
+  const primarySite =
+    doc.blocks?.find((bb) => bb.staffLines?.some((ln) => (ln.name ?? '').trim()))?.siteName?.trim() ??
+    ''
+  return syncPayrollBookMealTotalFromWorkLogDay(book2, iso, mealTotal, primarySite)
+}
+
 /**
  * 依工作日誌「整日餐費」寫回薪月表：該日各案場餐列僅保留一筆為 `mealTotal`（其餘案場該日餐欄歸 0），與全日單一餐費欄一致。
  */
@@ -998,6 +1197,58 @@ export function syncPayrollBookMealTotalFromWorkLogDay(
   return {
     ...book,
     months: book.months.map((m, i) => (i === mi ? { ...m, blocks } : m)),
+  }
+}
+
+/**
+ * 清空該日在月表之出工格線、各案場餐列、預支／調工／加班等「當日欄」（與刪除整日工作日誌連動）。
+ * 若 `iso` 不在任何月表，`book` 不變。
+ */
+export function clearPayrollBookDayDataForDate(book: SalaryBook, iso: string): SalaryBook {
+  const sheet = findMonthSheetContainingDate(book, iso)
+  if (!sheet) return book
+  const j = dayIndexInSheet(sheet, iso)
+  if (j < 0) return book
+  const len = sheet.dates.length
+  if (len === 0) return book
+
+  const clearStaffDayColumn = (rec: Record<string, number[]>): Record<string, number[]> => {
+    const out: Record<string, number[]> = {}
+    for (const [name, arr] of Object.entries(rec)) {
+      const row = [...padArray(arr, len)]
+      if (j < row.length) row[j] = 0
+      out[name] = row
+    }
+    return out
+  }
+
+  const blocks = sheet.blocks.map((b) => {
+    const mealRow = [...padArray(b.meal, len)]
+    if (j < mealRow.length) mealRow[j] = 0
+    const grid: Record<string, number[]> = {}
+    for (const [name, arr] of Object.entries(b.grid)) {
+      const row = [...padArray(arr, len)]
+      if (j < row.length) row[j] = 0
+      grid[name] = row
+    }
+    return { ...b, meal: mealRow, grid }
+  })
+
+  const nextSheet: MonthSheetData = {
+    ...sheet,
+    blocks,
+    advances: clearStaffDayColumn(sheet.advances),
+    junAdjustDays: clearStaffDayColumn(sheet.junAdjustDays),
+    tsaiAdjustDays: clearStaffDayColumn(sheet.tsaiAdjustDays),
+    junOtHours: clearStaffDayColumn(sheet.junOtHours),
+    tsaiOtHours: clearStaffDayColumn(sheet.tsaiOtHours),
+  }
+
+  const mi = book.months.findIndex((m) => m.id === sheet.id)
+  if (mi < 0) return book
+  return {
+    ...book,
+    months: book.months.map((m, i) => (i === mi ? nextSheet : m)),
   }
 }
 

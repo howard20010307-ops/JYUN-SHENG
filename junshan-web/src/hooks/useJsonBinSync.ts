@@ -11,6 +11,9 @@ import {
   type JsonBinLastUploadMeta,
 } from '../services/jsonbin'
 import { mergeReceivablesPreferLocal } from '../domain/receivablesModel'
+import { mergeSalaryBookPreferLocal } from '../domain/salaryExcelModel'
+import { mergeWorkLogPreferLocal } from '../domain/workLogModel'
+import { mergeWorkItemPresetLabelsPreferLocal } from '../domain/workItemPresets'
 import { readJunshanLocalStorageSavedAtMs } from './usePersistentState'
 
 export type JsonBinLine = { text: string; isError: boolean } | null
@@ -23,6 +26,8 @@ const SAVE_MS = 700
  *
  * 上傳內容為完整 {@link AppState}（與「匯出備份」相同）；上傳前校驗備份線路 JSON。
  * 以備份指紋（不含 exportedAt）之 SHA-256 比對上次成功上傳：相同則略過 PUT，減少 JSONBin 請求。
+ *
+ * 首載合併：**收帳**、**工作日誌**、**薪水月表（整本）**與本機做「穩定鍵聯集、同鍵本機優先」；其餘欄位仍依整包邏輯。
  */
 export function useJsonBinSync(
   state: AppState,
@@ -148,14 +153,26 @@ export function useJsonBinSync(
                 ...fromCloud,
                 ...prev,
                 receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+                workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
+                salaryBook: mergeSalaryBookPreferLocal(prev.salaryBook, fromCloud.salaryBook),
+                workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
+                  prev.workItemPresetLabels,
+                  fromCloud.workItemPresetLabels,
+                ),
               }
             }
             return {
               ...fromCloud,
               receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+              workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
+              salaryBook: mergeSalaryBookPreferLocal(prev.salaryBook, fromCloud.salaryBook),
+              workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
+                prev.workItemPresetLabels,
+                fromCloud.workItemPresetLabels,
+              ),
             }
           })
-          setLine({ text: '已從 JSONBin 載入（收帳已與本機合併）。', isError: false })
+          setLine({ text: '已從 JSONBin 載入（收帳、工作日誌、薪水月表已與本機合併）。', isError: false })
           window.setTimeout(() => setLine(null), 3200)
         }
       } catch (e) {

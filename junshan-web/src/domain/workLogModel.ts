@@ -1,4 +1,4 @@
-/** 營運／施工日誌；與薪水案場、估價細項、快速登記可連動。 */
+/** 營運／施工日誌；與薪水案場、全站工作內容預設清單、快速登記可連動。 */
 
 import type { QuoteRow } from './quoteEngine'
 import {
@@ -40,7 +40,7 @@ export type WorkLogEntry = {
   timeStart: string
   /** HH:mm */
   timeEnd: string
-  /** 工作內容（估價細項或自訂選項） */
+  /** 工作內容（預設清單或自填文字） */
   workItem: string
   /** 使用儀器 */
   equipment: string
@@ -68,7 +68,7 @@ export type WorkLogState = {
    * 有 dayDocument 的日期，entries 不應再含同日資料（儲存整日時會清除）。
    */
   dayDocuments?: WorkLogDayDocument[]
-  /** 工作內容自訂字串；與估價「細項」字串合併為 datalist 選項（僅選項，不綁估價列） */
+  /** 舊版自訂字串；升級時會併入全站 `workItemPresetLabels`，保留欄位以相容舊檔 */
   customWorkItemLabels: string[]
 }
 
@@ -83,11 +83,11 @@ export type WorkLogStaffLine = {
 
 /**
  * 案場區塊內一筆工作（僅存文字）。
- * 輸入選項來自「放樣估價」各列細項字串與自訂選項，僅供挑選，不與估價列 id 綁定。
+ * 輸入選項來自全站「工作內容預設清單」與舊版自訂字串，僅供挑選文字。
  */
 export type WorkLogSiteWorkLine = {
   id: string
-  /** 工作描述（與估價細項同名時也只是同一串字，非連動） */
+  /** 工作描述（與預設清單項同名時也只是同一串字） */
   label: string
 }
 
@@ -412,6 +412,46 @@ export function migrateWorkLogState(raw: unknown): WorkLogState {
   }
 }
 
+function compareWorkLogEntryByDateId(a: WorkLogEntry, b: WorkLogEntry): number {
+  const c = a.logDate.localeCompare(b.logDate)
+  if (c !== 0) return c
+  return a.id.localeCompare(b.id)
+}
+
+/**
+ * 與收帳 `mergeReceivablesPreferLocal` 同策略：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先。
+ * 供 JSONBin 首載等，避免整包覆寫抹掉本機手輸之日誌。
+ */
+export function mergeWorkLogPreferLocal(
+  local: WorkLogState,
+  remote: WorkLogState,
+): WorkLogState {
+  const l = migrateWorkLogState(local)
+  const r = migrateWorkLogState(remote)
+
+  const byEntryId = new Map<string, WorkLogEntry>()
+  for (const e of r.entries) byEntryId.set(e.id, e)
+  for (const e of l.entries) byEntryId.set(e.id, e)
+  const entries = [...byEntryId.values()].sort(compareWorkLogEntryByDateId)
+
+  const byLogDate = new Map<string, WorkLogDayDocument>()
+  for (const d of r.dayDocuments ?? []) byLogDate.set(d.logDate, d)
+  for (const d of l.dayDocuments ?? []) byLogDate.set(d.logDate, d)
+  const dayDocuments = [...byLogDate.values()].sort((a, b) => a.logDate.localeCompare(b.logDate))
+
+  const mergedLabels = sortWorkItemLabelsList(
+    [...new Set([...(r.customWorkItemLabels ?? []), ...(l.customWorkItemLabels ?? [])])].map((x) =>
+      String(x),
+    ),
+  )
+
+  return {
+    entries,
+    dayDocuments,
+    customWorkItemLabels: mergedLabels,
+  }
+}
+
 function migrateWorkLine(o: unknown): WorkLogSiteWorkLine {
   if (!o || typeof o !== 'object') {
     return { id: newId(), label: '' }
@@ -694,6 +734,18 @@ export function removeDayDocument(state: WorkLogState, logDate: string): WorkLog
   return {
     ...state,
     dayDocuments: (state.dayDocuments ?? []).filter((d) => d.logDate !== logDate),
+  }
+}
+
+/**
+ * 刪除某日整日文件，並一併移除該日 {@link WorkLogEntry}。
+ * 用於「整日改存到其他日」後清掉舊日，避免月曆仍顯示舊日有紀錄。
+ */
+export function removeDayDocumentAndEntries(state: WorkLogState, logDate: string): WorkLogState {
+  return {
+    ...state,
+    dayDocuments: (state.dayDocuments ?? []).filter((d) => d.logDate !== logDate),
+    entries: (state.entries ?? []).filter((e) => e.logDate !== logDate),
   }
 }
 
@@ -1030,7 +1082,7 @@ export function sortWorkItemLabelsList(labels: readonly string[]): string[] {
   return [...new Set(labels.map((x) => String(x).trim()).filter(Boolean))].sort(compareWorkItemLabels)
 }
 
-/** 估價「細項」欄不重複集合，供工作內容下拉使用 */
+/** 估價「細項」欄不重複集合（估價頁自用；工作日誌選項已改為獨立預設清單） */
 export function uniqueQuoteWorkItemLabels(rows: readonly QuoteRow[]): string[] {
   const s = new Set<string>()
   for (const r of rows) {
@@ -1040,13 +1092,12 @@ export function uniqueQuoteWorkItemLabels(rows: readonly QuoteRow[]): string[] {
   return [...s].sort(compareWorkItemLabels)
 }
 
-/** 合併：估價各列「細項」字串 + 自訂字串，供日誌工作內容 datalist（不存估價 id） */
+/** 合併：全站預設清單 + `workLog.customWorkItemLabels`（舊資料），供日誌 datalist */
 export function mergedWorkItemOptions(
-  quoteRows: readonly QuoteRow[],
-  custom: readonly string[],
+  presetLabels: readonly string[],
+  legacyCustom: readonly string[],
 ): string[] {
-  const set = new Set<string>([...uniqueQuoteWorkItemLabels(quoteRows), ...custom])
-  return [...set].sort(compareWorkItemLabels)
+  return sortWorkItemLabelsList([...presetLabels, ...legacyCustom])
 }
 
 export function newWorkLogEntry(

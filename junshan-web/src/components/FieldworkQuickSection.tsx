@@ -6,13 +6,11 @@ import {
   QUICK_SITE_TSAI_ADJUST,
 } from '../domain/fieldworkQuickApply'
 import type { MonthLine } from '../domain/ledgerEngine'
-import type { QuoteRow } from '../domain/quoteEngine'
 import { isPlaceholderMonthBlockSiteName, type SalaryBook } from '../domain/salaryExcelModel'
 import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
   mergedWorkItemOptions,
-  sortWorkItemLabelsList,
   formatInstrumentQty,
   instrumentQtyAnyPositive,
   parseInstrumentQtyFromDraftStrings,
@@ -33,7 +31,8 @@ type Props = {
   months: MonthLine[]
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
   setMonths: (m: MonthLine[]) => void
-  quoteRows: readonly QuoteRow[]
+  workItemPresetLabels: readonly string[]
+  ensureWorkItemLabelsInPresets: (labels: readonly string[]) => void
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
   /** 登記成功後呼叫（例如重掛表單以清空欄位） */
@@ -113,7 +112,8 @@ export function FieldworkQuickSection({
   months,
   setSalaryBook,
   setMonths,
-  quoteRows,
+  workItemPresetLabels,
+  ensureWorkItemLabelsInPresets,
   workLog,
   setWorkLog,
   onApplySuccess,
@@ -131,8 +131,8 @@ export function FieldworkQuickSection({
   }, [salaryBook.months])
 
   const workItemOptions = useMemo(
-    () => mergedWorkItemOptions(quoteRows, workLog.customWorkItemLabels ?? []),
-    [quoteRows, workLog.customWorkItemLabels],
+    () => mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? []),
+    [workItemPresetLabels, workLog.customWorkItemLabels],
   )
 
   const [iso, setIso] = useState(todayIso)
@@ -257,17 +257,16 @@ export function FieldworkQuickSection({
       workPhase: workPhase.trim(),
     }
 
-    setWorkLog((w) => {
-      let custom = [...(w.customWorkItemLabels ?? [])]
-      for (const label of workItemLabels) {
-        const opts = mergedWorkItemOptions(quoteRows, custom)
-        if (label && !opts.includes(label)) {
-          custom = sortWorkItemLabelsList([...custom, label])
-        }
-      }
-      const w1 = { ...w, customWorkItemLabels: custom }
-      return reconcileDayDocumentWithPayrollBook(w1, iso, r.book, staffPickerKeys, quickOverlay)
-    })
+    const mergedOpts = mergedWorkItemOptions(
+      workItemPresetLabels,
+      workLog.customWorkItemLabels ?? [],
+    )
+    const toAdd = workItemLabels.filter((l) => l && !mergedOpts.includes(l))
+    if (toAdd.length) ensureWorkItemLabelsInPresets(toAdd)
+
+    setWorkLog((w) =>
+      reconcileDayDocumentWithPayrollBook(w, iso, r.book, staffPickerKeys, quickOverlay),
+    )
 
     alert(`${r.message}\n已依月表同步「整日工作日誌」（${iso}）；案場／人員以月表為準，表單內容已併入本次登記。`)
     onApplySuccess?.()

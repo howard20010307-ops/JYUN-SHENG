@@ -25,6 +25,10 @@ import {
   migrateReceivablesState,
   type ReceivablesState,
 } from './receivablesModel'
+import {
+  initialSortedWorkItemPresetLabels,
+  migrateWorkItemPresetLabels,
+} from './workItemPresets'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -50,6 +54,8 @@ export type AppState = {
   months: MonthLine[]
   /** 公司損益表：月列資料；收帳／月表／日誌自動帶入所依西元年（畫面上可切換） */
   ledgerYear: number
+  /** 工作日誌／快速登記「工作內容」datalist 預設項（與放樣估價分開；依字長排序） */
+  workItemPresetLabels: string[]
   workLog: WorkLogState
   receivables: ReceivablesState
 }
@@ -64,6 +70,7 @@ export function initialAppState(): AppState {
     quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
     months: defaultLedger(),
     ledgerYear: inferPayrollYearFromBook(salaryBook),
+    workItemPresetLabels: initialSortedWorkItemPresetLabels(),
     workLog: initialWorkLogState(),
     receivables: initialReceivablesState(),
   }
@@ -85,6 +92,7 @@ export function migrateAppState(loaded: unknown): AppState {
     d.workLog && typeof d.workLog === 'object' && d.workLog !== null
       ? migrateWorkLogState(d.workLog)
       : init.workLog
+  const workItemPresetLabels = migrateWorkItemPresetLabels(d.workItemPresetLabels, workLog)
   let siteOut: QuoteSite =
     d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site
   const storedSchema =
@@ -132,6 +140,7 @@ export function migrateAppState(loaded: unknown): AppState {
     quoteRows,
     quoteRowsSchemaVersion,
     ledgerYear,
+    workItemPresetLabels,
     months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     receivables:
       d.receivables !== undefined && d.receivables !== null
