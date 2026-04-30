@@ -138,7 +138,9 @@ export function useJsonBinSync(
           const diskSavedAtMs = readJunshanLocalStorageSavedAtMs()
           skipNextUpload.current = true
           setState((prev) => {
+            /** 雲端無法解析 exportedAt（0）時不可做「本機較新」覆寫，否則 diskSavedAt>0 會恒成立而誤用空／舊本機蓋掉完整雲端。 */
             const preferLocal =
+              cloudExportedAtMs > 0 &&
               diskSavedAtMs > cloudExportedAtMs &&
               stringifyAppBackupFingerprint(prev) !== stringifyAppBackupFingerprint(fromCloud)
             if (preferLocal) {
