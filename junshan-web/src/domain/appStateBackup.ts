@@ -68,6 +68,9 @@ export function stringifyAppBackupCompact(state: AppState): string {
 /**
  * 上傳 JSONBin 前校驗：備份線路字串須為完整 `{ app, version, data }`，且 `data` 含全站欄位與必要巢狀形狀。
  * 與下載端 {@link rawDataFromBackupJson} / {@link migrateAppState} 對接之「單一真相來源」。
+ *
+ * **整日工作日誌**：`data.workLog.dayDocuments[].blocks[]` 與其餘欄位皆經 `JSON.stringify` 原樣打包；
+ * 案場區塊之 `dong`／`floorLevel`／`workPhase`（字串）若有則一併上傳；下載後由 {@link migrateWorkLogState} 讀檔補齊。
  */
 export function assertJsonBinBackupWireStringComplete(raw: string): void {
   let parsed: unknown
@@ -124,6 +127,32 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   }
   if (!data.workLog || typeof data.workLog !== 'object') {
     throw new Error('上傳中止：workLog 必須為物件。')
+  }
+  const wl = data.workLog as Record<string, unknown>
+  if (!Array.isArray(wl.entries)) {
+    throw new Error('上傳中止：workLog.entries 必須為陣列。')
+  }
+  if (wl.dayDocuments !== undefined && !Array.isArray(wl.dayDocuments)) {
+    throw new Error('上傳中止：workLog.dayDocuments 必須為陣列。')
+  }
+  if (!Array.isArray(wl.customWorkItemLabels)) {
+    throw new Error('上傳中止：workLog.customWorkItemLabels 必須為陣列。')
+  }
+  if (Array.isArray(wl.dayDocuments)) {
+    for (const doc of wl.dayDocuments) {
+      if (!doc || typeof doc !== 'object') continue
+      const blocks = (doc as { blocks?: unknown }).blocks
+      if (!Array.isArray(blocks)) continue
+      for (const b of blocks) {
+        if (!b || typeof b !== 'object') continue
+        const o = b as Record<string, unknown>
+        for (const k of ['dong', 'floorLevel', 'workPhase'] as const) {
+          if (o[k] !== undefined && typeof o[k] !== 'string') {
+            throw new Error(`上傳中止：整日工作日誌案場區塊「${k}」須為字串（或省略）。`)
+          }
+        }
+      }
+    }
   }
   const rec = data.receivables
   if (!rec || typeof rec !== 'object' || !Array.isArray((rec as { entries?: unknown }).entries)) {

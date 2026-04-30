@@ -2461,7 +2461,7 @@ code {
 }
 
 table.data.ledgerCompanyTable {
-  min-width: 1280px;
+  min-width: 1480px;
   width: max-content;
   font-size: var(--ui-fs-sm);
   border-collapse: collapse;
@@ -2785,7 +2785,7 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   /** 公司損益表：輸入格在手機拉寬、易點 */
   table.data.ledgerCompanyTable {
-    min-width: 1180px;
+    min-width: 1380px;
     font-size: 0.9rem;
   }
 

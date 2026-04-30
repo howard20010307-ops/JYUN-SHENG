@@ -14,7 +14,7 @@ import {
 import type { ReceivablesState } from './receivablesModel'
 import { sumEntriesInMonth } from './receivablesModel'
 import type { WorkLogState } from './workLogModel'
-import { sumWorkLogMiscCostInCalendarMonth } from './workLogModel'
+import { sumWorkLogInstrumentCostInCalendarMonth, sumWorkLogMiscCostInCalendarMonth } from './workLogModel'
 
 export type MonthKey =
   | '1'
@@ -45,7 +45,11 @@ export type MonthLine = {
   tools: number
   /** 營業費用：老闆薪（手填）。 */
   bossSalary: number
-  /** 儀器使用成本（手填）；損益表列於銷貨成本。 */
+  /** 會計費（手填）；列入營業費用。 */
+  accountingFee: number
+  /** 營登地址租金（手填）；列入營業費用。 */
+  registeredAddressRent: number
+  /** 儀器使用成本：由工作日誌該曆月「儀器支出」加總，自動帶入。 */
   instrument: number
   /**
    * 營業收入（未稅）：工程款，由收帳依入帳日加總（年為 `ledgerYear`）。
@@ -64,7 +68,7 @@ export type MonthComputed = MonthLine & {
   costOfGoodsSold: number
   /** 毛利＝營業收入(未稅)−銷貨成本 */
   grossProfit: number
-  /** 營業費用（現為老闆薪） */
+  /** 營業費用：老闆薪＋會計費＋營登租金 */
   operatingExpenses: number
   /** 營業利益＝毛利−營業費用 */
   operatingIncome: number
@@ -83,7 +87,9 @@ export function computeMonth(m: MonthLine): MonthComputed {
   const junLaborWithOt = m.salary + (m.overtimePay ?? 0)
   const costOfGoodsSold = junLaborWithOt + m.meals + m.tools + m.instrument
   const grossProfit = m.revenueNet - costOfGoodsSold
-  const operatingExpenses = m.bossSalary
+  const accountingFee = m.accountingFee ?? 0
+  const registeredAddressRent = m.registeredAddressRent ?? 0
+  const operatingExpenses = m.bossSalary + accountingFee + registeredAddressRent
   const operatingIncome = grossProfit - operatingExpenses
   return {
     ...m,
@@ -146,6 +152,8 @@ export function normalizeStoredMonthLine(raw: unknown, base: MonthLine): MonthLi
     meals: num(m.meals, base.meals),
     tools: num(m.tools, base.tools),
     bossSalary: num(m.bossSalary, base.bossSalary),
+    accountingFee: num(m.accountingFee, base.accountingFee),
+    registeredAddressRent: num(m.registeredAddressRent, base.registeredAddressRent),
     instrument: num(m.instrument, base.instrument),
     revenueNet: num(m.revenueNet, base.revenueNet),
     tax: num(m.tax, base.tax),
@@ -216,6 +224,19 @@ export function autoLedgerMealsForMonthKeyInYear(
   return Math.round(sum)
 }
 
+/** 損益表「儀器」：工作日誌該年該曆月儀器支出加總。 */
+export function autoLedgerInstrumentForMonthKeyInYear(
+  workLog: WorkLogState,
+  monthKey: MonthKey,
+  year: number,
+): number {
+  const cal = Number.parseInt(monthKey, 10)
+  if (!Number.isFinite(cal) || cal < 1 || cal > 12) return 0
+  const yOk =
+    Number.isFinite(year) && year >= 2000 && year <= 2100 ? Math.trunc(year) : 2026
+  return sumWorkLogInstrumentCostInCalendarMonth(workLog, yOk, cal)
+}
+
 /** 損益表「工具」：工作日誌該年該曆月雜項支出加總。 */
 export function autoLedgerToolsForMonthKeyInYear(
   workLog: WorkLogState,
@@ -283,8 +304,8 @@ export function autoLedgerRevenueTaxForMonthKey(
 }
 
 /**
- * 自動帶入公司損益表列：`salary`／`overtimePay`（僅鈞泩）／`meals` 依薪水月表；`tools` 依工作日誌雜項；
- * `revenueNet`／`tax` 依收帳；皆限 `ledgerYear` 該年之曆月。
+ * 自動帶入公司損益表列：`salary`／`overtimePay`（僅鈞泩）／`meals` 依薪水月表；
+ * `tools`／`instrument` 依工作日誌雜項與儀器支出；`revenueNet`／`tax` 依收帳；皆限 `ledgerYear` 該年之曆月。
  */
 export function withAutoLedgerDerived(
   months: MonthLine[],
@@ -305,6 +326,7 @@ export function withAutoLedgerDerived(
       overtimePay: autoLedgerJunOtPayForMonthKeyInYear(book, row.month, year),
       meals: autoLedgerMealsForMonthKeyInYear(book, row.month, year),
       tools: autoLedgerToolsForMonthKeyInYear(workLog, row.month, year),
+      instrument: autoLedgerInstrumentForMonthKeyInYear(workLog, row.month, year),
       revenueNet,
       tax,
     }
@@ -323,7 +345,9 @@ export function defaultLedger(): MonthLine[] {
     meals: 0,
     tools: 0,
     bossSalary: monthNum(month) >= 5 ? 100000 : 0,
-    instrument: 20000,
+    accountingFee: 0,
+    registeredAddressRent: 0,
+    instrument: 0,
     revenueNet: 0,
     tax: 0,
   }))

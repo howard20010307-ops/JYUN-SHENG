@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QuotePanel } from './components/QuotePanel'
 import { PayrollPanel } from './components/PayrollPanel'
 import { LedgerPanel } from './components/LedgerPanel'
@@ -30,13 +30,36 @@ export default function App() {
 }
 
 function AppShell({ onLogout }: { onLogout?: () => void }) {
-  const { canEdit } = useAppGateAuth()
+  const gate = useAppGateAuth()
+  const { canEdit, isUnlocked } = gate
   const backupInputRef = useRef<HTMLInputElement>(null)
   const [state, setState, undo, canUndo] = usePersistentStateWithUndo<AppState>(
     initialAppState,
     migrateAppState,
   )
   const jsonBin = useJsonBinSync(state, setState, canEdit)
+  /** 遞增時強制重掛薪水頁「快速登記」：登入／雲端首載後同步選項；快速登記成功後清空表單 */
+  const [fieldworkQuickResetKey, setFieldworkQuickResetKey] = useState(0)
+  const prevUnlockedRef = useRef(false)
+  useEffect(() => {
+    if (!prevUnlockedRef.current && isUnlocked) {
+      setFieldworkQuickResetKey((k) => k + 1)
+    }
+    prevUnlockedRef.current = isUnlocked
+  }, [isUnlocked])
+
+  const cloudPendingRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    const p = jsonBin.cloudBootstrapPending
+    if (cloudPendingRef.current === null) {
+      cloudPendingRef.current = p
+      return
+    }
+    if (cloudPendingRef.current && !p) {
+      setFieldworkQuickResetKey((k) => k + 1)
+    }
+    cloudPendingRef.current = p
+  }, [jsonBin.cloudBootstrapPending])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,6 +105,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           a.overtimePay !== b.overtimePay ||
           a.meals !== b.meals ||
           a.tools !== b.tools ||
+          a.instrument !== b.instrument ||
           a.revenueNet !== b.revenueNet ||
           a.tax !== b.tax
         ) {
@@ -247,6 +271,10 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   ...s,
                   workLog: fn(s.workLog),
                 }))
+              }
+              fieldworkQuickResetKey={fieldworkQuickResetKey}
+              onFieldworkQuickApplySuccess={() =>
+                setFieldworkQuickResetKey((k) => k + 1)
               }
               onSiteNameRenamed={(oldEx, newN) =>
                 setState((s) => ({

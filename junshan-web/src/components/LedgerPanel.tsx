@@ -98,10 +98,10 @@ export function LedgerPanel({
         </label>
       </div>
       <p className="hint">
-        <strong>營業收入</strong>以<strong>未稅</strong>為準；<strong>稅金</strong>為業主吸收、稅外加之<strong>記錄</strong>，不列入收入與營業利益。
+        <strong>營業收入</strong>以<strong>未稅</strong>為準；<strong>稅金</strong>為業主吸收、稅外加之<strong>記錄</strong>，不列入收入與<strong>淨利</strong>。
         <strong>鈞泩薪水(含加班)</strong>＝格線薪＋鈞泩加班費（損益表單列口徑）。
-        <strong>銷貨成本</strong>＝鈞泩薪水(含加班)＋餐費＋工具＋儀器；<strong>毛利</strong>＝營業收入−銷貨成本；<strong>營業費用</strong>＝老闆薪；<strong>營業利益</strong>＝毛利−營業費用。
-        除老闆薪、儀器外，其餘由月表／收帳／日誌自動帶入。
+        <strong>銷貨成本</strong>＝鈞泩薪水(含加班)＋餐費＋工具＋儀器；<strong>毛利</strong>＝營業收入−銷貨成本；<strong>營業費用</strong>＝老闆薪＋會計費＋營登租金；<strong>淨利</strong>＝毛利−營業費用（即營業利益）。
+        除老闆薪、會計費、營登租金外，其餘由月表／收帳／工作日誌自動帶入（工具＝日誌工具支出加總、儀器＝日誌儀器支出）。
       </p>
       <fieldset className="tabFieldset" disabled={!canEdit}>
         <div className="tableScroll">
@@ -118,14 +118,14 @@ export function LedgerPanel({
                 <th rowSpan={2} scope="col" title="營業收入(未稅)−銷貨成本">
                   毛利
                 </th>
-                <th rowSpan={2} scope="col" title="現為老闆薪">
+                <th colSpan={4} scope="colgroup" title="老闆薪＋會計費＋營登租金">
                   營業費用
                 </th>
-                <th rowSpan={2} scope="col" title="毛利−營業費用">
-                  營業利益
+                <th rowSpan={2} scope="col" title="毛利−營業費用（即營業利益）">
+                  淨利
                 </th>
-                <th rowSpan={2} scope="col">
-                  累計營業利益
+                <th rowSpan={2} scope="col" title="各月淨利之累計">
+                  累計淨利
                 </th>
               </tr>
               <tr>
@@ -144,6 +144,14 @@ export function LedgerPanel({
                 <th scope="col" title="上列銷貨成本加總">
                   小計
                 </th>
+                <th scope="col">老闆薪</th>
+                <th scope="col">會計費</th>
+                <th scope="col" title="營業登記地址租金">
+                  營登租金
+                </th>
+                <th scope="col" title="老闆薪＋會計費＋營登租金">
+                  小計
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -153,7 +161,7 @@ export function LedgerPanel({
                   <td className="num" title={`收帳 ${ledgerYear} 年該月未稅`}>
                     {Math.round(r.revenueNet).toLocaleString()}
                   </td>
-                  <td className="num" title="業主吸收、稅外加；不列入營業利益">
+                  <td className="num" title="業主吸收、稅外加；不列入淨利">
                     {Math.round(r.tax).toLocaleString()}
                   </td>
                   <td
@@ -165,16 +173,11 @@ export function LedgerPanel({
                   <td className="num" title={`月表餐列（${ledgerYear} 年該月）`}>
                     {Math.round(r.meals).toLocaleString()}
                   </td>
-                  <td className="num" title="工作日誌雜項">
+                  <td className="num" title="工作日誌工具支出加總">
                     {Math.round(r.tools).toLocaleString()}
                   </td>
-                  <td>
-                    <PayrollNumberInput
-                      className="narrow"
-                      value={r.instrument}
-                      onCommit={(nv) => patch(i, { instrument: nv })}
-                      aria-label={`${r.month} 月儀器使用成本`}
-                    />
+                  <td className="num" title="工作日誌儀器支出加總">
+                    {Math.round(r.instrument).toLocaleString()}
                   </td>
                   <td className="num" title="銷貨成本合計">
                     {Math.round(r.costOfGoodsSold).toLocaleString()}
@@ -185,17 +188,40 @@ export function LedgerPanel({
                       className="narrow"
                       value={r.bossSalary}
                       onCommit={(nv) => patch(i, { bossSalary: nv })}
-                      aria-label={`${r.month} 月營業費用（老闆薪）`}
+                      aria-label={`${r.month} 月老闆薪`}
                     />
                   </td>
-                  <td className="num">{Math.round(r.operatingIncome).toLocaleString()}</td>
-                  <td className="num">{Math.round(run[i] ?? 0).toLocaleString()}</td>
+                  <td>
+                    <PayrollNumberInput
+                      className="narrow"
+                      value={r.accountingFee}
+                      onCommit={(nv) => patch(i, { accountingFee: nv })}
+                      aria-label={`${r.month} 月會計費`}
+                    />
+                  </td>
+                  <td>
+                    <PayrollNumberInput
+                      className="narrow"
+                      value={r.registeredAddressRent}
+                      onCommit={(nv) => patch(i, { registeredAddressRent: nv })}
+                      aria-label={`${r.month} 月營登租金`}
+                    />
+                  </td>
+                  <td className="num" title="營業費用合計">
+                    {Math.round(r.operatingExpenses).toLocaleString()}
+                  </td>
+                  <td className="num" title="毛利−營業費用（營業利益）">
+                    {Math.round(r.operatingIncome).toLocaleString()}
+                  </td>
+                  <td className="num" title="截至該月之淨利累計">
+                    {Math.round(run[i] ?? 0).toLocaleString()}
+                  </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={11}>全年累計營業利益</th>
+                <th colSpan={14}>全年累計淨利</th>
                 <th className="num">{Math.round(total).toLocaleString()}</th>
               </tr>
             </tfoot>

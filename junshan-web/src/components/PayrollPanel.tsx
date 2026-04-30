@@ -52,6 +52,9 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
+  /** 遞增時重掛快速登記區塊（登入／雲端首載完成後與最新資料同步；登記成功後清空表單） */
+  fieldworkQuickResetKey?: number
+  onFieldworkQuickApplySuccess?: () => void
   /** 全書案場更名成功後：同步收帳案名、放樣估價案名、工作日誌案場（與月表 `siteName` 完全或 trim 相等者） */
   onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
 }
@@ -152,9 +155,11 @@ export function PayrollPanel({
   quoteRows,
   workLog,
   setWorkLog,
+  fieldworkQuickResetKey = 0,
+  onFieldworkQuickApplySuccess,
   onSiteNameRenamed,
 }: Props) {
-/** 案場名 blur 時全書連動更名：依區塊 id 記錄焦點當下之舊字串（避免切至他案場輸入框時單一 ref 被覆寫而略過更名／收帳同步） */
+  /** 案場名 blur 時全書連動更名：依區塊 id 記錄焦點當下之舊字串（避免切至他案場輸入框時單一 ref 被覆寫而略過更名／收帳同步） */
   const siteRenameBlurMetaByBlockIdRef = useRef(
     new Map<string, { monthId: string; bi: number; oldExact: string }>(),
   )
@@ -392,6 +397,7 @@ export function PayrollPanel({
 
       {sub === 'quick' && (
         <FieldworkQuickSection
+          key={fieldworkQuickResetKey}
           staffPickerKeys={staffPickerBookwide}
           salaryBook={salaryBook}
           months={months}
@@ -400,6 +406,7 @@ export function PayrollPanel({
           quoteRows={quoteRows}
           workLog={workLog}
           setWorkLog={setWorkLog}
+          onApplySuccess={onFieldworkQuickApplySuccess}
         />
       )}
 

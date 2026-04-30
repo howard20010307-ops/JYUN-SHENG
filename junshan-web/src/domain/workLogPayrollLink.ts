@@ -17,6 +17,7 @@ import {
   entriesForDate,
   formatInstrumentQty,
   getDayDocument,
+  instrumentExpenseFromSiteBlocks,
   instrumentQtyAnyPositive,
   legacyEntriesToDayDocument,
   newSiteBlock,
@@ -27,6 +28,7 @@ import {
   parseLegacyEquipmentString,
   replaceDayDocument,
   type WorkLogDayDocument,
+  type WorkLogDayToolLine,
   type WorkLogSiteBlock,
   type WorkLogSiteInstrumentQty,
   type WorkLogState,
@@ -56,6 +58,12 @@ export type LinkedDayBlockDraft = {
   /** 無法對應三種儀器時之補充（舊自由文字） */
   equipment: string
   remark: string
+  /** 棟別 */
+  dong: string
+  /** 樓層 */
+  floorLevel: string
+  /** 階段 */
+  workPhase: string
   staffLines: LinkedDayStaffLineDraft[]
 }
 
@@ -88,6 +96,14 @@ function blockDraftHasInstrument(b: LinkedDayBlockDraft): boolean {
     b.instrumentLineLaser,
   )
   return instrumentQtyAnyPositive(q) || b.equipment.trim().length > 0
+}
+
+function blockDraftHasSiteMeta(b: LinkedDayBlockDraft): boolean {
+  return (
+    (b.dong ?? '').trim().length > 0 ||
+    (b.floorLevel ?? '').trim().length > 0 ||
+    (b.workPhase ?? '').trim().length > 0
+  )
 }
 
 function linkedInstrumentFieldsFromSiteBlock(
@@ -126,12 +142,25 @@ function emptyLinkedInstrumentDraftFields(): Pick<
   }
 }
 
+export type LinkedDayToolLineDraft = {
+  id: string
+  name: string
+  /** 數量（空白或非正數儲存時視為 1） */
+  qty: string
+  /** 單位（如：組、個） */
+  unit: string
+  amount: string
+}
+
 /** 與 {@link WorkLogPanel} 表單結構一致，供連動建檔／合併 */
 export type LinkedDayDraft = {
   docId: string | null
   logDate: string
   mealCost: string
   miscCost: string
+  instrumentCost: string
+  /** 整日多筆工具（名稱、數量、單位、金額）；與 {@link WorkLogDayDocument.toolLines} 對應 */
+  toolLines: LinkedDayToolLineDraft[]
   blocks: LinkedDayBlockDraft[]
 }
 
@@ -186,6 +215,9 @@ function appendAdjustColumnSkeletonBlocks(
         workLines: [emptyWorkLineDraft()],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
+        dong: '',
+        floorLevel: '',
+        workPhase: '',
         staffLines: staffLinesFromOrderedNames(jun.staffNames, staffOptionsOrdered),
       })
     }
@@ -199,6 +231,9 @@ function appendAdjustColumnSkeletonBlocks(
         workLines: [emptyWorkLineDraft()],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
+        dong: '',
+        floorLevel: '',
+        workPhase: '',
         staffLines: staffLinesFromOrderedNames(tsai.staffNames, staffOptionsOrdered),
       })
     }
@@ -235,6 +270,9 @@ function payrollSnapshotToSkeleton(
         workLines: [emptyWorkLineDraft()],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
+        dong: '',
+        floorLevel: '',
+        workPhase: '',
         staffLines,
       })
     }
@@ -259,6 +297,9 @@ function payrollSnapshotToSkeleton(
       workLines: [emptyWorkLineDraft()],
       ...emptyLinkedInstrumentDraftFields(),
       remark: '',
+      dong: '',
+      floorLevel: '',
+      workPhase: '',
       staffLines: staffLinesFromOrderedNames(junScoped.staffNames, staffOptionsOrdered),
     })
   }
@@ -269,6 +310,9 @@ function payrollSnapshotToSkeleton(
       workLines: [emptyWorkLineDraft()],
       ...emptyLinkedInstrumentDraftFields(),
       remark: '',
+      dong: '',
+      floorLevel: '',
+      workPhase: '',
       staffLines: staffLinesFromOrderedNames(tsaiScoped.staffNames, staffOptionsOrdered),
     })
   }
@@ -299,34 +343,53 @@ function payrollSnapshotToSkeleton(
         workLines: [emptyWorkLineDraft()],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
+        dong: '',
+        floorLevel: '',
+        workPhase: '',
         staffLines,
       },
     ],
   }
 }
 
+function linkedDayBlockDraftFromSiteBlock(b: WorkLogSiteBlock): LinkedDayBlockDraft {
+  return {
+    id: b.id,
+    siteName: b.siteName,
+    workLines: workLinesDraftFromSiteBlock(b),
+    ...linkedInstrumentFieldsFromSiteBlock(b),
+    remark: typeof b.remark === 'string' ? b.remark : '',
+    dong: typeof b.dong === 'string' ? b.dong : '',
+    floorLevel: typeof b.floorLevel === 'string' ? b.floorLevel : '',
+    workPhase: typeof b.workPhase === 'string' ? b.workPhase : '',
+    staffLines:
+      b.staffLines.length > 0
+        ? b.staffLines.map((l) => ({
+            name: l.name,
+            timeStart: l.timeStart,
+            timeEnd: l.timeEnd,
+          }))
+        : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }],
+  }
+}
+
 function documentToLinkedDraft(doc: WorkLogDayDocument): LinkedDayDraft {
   const blockSrc = doc.blocks?.length ? doc.blocks : [newSiteBlock()]
+  const tl = ensureToolLinesDraftForForm(doc)
+  const miscStr =
+    Array.isArray(doc.toolLines) && doc.toolLines.length > 0
+      ? ''
+      : doc.miscCost === 0
+        ? ''
+        : String(doc.miscCost)
   return {
     docId: doc.id,
     logDate: doc.logDate,
     mealCost: doc.mealCost === 0 ? '' : String(doc.mealCost),
-    miscCost: doc.miscCost === 0 ? '' : String(doc.miscCost),
-    blocks: blockSrc.map((b) => ({
-      id: b.id,
-      siteName: b.siteName,
-      workLines: workLinesDraftFromSiteBlock(b),
-      ...linkedInstrumentFieldsFromSiteBlock(b),
-      remark: typeof b.remark === 'string' ? b.remark : '',
-      staffLines:
-        b.staffLines.length > 0
-          ? b.staffLines.map((l) => ({
-              name: l.name,
-              timeStart: l.timeStart,
-              timeEnd: l.timeEnd,
-            }))
-          : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }],
-    })),
+    miscCost: miscStr,
+    instrumentCost: doc.instrumentCost === 0 ? '' : String(doc.instrumentCost),
+    toolLines: tl,
+    blocks: blockSrc.map((b) => linkedDayBlockDraftFromSiteBlock(b)),
   }
 }
 
@@ -340,11 +403,16 @@ function mergePayrollSkeletonWithDayDocument(
       logDate: skeleton.logDate,
       mealCost: skeleton.mealCost,
       miscCost: '',
+      instrumentCost: '',
+      toolLines: [oneEmptyToolLineDraft()],
       blocks: skeleton.blocks.map((b) => ({
         ...b,
         workLines: [emptyWorkLineDraft()],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
+        dong: '',
+        floorLevel: '',
+        workPhase: '',
       })),
     }
   }
@@ -368,16 +436,35 @@ function mergePayrollSkeletonWithDayDocument(
           : [emptyWorkLineDraft()],
       ...(ob ? linkedInstrumentFieldsFromSiteBlock(ob) : emptyLinkedInstrumentDraftFields()),
       remark: ob ? ob.remark : '',
+      dong: ob ? (typeof ob.dong === 'string' ? ob.dong : '') : '',
+      floorLevel: ob ? (typeof ob.floorLevel === 'string' ? ob.floorLevel : '') : '',
+      workPhase: ob ? (typeof ob.workPhase === 'string' ? ob.workPhase : '') : '',
       staffLines,
     }
   })
+
+  /** 月表骨架當日未列案場，但已存日誌有該區塊時須保留（否則表單重載會憑空消失） */
+  const skeletonSiteKeys = new Set(skeleton.blocks.map((b) => siteKey(b.siteName)))
+  const orphanBlocks: LinkedDayBlockDraft[] = []
+  for (const ob of docBlocks) {
+    if (skeletonSiteKeys.has(siteKey(ob.siteName))) continue
+    orphanBlocks.push(linkedDayBlockDraftFromSiteBlock(ob))
+  }
+  const blocksOut = [...mergedBlocks, ...orphanBlocks]
 
   return {
     docId: overlay.id,
     logDate: skeleton.logDate,
     mealCost: skeleton.mealCost,
-    miscCost: overlay.miscCost === 0 ? '' : String(overlay.miscCost),
-    blocks: mergedBlocks,
+    miscCost:
+      Array.isArray(overlay.toolLines) && overlay.toolLines.length > 0
+        ? ''
+        : overlay.miscCost === 0
+          ? ''
+          : String(overlay.miscCost),
+    instrumentCost: overlay.instrumentCost === 0 ? '' : String(overlay.instrumentCost),
+    toolLines: ensureToolLinesDraftForForm(overlay),
+    blocks: blocksOut,
   }
 }
 
@@ -395,6 +482,55 @@ function toHhmm24(s: string, fallback: string): string {
 function parseMoney(s: string): number {
   const n = parseFloat(s.trim())
   return Number.isFinite(n) ? n : 0
+}
+
+function oneEmptyToolLineDraft(): LinkedDayToolLineDraft {
+  return { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }
+}
+
+function parseToolLineQtyString(raw: string): number {
+  const t = String(raw ?? '')
+    .trim()
+    .replace(/,/g, '')
+  if (t === '') return 1
+  const n = parseFloat(t)
+  if (!Number.isFinite(n) || n <= 0) return 1
+  return Math.min(1e6, n)
+}
+
+function documentToolLinesToDraft(doc: WorkLogDayDocument): LinkedDayToolLineDraft[] {
+  const lines = doc.toolLines
+  if (Array.isArray(lines) && lines.length > 0) {
+    return lines.map((L) => ({
+      id: L.id,
+      name: typeof L.name === 'string' ? L.name : '',
+      qty:
+        typeof L.qty === 'number' && Number.isFinite(L.qty) && L.qty > 0 && L.qty !== 1
+          ? String(L.qty)
+          : '',
+      unit: typeof L.unit === 'string' ? L.unit.trim() : '',
+      amount: L.amount === 0 ? '' : String(L.amount),
+    }))
+  }
+  if (typeof doc.miscCost === 'number' && Number.isFinite(doc.miscCost) && doc.miscCost !== 0) {
+    return [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: String(doc.miscCost) }]
+  }
+  return []
+}
+
+function ensureToolLinesDraftForForm(doc: WorkLogDayDocument): LinkedDayToolLineDraft[] {
+  const t = documentToolLinesToDraft(doc)
+  return t.length > 0 ? t : [oneEmptyToolLineDraft()]
+}
+
+function draftHasToolExpenseDraft(d: LinkedDayDraft): boolean {
+  return (d.toolLines ?? []).some(
+    (r) =>
+      r.name.trim() ||
+      parseMoney(r.amount) !== 0 ||
+      (r.qty ?? '').trim() ||
+      (r.unit ?? '').trim(),
+  )
 }
 
 /** 表單 → 整日文件（與 WorkLogPanel 儲存邏輯一致） */
@@ -427,6 +563,9 @@ export function linkedDayDraftToDayDocument(
         equipment: equipStr,
         instrumentQty: iq,
         remark: b.remark.trim(),
+        dong: (b.dong ?? '').trim(),
+        floorLevel: (b.floorLevel ?? '').trim(),
+        workPhase: (b.workPhase ?? '').trim(),
         staffLines: b.staffLines
           .filter((ln) => ln.name.trim())
           .map((ln) => ({
@@ -438,11 +577,19 @@ export function linkedDayDraftToDayDocument(
     })
     .filter((b) => b.staffLines.length > 0)
   const hasAnyBlockText = d.blocks.some(
-    (b) => blockDraftHasWorkText(b) || blockDraftHasInstrument(b) || b.remark.trim(),
+    (b) =>
+      blockDraftHasWorkText(b) ||
+      blockDraftHasInstrument(b) ||
+      b.remark.trim() ||
+      blockDraftHasSiteMeta(b),
   )
   if (
     blocks.length === 0 &&
-    (parseMoney(d.mealCost) !== 0 || parseMoney(d.miscCost) !== 0 || hasAnyBlockText)
+    (parseMoney(d.mealCost) !== 0 ||
+      parseMoney(d.miscCost) !== 0 ||
+      draftHasToolExpenseDraft(d) ||
+      parseMoney(d.instrumentCost) !== 0 ||
+      hasAnyBlockText)
   ) {
     const nb = newSiteBlock()
     blocks = [
@@ -454,17 +601,49 @@ export function linkedDayDraftToDayDocument(
         equipment: nb.equipment,
         instrumentQty: nb.instrumentQty,
         remark: nb.remark,
+        dong: nb.dong,
+        floorLevel: nb.floorLevel,
+        workPhase: nb.workPhase,
         staffLines: [...nb.staffLines],
       },
     ]
   }
+  const parsedToolLines: WorkLogDayToolLine[] = []
+  for (const row of d.toolLines ?? []) {
+    const name = row.name.trim()
+    const amount = parseMoney(row.amount)
+    if (!name && amount === 0) continue
+    parsedToolLines.push({
+      id: (row.id ?? '').trim() || newWorkLogEntityId(),
+      name,
+      qty: parseToolLineQtyString(row.qty ?? ''),
+      unit: (row.unit ?? '').trim(),
+      amount,
+    })
+  }
+  const toolSum = parsedToolLines.reduce((a, r) => a + r.amount, 0)
+  const miscFromLegacyField = parseMoney(d.miscCost)
+  const miscCostOut =
+    parsedToolLines.length > 0 ? Math.round(toolSum) : Math.round(miscFromLegacyField)
+  const toolLinesOut: WorkLogDayToolLine[] | undefined =
+    parsedToolLines.length > 0 ? parsedToolLines : undefined
+
+  const hasStructuredInstrument = blocks.some((b) =>
+    instrumentQtyAnyPositive(b.instrumentQty ?? emptyInstrumentQty()),
+  )
+  const instrumentCostOut = hasStructuredInstrument
+    ? instrumentExpenseFromSiteBlocks(blocks)
+    : Math.round(parseMoney(d.instrumentCost))
+
   return {
     id: existing?.id ?? d.docId ?? newWorkLogEntityId(),
     logDate: d.logDate,
     workItem: '',
     equipment: '',
     mealCost: parseMoney(d.mealCost),
-    miscCost: parseMoney(d.miscCost),
+    miscCost: miscCostOut,
+    toolLines: toolLinesOut,
+    instrumentCost: instrumentCostOut,
     remark: '',
     blocks,
     createdAt: existing?.createdAt ?? t,
@@ -475,12 +654,81 @@ export function linkedDayDraftToDayDocument(
 export type QuickApplyTextOverlay = {
   /** 有值時只寫入該案場區塊；空白時寫入第一個區塊 */
   siteName?: string
+  /** 單筆工作內容（僅改第一列）；若同時傳 {@link workItems} 則以 workItems 為準 */
   workItem?: string
+  /** 多筆工作內容（取代該案場區塊之 workLines，每筆一列） */
+  workItems?: string[]
   equipment?: string
-  remark?: string
+  /** 與公司損益表本次餐費加帳一致，加至整日工作日誌「餐費」欄 */
+  mealCost?: number
   miscCost?: number
+  /** 追加至整日工具列；與 miscCost 二選一以本列為準 */
+  toolLines?: { name: string; amount: number; qty?: number; unit?: string }[]
+  /** 儀器支出（元）；整日表單與損益表「儀器」連動 */
+  instrumentCost?: number
   timeStart?: string
   timeEnd?: string
+  /** 寫入目標案場區塊：棟 */
+  dong?: string
+  /** 樓層 */
+  floorLevel?: string
+  /** 階段 */
+  workPhase?: string
+}
+
+function baseToolLinesBeforeQuickApply(d: LinkedDayDraft): LinkedDayToolLineDraft[] {
+  const rows = d.toolLines ?? []
+  const hasMeaningful = rows.some(
+    (r) =>
+      r.name.trim() ||
+      parseMoney(r.amount) !== 0 ||
+      (r.qty ?? '').trim() ||
+      (r.unit ?? '').trim(),
+  )
+  if (hasMeaningful) return [...rows]
+  const legacy = parseMoney(d.miscCost)
+  if (legacy !== 0) return [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: String(legacy) }]
+  return rows.length > 0 ? [...rows] : [oneEmptyToolLineDraft()]
+}
+
+function appendQuickToolLines(
+  base: LinkedDayToolLineDraft[],
+  q: QuickApplyTextOverlay,
+): LinkedDayToolLineDraft[] {
+  const out = [...base]
+  const incoming =
+    q.toolLines?.filter(
+      (l) =>
+        (typeof l.name === 'string' && l.name.trim()) ||
+        (Number.isFinite(l.amount) && l.amount !== 0) ||
+        (typeof l.unit === 'string' && l.unit.trim()) ||
+        (typeof l.qty === 'number' && Number.isFinite(l.qty) && l.qty > 0 && l.qty !== 1),
+    ) ?? []
+  if (incoming.length > 0) {
+    for (const l of incoming) {
+      out.push({
+        id: newWorkLogEntityId(),
+        name: (l.name ?? '').trim(),
+        qty:
+          l.qty !== undefined && Number.isFinite(l.qty) && l.qty > 0 && l.qty !== 1
+            ? String(l.qty)
+            : '',
+        unit: typeof l.unit === 'string' ? l.unit.trim() : '',
+        amount: l.amount === 0 || !Number.isFinite(l.amount) ? '' : String(l.amount),
+      })
+    }
+    return out
+  }
+  if (q.miscCost !== undefined && Number.isFinite(q.miscCost) && q.miscCost !== 0) {
+    out.push({
+      id: newWorkLogEntityId(),
+      name: '',
+      qty: '',
+      unit: '',
+      amount: String(q.miscCost),
+    })
+  }
+  return out
 }
 
 function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): LinkedDayDraft {
@@ -492,23 +740,63 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
   const indices =
     applyIdx >= 0 ? [applyIdx] : d.blocks.length > 0 ? [0] : []
 
+  const hasQuickToolAppend =
+    (Array.isArray(q.toolLines) &&
+      q.toolLines.some(
+        (l) =>
+          (typeof l.name === 'string' && l.name.trim()) ||
+          (Number.isFinite(l.amount) && l.amount !== 0) ||
+          (typeof l.unit === 'string' && l.unit.trim()) ||
+          (typeof l.qty === 'number' && Number.isFinite(l.qty) && l.qty > 0 && l.qty !== 1),
+      )) ||
+    (q.miscCost !== undefined && Number.isFinite(q.miscCost) && q.miscCost !== 0)
+
+  const toolLinesAfter = hasQuickToolAppend
+    ? appendQuickToolLines(baseToolLinesBeforeQuickApply(d), q)
+    : d.toolLines?.length
+      ? d.toolLines
+      : [oneEmptyToolLineDraft()]
+  const miscCostAfter = hasQuickToolAppend ? '' : d.miscCost
+
+  const mealAdd =
+    q.mealCost !== undefined && Number.isFinite(q.mealCost) ? q.mealCost : 0
+  const mealCostStr =
+    mealAdd === 0
+      ? d.mealCost
+      : (() => {
+          const t = Math.round(parseMoney(d.mealCost) + mealAdd)
+          return t === 0 ? '' : String(t)
+        })()
+
   let out: LinkedDayDraft = {
     ...d,
-    miscCost:
-      q.miscCost !== undefined ? (q.miscCost === 0 ? '' : String(q.miscCost)) : d.miscCost,
+    mealCost: mealCostStr,
+    miscCost: miscCostAfter,
+    toolLines: toolLinesAfter,
+    instrumentCost:
+      q.instrumentCost !== undefined
+        ? q.instrumentCost === 0
+          ? ''
+          : String(q.instrumentCost)
+        : d.instrumentCost,
     blocks: d.blocks.map((b, i) => {
       if (!indices.includes(i)) return b
       let next: LinkedDayBlockDraft = {
         ...b,
-        workLines:
-          q.workItem !== undefined
-            ? b.workLines?.length
-              ? b.workLines.map((wl, j) =>
-                  j === 0 ? { ...wl, label: q.workItem ?? '' } : wl,
-                )
-              : [{ ...emptyWorkLineDraft(), label: q.workItem ?? '' }]
-            : b.workLines,
-        remark: q.remark !== undefined ? q.remark : b.remark,
+        workLines: (() => {
+          if (q.workItems !== undefined) {
+            const labels = q.workItems.map((x) => String(x).trim()).filter(Boolean)
+            if (labels.length === 0) return b.workLines
+            return labels.map((label) => ({ ...emptyWorkLineDraft(), label }))
+          }
+          if (q.workItem !== undefined) {
+            const single = String(q.workItem).trim()
+            return b.workLines?.length
+              ? b.workLines.map((wl, j) => (j === 0 ? { ...wl, label: single } : wl))
+              : [{ ...emptyWorkLineDraft(), label: single }]
+          }
+          return b.workLines
+        })(),
       }
       if (q.equipment !== undefined) {
         const piq = parseLegacyEquipmentString(q.equipment)
@@ -519,6 +807,14 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
           instrumentRotatingLaser: has ? String(piq.rotatingLaser) : '',
           instrumentLineLaser: has ? String(piq.lineLaser) : '',
           equipment: has ? '' : q.equipment.trim(),
+        }
+      }
+      if (q.dong !== undefined || q.floorLevel !== undefined || q.workPhase !== undefined) {
+        next = {
+          ...next,
+          dong: q.dong !== undefined ? String(q.dong ?? '').trim() : next.dong,
+          floorLevel: q.floorLevel !== undefined ? String(q.floorLevel ?? '').trim() : next.floorLevel,
+          workPhase: q.workPhase !== undefined ? String(q.workPhase ?? '').trim() : next.workPhase,
         }
       }
       return next
@@ -576,6 +872,8 @@ export function buildLinkedDayDraftFromState(
     logDate: ymdStr,
     mealCost: '',
     miscCost: '',
+    instrumentCost: '',
+    toolLines: [oneEmptyToolLineDraft()],
     blocks: [
       {
         id: nb.id,
@@ -583,6 +881,9 @@ export function buildLinkedDayDraftFromState(
         workLines: nb.workLines.map((x) => ({ ...x })),
         ...linkedInstrumentFieldsFromSiteBlock(nb),
         remark: nb.remark,
+        dong: nb.dong,
+        floorLevel: nb.floorLevel,
+        workPhase: nb.workPhase,
         staffLines: nb.staffLines.map((x) => ({ ...x })),
       },
     ],
@@ -608,8 +909,17 @@ export function reconcileDayDocumentWithPayrollBook(
   if (
     !existing &&
     !hasNamedStaff &&
-    !draft.blocks.some((b) => blockDraftHasWorkText(b) || blockDraftHasInstrument(b) || b.remark.trim()) &&
-    parseMoney(draft.miscCost) === 0
+    !draft.blocks.some(
+      (b) =>
+        blockDraftHasWorkText(b) ||
+        blockDraftHasInstrument(b) ||
+        b.remark.trim() ||
+        blockDraftHasSiteMeta(b),
+    ) &&
+    parseMoney(draft.mealCost) === 0 &&
+    parseMoney(draft.miscCost) === 0 &&
+    !draftHasToolExpenseDraft(draft) &&
+    parseMoney(draft.instrumentCost) === 0
   ) {
     return wl
   }

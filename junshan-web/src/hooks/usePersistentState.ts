@@ -5,6 +5,14 @@ const KEY = 'junshan-web-v1'
 /** 減少 JSON.stringify 全量寫入 localStorage 的頻率。 */
 const PERSIST_DEBOUNCE_MS = 500
 
+function flushPersist<T>(latest: T): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify({ data: latest }))
+  } catch {
+    /* 配額／隱私模式等 */
+  }
+}
+
 /** 以頂層欄位參考比對是否「實質相同」，避免對大型 state 做 JSON.stringify（會卡死主執行緒）。 */
 function topLevelRefsEqual<T>(a: T, b: T): boolean {
   if (Object.is(a, b)) return true
@@ -46,24 +54,21 @@ export function usePersistentState<T>(
     if (persistTimerRef.current !== null) clearTimeout(persistTimerRef.current)
     persistTimerRef.current = window.setTimeout(() => {
       persistTimerRef.current = null
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ data: latestRef.current }))
-      } catch {
-        /* ignore */
-      }
+      flushPersist(latestRef.current)
     }, PERSIST_DEBOUNCE_MS)
     return () => {
-      if (persistTimerRef.current !== null) clearTimeout(persistTimerRef.current)
+      if (persistTimerRef.current !== null) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+        /** 快速連續更新時：若僅 clear 計時器不寫入，磁碟仍為上一版，重新整理會像「改動消失」。 */
+        flushPersist(latestRef.current)
+      }
     }
   }, [state])
 
   useEffect(() => {
     return () => {
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ data: latestRef.current }))
-      } catch {
-        /* ignore */
-      }
+      flushPersist(latestRef.current)
     }
   }, [])
 
@@ -100,24 +105,20 @@ export function usePersistentStateWithUndo<T>(
     if (persistTimerRef.current !== null) clearTimeout(persistTimerRef.current)
     persistTimerRef.current = window.setTimeout(() => {
       persistTimerRef.current = null
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ data: latestStateRef.current }))
-      } catch {
-        /* ignore */
-      }
+      flushPersist(latestStateRef.current as T)
     }, PERSIST_DEBOUNCE_MS)
     return () => {
-      if (persistTimerRef.current !== null) clearTimeout(persistTimerRef.current)
+      if (persistTimerRef.current !== null) {
+        clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+        flushPersist(latestStateRef.current as T)
+      }
     }
   }, [state])
 
   useEffect(() => {
     return () => {
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ data: latestStateRef.current }))
-      } catch {
-        /* ignore */
-      }
+      flushPersist(latestStateRef.current as T)
     }
   }, [])
 

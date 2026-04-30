@@ -16,6 +16,7 @@
     "serve:lan": "serve dist -s -l tcp://0.0.0.0:3000"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

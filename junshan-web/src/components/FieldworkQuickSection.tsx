@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FocusEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
 import {
   applyFieldworkQuick,
   normalizeQuickSiteKey,
@@ -12,9 +12,14 @@ import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
   mergedWorkItemOptions,
+  sortWorkItemLabelsList,
   formatInstrumentQty,
   instrumentQtyAnyPositive,
   parseInstrumentQtyFromDraftStrings,
+  newWorkLogEntityId,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION,
   type WorkLogState,
 } from '../domain/workLogModel'
 import {
@@ -31,6 +36,8 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
+  /** 登記成功後呼叫（例如重掛表單以清空欄位） */
+  onApplySuccess?: () => void
 }
 
 function todayIso(): string {
@@ -61,6 +68,27 @@ function clearSingleZeroOnFocus(e: FocusEvent<HTMLInputElement>, set: (s: string
   if (v === '0' || v === '-0') set('')
 }
 
+/**
+ * 以滑鼠／觸控點進欄位（含點標籤）再聚焦時視為要打開 datalist；進焦點時清空內容。
+ * 僅鍵盤 Tab 聚焦不會清空。
+ */
+function useClearWhenOpenedByPointer(setter: (v: string) => void) {
+  const openedByPointerRef = useRef(false)
+  const onPointerDownCapture = useCallback(() => {
+    openedByPointerRef.current = true
+  }, [])
+  const onFocus = useCallback(() => {
+    if (openedByPointerRef.current) {
+      openedByPointerRef.current = false
+      setter('')
+    }
+  }, [setter])
+  const onBlur = useCallback(() => {
+    openedByPointerRef.current = false
+  }, [])
+  return { onPointerDownCapture, onFocus, onBlur }
+}
+
 function parseExtraWorkerNames(raw: string): string[] {
   const out: string[] = []
   for (const line of raw.split(/\r?\n/)) {
@@ -88,6 +116,7 @@ export function FieldworkQuickSection({
   quoteRows,
   workLog,
   setWorkLog,
+  onApplySuccess,
 }: Props) {
   const pickerSig = staffPickerKeys.join('\u0001')
   const siteOptions = useMemo(() => {
@@ -108,20 +137,33 @@ export function FieldworkQuickSection({
 
   const [iso, setIso] = useState(todayIso)
   const [site, setSite] = useState('')
+  const [dong, setDong] = useState('')
+  const [floorLevel, setFloorLevel] = useState('')
+  const [workPhase, setWorkPhase] = useState('')
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const [extraNames, setExtraNames] = useState('')
   const [dayVal, setDayVal] = useState('1')
   const [timeStart, setTimeStart] = useState(DEFAULT_WORK_START)
   const [timeEnd, setTimeEnd] = useState(DEFAULT_WORK_END)
-  const [workItem, setWorkItem] = useState('')
+  const [workLineRows, setWorkLineRows] = useState<{ id: string; label: string }[]>(() => [
+    { id: newWorkLogEntityId(), label: '' },
+  ])
   const [instrumentTotalStation, setInstrumentTotalStation] = useState('')
   const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
   const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
   const [mealAmount, setMealAmount] = useState('')
-  const [miscLedger, setMiscLedger] = useState('')
+  const [toolRows, setToolRows] = useState<
+    { id: string; name: string; qty: string; unit: string; amount: string }[]
+  >(() => [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }])
   const [otHoursPerPerson, setOtHoursPerPerson] = useState('')
   const [otManualAmount, setOtManualAmount] = useState('')
   const [otRateLine, setOtRateLine] = useState<'jun' | 'tsai'>('jun')
+
+  const sitePickClear = useClearWhenOpenedByPointer(setSite)
+  const setFirstWorkLineLabel = useCallback((v: string) => {
+    setWorkLineRows((rows) => rows.map((r, i) => (i === 0 ? { ...r, label: v } : r)))
+  }, [])
+  const workLine0PickClear = useClearWhenOpenedByPointer(setFirstWorkLineLabel)
 
   useEffect(() => {
     const key = normalizeQuickSiteKey(site.trim())
@@ -159,14 +201,32 @@ export function FieldworkQuickSection({
       seen.add(w)
       workers.push(w)
     }
-    const miscN = num(miscLedger)
+    const toolLedgerLines = toolRows
+      .map((row) => {
+        const qRaw = row.qty.trim()
+        const qn = qRaw === '' ? 1 : num(row.qty)
+        const qty = Number.isFinite(qn) && qn > 0 ? qn : 1
+        return {
+          name: row.name.trim(),
+          amount: num(row.amount),
+          qty,
+          unit: row.unit.trim(),
+        }
+      })
+      .filter(
+        (row) =>
+          row.name ||
+          row.amount !== 0 ||
+          row.unit ||
+          (Number.isFinite(row.qty) && row.qty > 0 && row.qty !== 1),
+      )
     const r = applyFieldworkQuick(salaryBook, months, {
       isoDate: iso,
       siteName: site,
       workers,
       dayValue: num(dayVal),
       mealLedgerAmount: num(mealAmount),
-      miscLedgerAmount: miscN,
+      toolLedgerLines: toolLedgerLines.length > 0 ? toolLedgerLines : undefined,
       otHoursPerPerson: num(otHoursPerPerson),
       otManualAmount: num(otManualAmount),
       otRateLine,
@@ -178,19 +238,7 @@ export function FieldworkQuickSection({
     setSalaryBook(() => r.book)
     setMonths(r.months)
 
-    const remarkParts: string[] = []
-    const hOt = num(otHoursPerPerson)
-    if (hOt > 0) {
-      remarkParts.push(
-        `加班 ${hOt} 時／人（${otRateLine === 'jun' ? '鈞泩' : '蔡董'}日薪線）`,
-      )
-    }
-    const manOt = num(otManualAmount)
-    if (manOt !== 0 && hOt <= 0) {
-      remarkParts.push(`加班費手動 ${manOt} 元`)
-    }
-
-    const wi = workItem.trim()
+    const workItemLabels = workLineRows.map((r) => r.label.trim()).filter(Boolean)
     const iq = parseInstrumentQtyFromDraftStrings(
       instrumentTotalStation,
       instrumentRotatingLaser,
@@ -199,25 +247,30 @@ export function FieldworkQuickSection({
     const equipStr = instrumentQtyAnyPositive(iq) ? formatInstrumentQty(iq) : ''
     const quickOverlay: QuickApplyTextOverlay = {
       siteName: site.trim(),
-      workItem: wi,
+      ...(workItemLabels.length > 0 ? { workItems: workItemLabels } : {}),
       equipment: equipStr,
-      remark: remarkParts.join('\n'),
-      miscCost: miscN,
+      ...(toolLedgerLines.length > 0 ? { toolLines: toolLedgerLines } : {}),
       timeStart: padHhmm(timeStart, DEFAULT_WORK_START),
       timeEnd: padHhmm(timeEnd, DEFAULT_WORK_END),
+      dong: dong.trim(),
+      floorLevel: floorLevel.trim(),
+      workPhase: workPhase.trim(),
     }
 
     setWorkLog((w) => {
       let custom = [...(w.customWorkItemLabels ?? [])]
-      const opts = mergedWorkItemOptions(quoteRows, custom)
-      if (wi && !opts.includes(wi)) {
-        custom = [...custom, wi].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+      for (const label of workItemLabels) {
+        const opts = mergedWorkItemOptions(quoteRows, custom)
+        if (label && !opts.includes(label)) {
+          custom = sortWorkItemLabelsList([...custom, label])
+        }
       }
       const w1 = { ...w, customWorkItemLabels: custom }
       return reconcileDayDocumentWithPayrollBook(w1, iso, r.book, staffPickerKeys, quickOverlay)
     })
 
     alert(`${r.message}\n已依月表同步「整日工作日誌」（${iso}）；案場／人員以月表為準，表單內容已併入本次登記。`)
+    onApplySuccess?.()
   }
 
   return (
@@ -231,12 +284,18 @@ export function FieldworkQuickSection({
           <span>日期</span>
           <input type="date" value={iso} onChange={(e) => setIso(e.target.value)} />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
+        <label
+          style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}
+          onPointerDownCapture={sitePickClear.onPointerDownCapture}
+        >
           <span>地點（案場或調工支援）</span>
           <input
             type="text"
             value={site}
             onChange={(e) => setSite(e.target.value)}
+            onPointerDownCapture={sitePickClear.onPointerDownCapture}
+            onFocus={sitePickClear.onFocus}
+            onBlur={sitePickClear.onBlur}
             placeholder="可選下方或自填"
             list="fieldwork-site-datalist"
           />
@@ -247,6 +306,28 @@ export function FieldworkQuickSection({
               </option>
             ))}
           </datalist>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
+          <span>棟</span>
+          <input type="text" value={dong} onChange={(e) => setDong(e.target.value)} placeholder="例：A棟" />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
+          <span>樓層</span>
+          <input
+            type="text"
+            value={floorLevel}
+            onChange={(e) => setFloorLevel(e.target.value)}
+            placeholder="例：3F"
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 88 }}>
+          <span>階段</span>
+          <input
+            type="text"
+            value={workPhase}
+            onChange={(e) => setWorkPhase(e.target.value)}
+            placeholder="例：結構"
+          />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span>出工天數（每人該日）</span>
@@ -307,23 +388,78 @@ export function FieldworkQuickSection({
           />
         </label>
       </div>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 10 }}>
-        <span>工作內容</span>
-        <input
-          type="text"
-          value={workItem}
-          onChange={(e) => setWorkItem(e.target.value)}
-          list="fieldwork-workitem-datalist"
-          placeholder="選擇或輸入"
-        />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+        <span>工作內容（可複數列，與日誌頁多列工作相同）</span>
         <datalist id="fieldwork-workitem-datalist">
           {workItemOptions.map((o) => (
             <option key={o} value={o} />
           ))}
         </datalist>
-      </label>
+        {workLineRows.map((row, idx) => (
+          <div
+            key={row.id}
+            className="btnRow"
+            style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}
+          >
+            <label
+              style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 220px', minWidth: 160 }}
+              {...(idx === 0
+                ? {
+                    onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
+                  }
+                : {})}
+            >
+              <span className="muted" style={{ fontSize: 13 }}>
+                {idx === 0 ? '工作內容' : `第 ${idx + 1} 列`}
+              </span>
+              <input
+                type="text"
+                value={row.label}
+                onChange={(e) =>
+                  setWorkLineRows((rows) =>
+                    rows.map((r, i) => (i === idx ? { ...r, label: e.target.value } : r)),
+                  )
+                }
+                {...(idx === 0
+                  ? {
+                      onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
+                      onFocus: workLine0PickClear.onFocus,
+                      onBlur: workLine0PickClear.onBlur,
+                    }
+                  : {})}
+                list="fieldwork-workitem-datalist"
+                placeholder="選擇或輸入"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={workLineRows.length <= 1}
+              onClick={() =>
+                setWorkLineRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)))
+              }
+            >
+              移除此列
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="btn secondary"
+          onClick={() =>
+            setWorkLineRows((rows) => [...rows, { id: newWorkLogEntityId(), label: '' }])
+          }
+        >
+          新增工作內容列
+        </button>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
         <span>使用儀器</span>
+        <p className="hint muted" style={{ margin: 0, fontSize: 12 }}>
+          儀器支出單價（與工作日誌一致）：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
+          {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+          {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
+        </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
             <span>全站儀（台）</span>
@@ -384,18 +520,103 @@ export function FieldworkQuickSection({
         </fieldset>
 
         <fieldset style={fieldsetStyle}>
-          <legend>雜項（入公司損益表「工具」）</legend>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>金額</span>
-            <input
-              type="number"
-              className="narrow"
-              value={miscLedger}
-              onFocus={(e) => clearSingleZeroOnFocus(e, setMiscLedger)}
-              onChange={(e) => setMiscLedger(e.target.value)}
-              placeholder="0"
-            />
-          </label>
+          <legend>工具（入公司損益表「工具」）</legend>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {toolRows.map((row, idx) => (
+              <div
+                key={row.id}
+                className="btnRow"
+                style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}
+              >
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
+                  <span>名稱</span>
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(e) =>
+                      setToolRows((rows) =>
+                        rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
+                      )
+                    }
+                    placeholder="選填"
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
+                  <span>數量</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    className="narrow"
+                    value={row.qty}
+                    onChange={(e) =>
+                      setToolRows((rows) =>
+                        rows.map((r, i) => (i === idx ? { ...r, qty: e.target.value } : r)),
+                      )
+                    }
+                    placeholder="1"
+                    title="空白則視為 1"
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
+                  <span>單位</span>
+                  <input
+                    type="text"
+                    value={row.unit}
+                    onChange={(e) =>
+                      setToolRows((rows) =>
+                        rows.map((r, i) => (i === idx ? { ...r, unit: e.target.value } : r)),
+                      )
+                    }
+                    placeholder="組"
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 140 }}>
+                  <span>金額（元）</span>
+                  <input
+                    type="number"
+                    className="narrow"
+                    value={row.amount}
+                    onFocus={(e) =>
+                      clearSingleZeroOnFocus(e, (s) =>
+                        setToolRows((rows) =>
+                          rows.map((r, i) => (i === idx ? { ...r, amount: s } : r)),
+                        ),
+                      )
+                    }
+                    onChange={(e) =>
+                      setToolRows((rows) =>
+                        rows.map((r, i) => (i === idx ? { ...r, amount: e.target.value } : r)),
+                      )
+                    }
+                    placeholder="0"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  disabled={toolRows.length <= 1}
+                  onClick={() =>
+                    setToolRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)))
+                  }
+                >
+                  移除此列
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() =>
+                setToolRows((rows) => [
+                  ...rows,
+                  { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' },
+                ])
+              }
+            >
+              新增工具列
+            </button>
+          </div>
         </fieldset>
 
         <fieldset style={fieldsetStyle}>

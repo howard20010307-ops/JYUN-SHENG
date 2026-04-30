@@ -15,6 +15,19 @@ const TIME_RE = /^\d{1,2}:\d{2}$/
 export const DEFAULT_WORK_START = '07:30'
 export const DEFAULT_WORK_END = '16:30'
 
+/** 整日層級：單筆工具支出；多筆加總入公司損益表「工具」（以 {@link WorkLogDayToolLine.amount} 為準） */
+export type WorkLogDayToolLine = {
+  id: string
+  /** 工具／項目名稱 */
+  name: string
+  /** 數量（未存檔之舊資料視為 1） */
+  qty: number
+  /** 單位（如：組、個、支） */
+  unit: string
+  /** 金額（元，該列小計） */
+  amount: number
+}
+
 export type WorkLogEntry = {
   id: string
   /** YYYY-MM-DD */
@@ -35,6 +48,8 @@ export type WorkLogEntry = {
   mealCost: number
   /** 雜項支出（元；可與公司損益表「工具」欄加帳連動） */
   miscCost: number
+  /** 儀器支出（元）；公司損益表「儀器」欄由日誌加總帶入 */
+  instrumentCost: number
   /** 備註（詳述） */
   remark: string
   /**
@@ -105,6 +120,50 @@ function normInstrumentQtyInt(v: unknown): number {
 
 export function instrumentQtyAnyPositive(q: WorkLogSiteInstrumentQty): boolean {
   return q.totalStation > 0 || q.rotatingLaser > 0 || q.lineLaser > 0
+}
+
+/** 工作日誌儀器支出單價（元／台），依當日各案場區塊台數加總後寫入「儀器支出」 */
+export const WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION = 2000
+export const WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER = 500
+export const WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER = 100
+
+/** 依三種儀器台數計算支出（元）；台數以 0～999 計 */
+export function instrumentExpenseFromQty(q: WorkLogSiteInstrumentQty): number {
+  const cap = (n: unknown) => {
+    const v = typeof n === 'number' ? n : parseInt(String(n).trim(), 10)
+    if (!Number.isFinite(v) || v < 0) return 0
+    return Math.min(999, Math.floor(v))
+  }
+  return Math.round(
+    cap(q.totalStation) * WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION +
+    cap(q.rotatingLaser) * WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER +
+    cap(q.lineLaser) * WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER,
+  )
+}
+
+/** 加總各案場區塊之儀器台數（整日） */
+export function aggregateInstrumentQtyFromSiteBlocks(
+  blocks: readonly { instrumentQty?: WorkLogSiteInstrumentQty }[],
+): WorkLogSiteInstrumentQty {
+  const o = emptyInstrumentQty()
+  for (const b of blocks) {
+    const q = b.instrumentQty ?? emptyInstrumentQty()
+    o.totalStation += q.totalStation
+    o.rotatingLaser += q.rotatingLaser
+    o.lineLaser += q.lineLaser
+  }
+  return {
+    totalStation: Math.min(9999, o.totalStation),
+    rotatingLaser: Math.min(9999, o.rotatingLaser),
+    lineLaser: Math.min(9999, o.lineLaser),
+  }
+}
+
+/** 整日儀器支出：各區塊台數加總後乘單價 */
+export function instrumentExpenseFromSiteBlocks(
+  blocks: readonly { instrumentQty?: WorkLogSiteInstrumentQty }[],
+): number {
+  return instrumentExpenseFromQty(aggregateInstrumentQtyFromSiteBlocks(blocks))
 }
 
 /** 摘要字串，例如「全站儀×2、墨線儀×1」 */
@@ -180,6 +239,12 @@ export type WorkLogSiteBlock = {
   /** 三種儀器台數；皆 0 且 equipment 有字時可能為舊資料無法解析 */
   instrumentQty: WorkLogSiteInstrumentQty
   remark: string
+  /** 棟別（例：A棟） */
+  dong: string
+  /** 樓層 */
+  floorLevel: string
+  /** 階段（例：結構、粗裝） */
+  workPhase: string
   staffLines: WorkLogStaffLine[]
 }
 
@@ -199,7 +264,14 @@ export type WorkLogDayDocument = {
   /** @deprecated 請用各 block 的 equipment */
   equipment: string
   mealCost: number
+  /**
+   * 舊版單欄「雜項／工具」金額；若 {@link WorkLogDayDocument.toolLines} 有資料，損益表以 toolLines 加總為準，此欄仍寫入與加總一致。
+   */
   miscCost: number
+  /** 當日多筆具名工具支出；有資料時損益「工具」以加總本列為準 */
+  toolLines?: WorkLogDayToolLine[]
+  /** 儀器支出（元）；與 {@link WorkLogEntry.instrumentCost} 同義，整日一筆 */
+  instrumentCost: number
   /** @deprecated 請用各 block 的 remark */
   remark: string
   blocks: WorkLogSiteBlock[]
@@ -273,6 +345,7 @@ function migrateOne(e: unknown): WorkLogEntry | null {
     (typeof o.equipment === 'string' && o.equipment.trim()) ||
     num(o.mealCost) !== 0 ||
     num(o.miscCost) !== 0 ||
+    num(o.instrumentCost) !== 0 ||
     (typeof o.remark === 'string' && o.remark.trim()) ||
     (typeof o.timeStart === 'string' && o.timeStart) ||
     (typeof o.timeEnd === 'string' && o.timeEnd)
@@ -295,6 +368,7 @@ function migrateOne(e: unknown): WorkLogEntry | null {
     equipment: typeof o.equipment === 'string' ? o.equipment : '',
     mealCost: num(o.mealCost),
     miscCost: num(o.miscCost),
+    instrumentCost: num(o.instrumentCost),
     remark,
     content: '',
     createdAt: typeof o.createdAt === 'string' ? o.createdAt : nowIso(),
@@ -312,7 +386,7 @@ function migrateCustomLabels(raw: unknown): string[] {
   if (!raw || typeof raw !== 'object') return []
   const w = raw as { customWorkItemLabels?: unknown }
   if (!Array.isArray(w.customWorkItemLabels)) return []
-  return [...new Set(w.customWorkItemLabels.map((x) => String(x).trim()).filter(Boolean))]
+  return sortWorkItemLabelsList(w.customWorkItemLabels.map((x) => String(x)))
 }
 
 export function initialWorkLogState(): WorkLogState {
@@ -361,7 +435,21 @@ export function blockWorkLineLabels(block: WorkLogSiteBlock): string[] {
   return legacy ? [legacy] : []
 }
 
-/** 月曆／摘要：多筆時「第一筆（+N）」 */
+/** 棟／樓層／階段一行摘要（攤平 entries、備註合併等用；月曆「工作」欄請用 {@link blockWorkSummaryCompact}） */
+export function formatSiteBlockMetaLine(
+  b: Pick<WorkLogSiteBlock, 'dong' | 'floorLevel' | 'workPhase'>,
+): string {
+  const parts: string[] = []
+  const d = (b.dong ?? '').trim()
+  const f = (b.floorLevel ?? '').trim()
+  const p = (b.workPhase ?? '').trim()
+  if (d) parts.push(`棟 ${d}`)
+  if (f) parts.push(`樓層 ${f}`)
+  if (p) parts.push(`階段 ${p}`)
+  return parts.join('；')
+}
+
+/** 月曆／摘要：多筆時「第一筆（+N）」（不含棟／樓層／階段，與月曆格「工作」欄一致） */
 export function blockWorkSummaryCompact(block: WorkLogSiteBlock): string {
   const parts = blockWorkLineLabels(block)
   if (parts.length === 0) return ''
@@ -440,7 +528,22 @@ function migrateSiteBlock(o: unknown): WorkLogSiteBlock | null {
   if (instrumentQtyAnyPositive(instrumentQty)) {
     equipmentOut = formatInstrumentQty(instrumentQty)
   }
-  return { id, siteName, workItem: '', equipment: equipmentOut, instrumentQty, remark, workLines, staffLines }
+  const dong = typeof r.dong === 'string' ? r.dong : ''
+  const floorLevel = typeof r.floorLevel === 'string' ? r.floorLevel : ''
+  const workPhase = typeof r.workPhase === 'string' ? r.workPhase : ''
+  return {
+    id,
+    siteName,
+    workItem: '',
+    equipment: equipmentOut,
+    instrumentQty,
+    remark,
+    workLines,
+    dong,
+    floorLevel,
+    workPhase,
+    staffLines,
+  }
 }
 
 /** 舊版整日層 workItem／equipment／remark 併入各 block 後清空（新存檔僅用 block） */
@@ -455,8 +558,10 @@ function hoistLegacyDayLevelFieldsIntoBlocks(doc: WorkLogDayDocument): void {
     (b.workLines ?? []).some((wl) => wl.label.trim()) || b.workItem.trim()
   const blockHasEquip = (b: WorkLogSiteBlock) =>
     instrumentQtyAnyPositive(b.instrumentQty ?? emptyInstrumentQty()) || b.equipment.trim()
+  const blockHasSiteMeta = (b: WorkLogSiteBlock) =>
+    (b.dong ?? '').trim() || (b.floorLevel ?? '').trim() || (b.workPhase ?? '').trim()
   const anyBlockHas = blocks.some(
-    (b) => blockHasAnyWorkText(b) || blockHasEquip(b) || b.remark.trim(),
+    (b) => blockHasAnyWorkText(b) || blockHasEquip(b) || b.remark.trim() || blockHasSiteMeta(b),
   )
   if (!anyBlockHas) {
     for (const b of blocks) {
@@ -492,6 +597,33 @@ function hoistLegacyDayLevelFieldsIntoBlocks(doc: WorkLogDayDocument): void {
   doc.remark = ''
 }
 
+function migrateToolLineOne(o: unknown): WorkLogDayToolLine | null {
+  if (!o || typeof o !== 'object') return null
+  const x = o as Record<string, unknown>
+  const id = typeof x.id === 'string' && x.id.trim() ? x.id.trim() : newId()
+  const name = typeof x.name === 'string' ? x.name : ''
+  const amount = num(x.amount)
+  let qty = 1
+  const qRaw = x.qty
+  if (typeof qRaw === 'number' && Number.isFinite(qRaw) && qRaw > 0) qty = Math.min(1e6, qRaw)
+  else if (typeof qRaw === 'string' && qRaw.trim()) {
+    const qn = parseFloat(qRaw.trim().replace(/,/g, ''))
+    if (Number.isFinite(qn) && qn > 0) qty = Math.min(1e6, qn)
+  }
+  const unit = typeof x.unit === 'string' ? x.unit.trim() : ''
+  return { id, name, qty, unit, amount }
+}
+
+function migrateToolLinesArray(raw: unknown): WorkLogDayToolLine[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: WorkLogDayToolLine[] = []
+  for (const it of raw) {
+    const t = migrateToolLineOne(it)
+    if (t && (t.name.trim() || t.amount !== 0 || t.unit.trim() || t.qty !== 1)) out.push(t)
+  }
+  return out.length ? out : undefined
+}
+
 function migrateDayDocumentOne(o: unknown): WorkLogDayDocument | null {
   if (!o || typeof o !== 'object') return null
   const r = o as Record<string, unknown>
@@ -515,12 +647,21 @@ function migrateDayDocumentOne(o: unknown): WorkLogDayDocument | null {
     equipment: typeof r.equipment === 'string' ? r.equipment : '',
     mealCost: num(r.mealCost),
     miscCost: num(r.miscCost),
+    toolLines: migrateToolLinesArray(r.toolLines),
+    instrumentCost: num(r.instrumentCost),
     remark: typeof r.remark === 'string' ? r.remark : '',
     blocks,
     createdAt: t0,
     updatedAt: t1,
   }
   hoistLegacyDayLevelFieldsIntoBlocks(doc)
+  if (doc.toolLines?.length) {
+    let s = 0
+    for (const L of doc.toolLines) {
+      s += typeof L.amount === 'number' && Number.isFinite(L.amount) ? L.amount : 0
+    }
+    doc.miscCost = Math.round(s)
+  }
   return doc
 }
 
@@ -580,7 +721,24 @@ export function datesWithAnyLogInMonth(state: WorkLogState, year: number, month1
 }
 
 /**
- * 公司損益表「工具」帶入：該曆月工作日誌雜項加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
+ * 整日文件「工具」金額：有 {@link WorkLogDayDocument.toolLines} 時為各列加總，否則為 {@link WorkLogDayDocument.miscCost}。
+ */
+export function dayDocumentToolExpenseSum(doc: WorkLogDayDocument): number {
+  const lines = doc.toolLines
+  if (Array.isArray(lines) && lines.length > 0) {
+    let s = 0
+    for (const L of lines) {
+      const a = typeof L?.amount === 'number' && Number.isFinite(L.amount) ? L.amount : 0
+      s += a
+    }
+    return Math.round(s)
+  }
+  const v = doc.miscCost
+  return typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0
+}
+
+/**
+ * 公司損益表「工具」帶入：該曆月工作日誌工具支出加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
  */
 export function sumWorkLogMiscCostInCalendarMonth(
   workLog: WorkLogState,
@@ -592,13 +750,37 @@ export function sumWorkLogMiscCostInCalendarMonth(
   const docDates = new Set((workLog.dayDocuments ?? []).map((d) => d.logDate))
   for (const d of workLog.dayDocuments ?? []) {
     if (!d.logDate.startsWith(prefix)) continue
-    const v = d.miscCost
-    sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
+    sum += dayDocumentToolExpenseSum(d)
   }
   for (const e of workLog.entries ?? []) {
     if (!e.logDate.startsWith(prefix)) continue
     if (docDates.has(e.logDate)) continue
     const v = e.miscCost
+    sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
+  }
+  return Math.round(sum)
+}
+
+/**
+ * 公司損益表「儀器」帶入：該曆月工作日誌儀器支出加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
+ */
+export function sumWorkLogInstrumentCostInCalendarMonth(
+  workLog: WorkLogState,
+  year: number,
+  month1to12: number,
+): number {
+  const prefix = `${year}-${String(month1to12).padStart(2, '0')}-`
+  let sum = 0
+  const docDates = new Set((workLog.dayDocuments ?? []).map((d) => d.logDate))
+  for (const d of workLog.dayDocuments ?? []) {
+    if (!d.logDate.startsWith(prefix)) continue
+    const v = d.instrumentCost
+    sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
+  }
+  for (const e of workLog.entries ?? []) {
+    if (!e.logDate.startsWith(prefix)) continue
+    if (docDates.has(e.logDate)) continue
+    const v = e.instrumentCost
     sum += typeof v === 'number' && Number.isFinite(v) ? v : 0
   }
   return Math.round(sum)
@@ -617,6 +799,7 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
     equipment: '',
     mealCost: 0,
     miscCost: 0,
+    instrumentCost: 0,
     remark: '',
     blocks: [],
     createdAt: t,
@@ -625,6 +808,7 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
   for (const e of entries) {
     if (e.mealCost !== 0) doc.mealCost = e.mealCost
     if (e.miscCost !== 0) doc.miscCost = e.miscCost
+    if (e.instrumentCost !== 0) doc.instrumentCost = e.instrumentCost
   }
   type SiteAgg = {
     block: WorkLogSiteBlock
@@ -646,6 +830,9 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
           equipment: '',
           instrumentQty: emptyInstrumentQty(),
           remark: '',
+          dong: '',
+          floorLevel: '',
+          workPhase: '',
           staffLines: [],
         },
         works: new Set(),
@@ -782,7 +969,7 @@ export function summarizeWorkLogDayDocument(doc: WorkLogDayDocument): {
 
 /**
  * 供相容舊邏輯：將整日文件攤成「虛擬」WorkLogEntry 列（不寫回 state.entries）。
- * 各案場區塊第一列帶該區塊工作（多列以分號串）／equipment／remark；餐費／雜項僅全日第一列，避免加總重複。
+ * 各案場區塊第一列帶該區塊工作（多列以分號串）／equipment／remark；餐費／雜項／儀器支出僅全日第一列，避免加總重複。
  */
 export function flattenDayDocumentToLegacyEntries(doc: WorkLogDayDocument): WorkLogEntry[] {
   const t = doc.updatedAt
@@ -794,6 +981,8 @@ export function flattenDayDocumentToLegacyEntries(doc: WorkLogDayDocument): Work
     for (const line of b.staffLines ?? []) {
       if (!line.name.trim()) continue
       const isFirstGlobal = idx === 0
+      const metaLine = formatSiteBlockMetaLine(b)
+      const remarkBlock = [metaLine, (b.remark ?? '').trim()].filter(Boolean).join('\n')
       const entry: WorkLogEntry = {
         id: `d-${doc.id}-${idx}`,
         logDate: doc.logDate,
@@ -805,7 +994,8 @@ export function flattenDayDocumentToLegacyEntries(doc: WorkLogDayDocument): Work
         equipment: firstInBlock ? blockEquipmentSummary(b) : '',
         mealCost: isFirstGlobal ? doc.mealCost : 0,
         miscCost: isFirstGlobal ? doc.miscCost : 0,
-        remark: firstInBlock ? b.remark : '',
+        instrumentCost: isFirstGlobal ? doc.instrumentCost : 0,
+        remark: firstInBlock ? remarkBlock : '',
         content: '',
         createdAt: t,
         updatedAt: t,
@@ -827,6 +1017,19 @@ export function effectiveEntriesForCalendar(state: WorkLogState): WorkLogEntry[]
   return [...legacy, ...synthetic]
 }
 
+/** 工作內容選項排序：先依字元數（字長），相同再依繁中比對 */
+export function compareWorkItemLabels(a: string, b: string): number {
+  const la = [...a].length
+  const lb = [...b].length
+  if (la !== lb) return la - lb
+  return a.localeCompare(b, 'zh-Hant')
+}
+
+/** 去空白、去重後依字長＋筆畫排序（供 datalist 與自訂標籤儲存） */
+export function sortWorkItemLabelsList(labels: readonly string[]): string[] {
+  return [...new Set(labels.map((x) => String(x).trim()).filter(Boolean))].sort(compareWorkItemLabels)
+}
+
 /** 估價「細項」欄不重複集合，供工作內容下拉使用 */
 export function uniqueQuoteWorkItemLabels(rows: readonly QuoteRow[]): string[] {
   const s = new Set<string>()
@@ -834,7 +1037,7 @@ export function uniqueQuoteWorkItemLabels(rows: readonly QuoteRow[]): string[] {
     const t = typeof r.item === 'string' ? r.item.trim() : ''
     if (t) s.add(t)
   }
-  return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  return [...s].sort(compareWorkItemLabels)
 }
 
 /** 合併：估價各列「細項」字串 + 自訂字串，供日誌工作內容 datalist（不存估價 id） */
@@ -843,7 +1046,7 @@ export function mergedWorkItemOptions(
   custom: readonly string[],
 ): string[] {
   const set = new Set<string>([...uniqueQuoteWorkItemLabels(quoteRows), ...custom])
-  return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  return [...set].sort(compareWorkItemLabels)
 }
 
 export function newWorkLogEntry(
@@ -859,6 +1062,7 @@ export function newWorkLogEntry(
       | 'equipment'
       | 'mealCost'
       | 'miscCost'
+      | 'instrumentCost'
       | 'remark'
       | 'content'
     >
@@ -881,6 +1085,7 @@ export function newWorkLogEntry(
     equipment: typeof over.equipment === 'string' ? over.equipment : '',
     mealCost: num(over.mealCost),
     miscCost: num(over.miscCost),
+    instrumentCost: num(over.instrumentCost),
     remark: typeof over.remark === 'string' ? over.remark : '',
     content: typeof over.content === 'string' ? over.content : '',
     createdAt: t,
@@ -930,6 +1135,9 @@ export function newSiteBlock(): WorkLogSiteBlock {
     equipment: '',
     instrumentQty: emptyInstrumentQty(),
     remark: '',
+    dong: '',
+    floorLevel: '',
+    workPhase: '',
     staffLines: [
       {
         name: '',
@@ -950,6 +1158,7 @@ export function newWorkLogDayDocument(logDate: string, blocks?: WorkLogSiteBlock
     equipment: '',
     mealCost: 0,
     miscCost: 0,
+    instrumentCost: 0,
     remark: '',
     blocks: bs,
     createdAt: t,

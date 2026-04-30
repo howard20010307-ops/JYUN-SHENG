@@ -1,10 +1,22 @@
+import { gzip, gunzip, strFromU8, strToU8 } from 'fflate'
 import { migrateAppState, type AppState } from '../domain/appState'
 import { assertJsonBinBackupWireStringComplete, stringifyAppBackupCompact, stringifyAppBackupFingerprint } from '../domain/appStateBackup'
 
 const BASE = 'https://api.jsonbin.io/v3/b'
 
-/** 免費帳戶單一 Bin 約 100KB 上限；壓縮後仍超過則建議升級或刪減本機月表內容 */
-const JSONBIN_FREE_MAX_BYTES = 99_000
+/**
+ * JSONBin 免費版單筆約 100 KiB（以請求本體 UTF-8 位元組計）；預留餘量避免邊界遭拒。
+ * Pro／XL 可於 `.env` 設定 `VITE_JSONBIN_MAX_BODY_UTF8_BYTES` 放寬（仍為整包上傳、不刪欄位）。
+ */
+const DEFAULT_MAX_UPLOAD_UTF8_BYTES = 100 * 1024 - 2048
+
+function maxUploadBodyUtf8Bytes(): number {
+  const raw = (import.meta.env.VITE_JSONBIN_MAX_BODY_UTF8_BYTES ?? '').trim()
+  if (raw === '') return DEFAULT_MAX_UPLOAD_UTF8_BYTES
+  const n = Number.parseInt(raw, 10)
+  if (Number.isFinite(n) && n >= 50_000 && n <= 16_000_000) return n
+  return DEFAULT_MAX_UPLOAD_UTF8_BYTES
+}
 
 /** 本機 localStorage：上次自動上傳 JSONBin 成功時間（ISO），重新整理後仍顯示 */
 const LOCALSTORAGE_LAST_UPLOAD_OK_AT = 'junshan.jsonBin.lastUploadSuccessAt'
@@ -126,27 +138,25 @@ function b64ToBytes(b64: string): Uint8Array {
   return u
 }
 
-async function gzipTextToB64(text: string): Promise<string> {
-  const C = (globalThis as unknown as { CompressionStream?: new (f: string) => TransformStream }).CompressionStream
-  if (!C) {
-    throw new Error(
-      '此瀏覽器不支援 Gzip 壓縮；請改用最新 Chrome／Edge 或以「匯出／匯入備份」同步，或更換可支援的瀏覽器／方案。',
-    )
-  }
-  const enc = new TextEncoder().encode(text)
-  const stream = new Blob([enc]).stream().pipeThrough(new C('gzip'))
-  const buf = await new Response(stream).arrayBuffer()
-  return bytesToB64(new Uint8Array(buf))
+/** 標準 gzip（level 9）；舊版瀏覽器 CompressionStream 產物亦可由 fflate 解壓。 */
+function gzipTextToB64(text: string): Promise<string> {
+  const u8 = strToU8(text)
+  return new Promise((resolve, reject) => {
+    gzip(u8, { level: 9 }, (err, out) => {
+      if (err) reject(err)
+      else resolve(bytesToB64(out))
+    })
+  })
 }
 
-async function gunzipB64ToText(b64: string): Promise<string> {
-  const D = (globalThis as unknown as { DecompressionStream?: new (f: string) => TransformStream }).DecompressionStream
-  if (!D) {
-    throw new Error('此瀏覽器不支援 Gzip 解壓。')
-  }
-  const u = b64ToBytes(b64)
-  const stream = new Blob([u as BlobPart]).stream().pipeThrough(new D('gzip'))
-  return new Response(stream).text()
+function gunzipB64ToText(b64: string): Promise<string> {
+  const raw = b64ToBytes(b64)
+  return new Promise((resolve, reject) => {
+    gunzip(raw, (err, out) => {
+      if (err) reject(err)
+      else resolve(strFromU8(out))
+    })
+  })
 }
 
 /** 將雲端 record 還原成與匯出備份相同的根物件，或舊式直接內容 */
@@ -279,7 +289,7 @@ export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
 
 /**
  * JSONBin 與本機「匯出備份」共用同一條線路：
- * - **上傳**：`stringifyAppBackupCompact` → 結構校驗 → Gzip → Base64 → `PUT`；若 Gzip 解回字串與原始 JSON **逐字元相同**，則線上數值／文字在壓縮層**零損耗**。
+ * - **上傳**：`stringifyAppBackupCompact` → 結構校驗 → **fflate gzip level 9** → Base64 → `PUT`；解回字串與原始 JSON **逐字元相同**才送出，壓縮層**零損耗**。
  * - **下載**：`GET` → 解 gzip → 解析與上傳相同之 JSON → `migrateAppState` 正規化各子域（薪水／估價／收帳／日誌等）。
  */
 export type JsonBinUploadResult = {
@@ -308,14 +318,18 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<JsonBinU
   const roundTrip = await gunzipB64ToText(g)
   if (roundTrip !== raw) {
     throw new Error(
-      '內部錯誤：Gzip 壓縮還原後與原始備份字串不一致（全站任一欄位皆須無損），已中止上傳。請改用最新 Chrome／Edge 或匯出備份。',
+      '內部錯誤：Gzip 壓縮還原後與原始備份字串不一致（全站任一欄位皆須無損），已中止上傳。請匯出備份並回報。',
     )
   }
   const wrapper: JsonBinRecordGzipV1 = { junshanJsonBin: JUNSHAN_GZIP, g }
   const body = JSON.stringify(wrapper)
-  if (body.length > JSONBIN_FREE_MAX_BYTES) {
+  const bodyUtf8Bytes = new TextEncoder().encode(body).length
+  const limit = maxUploadBodyUtf8Bytes()
+  if (bodyUtf8Bytes > limit) {
+    const rawUtf8Bytes = new TextEncoder().encode(raw).length
     throw new Error(
-      '壓縮後仍超過 JSONBin 免費版單筆大小上限。請刪減歷史月表／備份內容、匯出備份後減量，或升級 Pro／改用其他雲端方案。',
+      `壓縮後上傳體約 ${bodyUtf8Bytes} 位元組（UTF-8），超過目前上限 ${limit} 位元組，已中止上傳，本機資料未刪。` +
+        `未壓縮備份 JSON 約 ${rawUtf8Bytes} 位元組。可刪減歷史月表或匯出備份後減量；若為 JSONBin Pro 可在 .env 設定 VITE_JSONBIN_MAX_BODY_UTF8_BYTES 放寬。`,
     )
   }
   const res = await fetch(`${BASE}/${id}`, {

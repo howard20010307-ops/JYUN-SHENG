@@ -8,7 +8,13 @@ import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
   mergedWorkItemOptions,
+  sortWorkItemLabelsList,
   getDayDocument,
+  emptyInstrumentQty,
+  instrumentExpenseFromQty,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER,
+  WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION,
   replaceDayDocument,
   summarizeWorkLogDayDocument,
   effectiveEntriesForCalendar,
@@ -50,7 +56,7 @@ type Props = {
 
 type StaffLineDraft = LinkedDayStaffLineDraft
 type BlockDraft = LinkedDayBlockDraft
-/** 表單狀態：餐費／雜項為整日；工作內容／儀器與人員在案場區塊；案場／人員與月表連動 */
+/** 表單狀態：餐費／整日工具為整日；工作內容／儀器與人員在案場區塊；案場／人員與月表連動 */
 type DayDraft = LinkedDayDraft
 
 function daysInMonth(year: number, month1to12: number): number {
@@ -328,6 +334,31 @@ export function WorkLogPanel({
 
   const multiSiteMode = countDistinctNamedSites(dayDraft.blocks) >= 2
 
+  const aggregatedInstrumentQtyForDay = useMemo(() => {
+    const o = emptyInstrumentQty()
+    for (const b of dayDraft.blocks) {
+      const iq = parseInstrumentQtyFromDraftStrings(
+        b.instrumentTotalStation ?? '',
+        b.instrumentRotatingLaser ?? '',
+        b.instrumentLineLaser ?? '',
+      )
+      o.totalStation += iq.totalStation
+      o.rotatingLaser += iq.rotatingLaser
+      o.lineLaser += iq.lineLaser
+    }
+    return {
+      totalStation: Math.min(9999, o.totalStation),
+      rotatingLaser: Math.min(9999, o.rotatingLaser),
+      lineLaser: Math.min(9999, o.lineLaser),
+    }
+  }, [dayDraft.blocks])
+
+  const instrumentExpenseAuto = useMemo(
+    () => instrumentExpenseFromQty(aggregatedInstrumentQtyForDay),
+    [aggregatedInstrumentQtyForDay],
+  )
+  const instrumentUsesStructuredQty = instrumentQtyAnyPositive(aggregatedInstrumentQtyForDay)
+
   const dayCellSummaries = useMemo(() => {
     const p = `${viewYear}-${String(viewMonth).padStart(2, '0')}-`
     const m = new Map<string, DayCellSummary>()
@@ -519,7 +550,7 @@ export function WorkLogPanel({
       setWorkLog((w) => {
         const cur = w.customWorkItemLabels ?? []
         if (cur.includes(v)) return w
-        return { ...w, customWorkItemLabels: [...cur, v].sort((a, b) => a.localeCompare(b, 'zh-Hant')) }
+        return { ...w, customWorkItemLabels: sortWorkItemLabelsList([...cur, v]) }
       })
       setDayDraft((d) => ({
         ...d,
@@ -585,6 +616,9 @@ export function WorkLogPanel({
           instrumentLineLaser: '',
           equipment: '',
           remark: nb.remark,
+          dong: nb.dong,
+          floorLevel: nb.floorLevel,
+          workPhase: nb.workPhase,
           staffLines: nb.staffLines.map((x) => ({ ...x })),
         },
       ],
@@ -624,6 +658,23 @@ export function WorkLogPanel({
         return { ...b, staffLines: b.staffLines.filter((_, j) => j !== lineIdx) }
       }),
     }))
+  }, [])
+
+  const addToolLineRow = useCallback(() => {
+    setDayDraft((d) => ({
+      ...d,
+      toolLines: [...(d.toolLines ?? []), { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }],
+    }))
+  }, [])
+
+  const removeToolLineRow = useCallback((lineIdx: number) => {
+    setDayDraft((d) => {
+      const tl = d.toolLines ?? []
+      if (tl.length <= 1) {
+        return { ...d, toolLines: [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }] }
+      }
+      return { ...d, toolLines: tl.filter((_, j) => j !== lineIdx) }
+    })
   }, [])
 
   return (
@@ -830,7 +881,7 @@ export function WorkLogPanel({
           </datalist>
 
           <div className={`worklogSharedDayFields${multiSiteMode ? ' worklogSharedDayFields--multi' : ''}`}>
-            <p className="worklogSharedDayFieldsTitle">當日共用（餐費、雜項）</p>
+            <p className="worklogSharedDayFieldsTitle">當日共用（餐費、工具、儀器支出）</p>
             <div className="worklogFormGrid" style={{ marginTop: 4 }}>
               <label className="worklogFormLabel">
                 <span className="worklogDayInfoLabel">
@@ -848,23 +899,150 @@ export function WorkLogPanel({
                   placeholder="0"
                 />
               </label>
-              <label className="worklogFormLabel">
-                <span className="worklogDayInfoLabel">
-                  <span className="worklogDayInfoNum" aria-hidden>
-                    3
-                  </span>
-                  雜項支出（元）
-                </span>
-                <input
-                  type="number"
-                  className="titleInput"
-                  disabled={!formUnlocked}
-                  value={dayDraft.miscCost}
-                  onChange={(e) => setDayDraft((d) => ({ ...d, miscCost: e.target.value }))}
-                  placeholder="0"
-                />
-              </label>
             </div>
+            <div style={{ marginTop: 12 }}>
+              <span className="worklogDayInfoLabel">
+                <span className="worklogDayInfoNum" aria-hidden>
+                  3
+                </span>
+                工具（名稱、數量、單位、金額，可複數列）
+              </span>
+              <p className="hint muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                數量空白則視為 1；損益仍以「金額」加總。
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+                {(dayDraft.toolLines ?? []).map((row, ti) => (
+                  <div key={row.id} className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                    <label className="worklogFormLabel" style={{ flex: '1 1 140px', minWidth: 100 }}>
+                      <span className="muted" style={{ fontSize: '0.9em' }}>
+                        名稱
+                      </span>
+                      <input
+                        type="text"
+                        className="titleInput"
+                        disabled={!formUnlocked}
+                        value={row.name}
+                        onChange={(e) =>
+                          setDayDraft((d) => ({
+                            ...d,
+                            toolLines: (d.toolLines ?? []).map((r, i) =>
+                              i === ti ? { ...r, name: e.target.value } : r,
+                            ),
+                          }))
+                        }
+                        placeholder="選填"
+                      />
+                    </label>
+                    <label className="worklogFormLabel" style={{ flex: '0 1 88px', minWidth: 72 }}>
+                      <span className="muted" style={{ fontSize: '0.9em' }}>
+                        數量
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        className="titleInput"
+                        disabled={!formUnlocked}
+                        value={row.qty ?? ''}
+                        onChange={(e) =>
+                          setDayDraft((d) => ({
+                            ...d,
+                            toolLines: (d.toolLines ?? []).map((r, i) =>
+                              i === ti ? { ...r, qty: e.target.value } : r,
+                            ),
+                          }))
+                        }
+                        placeholder="1"
+                        title="空白則視為 1"
+                      />
+                    </label>
+                    <label className="worklogFormLabel" style={{ flex: '0 1 88px', minWidth: 64 }}>
+                      <span className="muted" style={{ fontSize: '0.9em' }}>
+                        單位
+                      </span>
+                      <input
+                        type="text"
+                        className="titleInput"
+                        disabled={!formUnlocked}
+                        value={row.unit ?? ''}
+                        onChange={(e) =>
+                          setDayDraft((d) => ({
+                            ...d,
+                            toolLines: (d.toolLines ?? []).map((r, i) =>
+                              i === ti ? { ...r, unit: e.target.value } : r,
+                            ),
+                          }))
+                        }
+                        placeholder="組"
+                      />
+                    </label>
+                    <label className="worklogFormLabel" style={{ flex: '0 1 120px' }}>
+                      <span className="muted" style={{ fontSize: '0.9em' }}>
+                        金額（元）
+                      </span>
+                      <input
+                        type="number"
+                        className="titleInput"
+                        disabled={!formUnlocked}
+                        value={row.amount}
+                        onChange={(e) =>
+                          setDayDraft((d) => ({
+                            ...d,
+                            toolLines: (d.toolLines ?? []).map((r, i) =>
+                              i === ti ? { ...r, amount: e.target.value } : r,
+                            ),
+                          }))
+                        }
+                        placeholder="0"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={!formUnlocked || (dayDraft.toolLines ?? []).length <= 1}
+                      onClick={() => removeToolLineRow(ti)}
+                    >
+                      移除此列
+                    </button>
+                  </div>
+                ))}
+                <button type="button" className="btn secondary" disabled={!formUnlocked} onClick={addToolLineRow}>
+                  新增工具列
+                </button>
+              </div>
+            </div>
+            <label className="worklogFormLabel" style={{ marginTop: 12 }}>
+              <span className="worklogDayInfoLabel">
+                <span className="worklogDayInfoNum" aria-hidden>
+                  4
+                </span>
+                儀器支出（元）
+              </span>
+              <p className="hint muted" style={{ margin: '4px 0 6px', fontSize: 12 }}>
+                單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
+                {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+                {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。下方各案場有填台數時，此欄依台數自動加總（無法手改）。
+              </p>
+              <input
+                type="number"
+                className="titleInput"
+                disabled={!formUnlocked || instrumentUsesStructuredQty}
+                value={
+                  instrumentUsesStructuredQty
+                    ? instrumentExpenseAuto
+                    : dayDraft.instrumentCost === ''
+                      ? ''
+                      : dayDraft.instrumentCost
+                }
+                onChange={(e) => setDayDraft((d) => ({ ...d, instrumentCost: e.target.value }))}
+                placeholder="0"
+                title={
+                  instrumentUsesStructuredQty
+                    ? '已依各案場儀器台數與單價自動計算'
+                    : '無台數時可手填；公司損益表「儀器」欄依檢視年度曆月加總此欄'
+                }
+              />
+            </label>
           </div>
 
           <div className="worklogDayBlockActionsGlobal btnRow" style={{ marginTop: 12, flexWrap: 'wrap' }}>
@@ -893,22 +1071,93 @@ export function WorkLogPanel({
                   </button>
                 </div>
               ) : null}
-              <label className="worklogFormLabel" style={{ margin: '0 0 10px', width: '100%' }}>
-                <span className="worklogDayInfoLabel">案場地點</span>
-                <select
-                  className="titleInput"
-                  disabled={!formUnlocked}
-                  value={block.siteName ? block.siteName : EMPTY_SITE}
-                  onChange={(e) => fixApplyBlockSite(bi, e.target.value)}
+              <div
+                className="worklogSiteBlockSiteInfo"
+                style={{
+                  marginTop: bi === 0 ? 4 : 18,
+                  paddingTop: bi === 0 ? 0 : 12,
+                  borderTop: bi === 0 ? undefined : '1px solid var(--border, #ddd)',
+                }}
+              >
+                <p className="worklogSharedDayFieldsTitle" style={{ marginBottom: 10 }}>
+                  案場資訊
+                  {dayDraft.blocks.length > 1 ? (
+                    <span className="muted" style={{ fontWeight: 'normal', fontSize: '0.92em' }}>
+                      {' '}
+                      （第 {bi + 1} 區）
+                    </span>
+                  ) : null}
+                </p>
+                <label className="worklogFormLabel" style={{ margin: '0 0 10px', width: '100%' }}>
+                  <span className="worklogDayInfoLabel">案場地點</span>
+                  <select
+                    className="titleInput"
+                    disabled={!formUnlocked}
+                    value={block.siteName ? block.siteName : EMPTY_SITE}
+                    onChange={(e) => fixApplyBlockSite(bi, e.target.value)}
+                  >
+                    <option value={EMPTY_SITE}>請選擇</option>
+                    {siteChoices.map((n) => (
+                      <option key={n} value={n}>
+                        {isPlaceholderMonthBlockSiteName(n) ? '（草稿案場）' : n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div
+                  className="btnRow"
+                  style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 10, width: '100%' }}
                 >
-                  <option value={EMPTY_SITE}>請選擇</option>
-                  {siteChoices.map((n) => (
-                    <option key={n} value={n}>
-                      {isPlaceholderMonthBlockSiteName(n) ? '（草稿案場）' : n}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <label className="worklogFormLabel" style={{ flex: '1 1 100px', minWidth: 80, margin: 0 }}>
+                    <span className="worklogDayInfoLabel">棟</span>
+                    <input
+                    type="text"
+                    className="titleInput"
+                    disabled={!formUnlocked}
+                    value={block.dong}
+                    onChange={(e) =>
+                      setDayDraft((d) => ({
+                        ...d,
+                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, dong: e.target.value } : b)),
+                      }))
+                    }
+                    placeholder="例：A棟"
+                  />
+                </label>
+                <label className="worklogFormLabel" style={{ flex: '1 1 100px', minWidth: 80, margin: 0 }}>
+                  <span className="worklogDayInfoLabel">樓層</span>
+                  <input
+                    type="text"
+                    className="titleInput"
+                    disabled={!formUnlocked}
+                    value={block.floorLevel}
+                    onChange={(e) =>
+                      setDayDraft((d) => ({
+                        ...d,
+                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, floorLevel: e.target.value } : b)),
+                      }))
+                    }
+                    placeholder="例：3F"
+                  />
+                </label>
+                <label className="worklogFormLabel" style={{ flex: '1 1 120px', minWidth: 96, margin: 0 }}>
+                  <span className="worklogDayInfoLabel">階段</span>
+                  <input
+                    type="text"
+                    className="titleInput"
+                    disabled={!formUnlocked}
+                    value={block.workPhase}
+                    onChange={(e) =>
+                      setDayDraft((d) => ({
+                        ...d,
+                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, workPhase: e.target.value } : b)),
+                      }))
+                    }
+                    placeholder="例：結構／粗裝"
+                  />
+                </label>
+                </div>
+              </div>
               {payrollDayPrefill && payrollDayPrefill.siteNamesWithWork.length > 1 ? (
                 <p className="hint muted" style={{ marginTop: 0, marginBottom: 8 }}>
                   月表本日多案場：{payrollDayPrefill.siteNamesWithWork.join('、')}。可「新增案場區塊」後各選一案場；同人不同場請分區塊登記。
@@ -1115,6 +1364,9 @@ export function WorkLogPanel({
                 <span className="worklogDayInfoLabel">使用儀器（本案場）</span>
                 <p className="hint muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>
                   僅三種：全站儀、旋轉雷射、墨線儀。請填<strong>台數</strong>（0 或空白＝未使用）；有使用才填數量。
+                  儀器支出單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
+                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台（全日各案場台數加總）。
                 </p>
                 {(() => {
                   const q = parseInstrumentQtyFromDraftStrings(

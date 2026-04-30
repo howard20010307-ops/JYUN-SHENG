@@ -33,7 +33,12 @@ export type FieldworkQuickPayload = {
   dayValue: number
   /** 公司損益表「餐費」加帳（可正負）；0 表示不加 */
   mealLedgerAmount: number
-  /** 公司損益表「工具」加帳（可正負）；0 表示不加；工作日誌雜項支出與此連動 */
+  /**
+   * 公司損益表「工具」加帳：多筆具名工具（金額加總入帳）。
+   * 有傳入且至少一筆有名稱或非零金額時，優先於 {@link miscLedgerAmount}。
+   */
+  toolLedgerLines?: { name: string; amount: number; qty?: number; unit?: string }[]
+  /** 單筆工具金額（舊表單）；若 {@link toolLedgerLines} 有資料則忽略 */
   miscLedgerAmount?: number
   /**
    * 加班費：每人加班時數；與月表一致：時薪＝日薪／8，再乘時數。
@@ -48,6 +53,36 @@ export type FieldworkQuickPayload = {
 
 function monthIndexForIso(book: SalaryBook, iso: string): number {
   return book.months.findIndex((m) => m.dates.includes(iso))
+}
+
+/** 月表該案場區塊之「餐」列：指定日欄累加金額（與 Excel 餐列一致；供損益表 {@link autoLedgerMealsForMonthKeyInYear} 加總）。 */
+function addMealDeltaToPayrollBlockForSite(
+  book: SalaryBook,
+  monthIndex: number,
+  siteName: string,
+  dayIdx: number,
+  mealDelta: number,
+): SalaryBook {
+  const d = Number.isFinite(mealDelta) ? mealDelta : 0
+  if (d === 0 || dayIdx < 0) return book
+  const sheet = book.months[monthIndex]
+  if (!sheet) return book
+  const len = sheet.dates.length
+  if (dayIdx >= len) return book
+  let blocks = [...sheet.blocks]
+  let bi = blocks.findIndex((b) => b.siteName === siteName)
+  if (bi < 0) {
+    blocks = [...blocks, emptyBlock(siteName, len, staffKeysForMonthDisplay(sheet))]
+    bi = blocks.length - 1
+  }
+  const block = blocks[bi]
+  const mealRow = [...padArray(block.meal, len)]
+  mealRow[dayIdx] = (mealRow[dayIdx] ?? 0) + d
+  blocks[bi] = { ...block, meal: mealRow }
+  return {
+    ...book,
+    months: book.months.map((x, i) => (i === monthIndex ? { ...sheet, blocks } : x)),
+  }
 }
 
 /** 與加班費試算相同：調工地點固定對應日薪線，其餘依表單單選 */
@@ -108,6 +143,8 @@ export function applyFieldworkQuick(
   const dayIdx = bookWithStaff.months[mi].dates.indexOf(iso)
   let m = bookWithStaff.months[mi]
   const len = m.dates.length
+  const mealAmt = Number.isFinite(payload.mealLedgerAmount) ? payload.mealLedgerAmount : 0
+  const wantsMeal = mealAmt !== 0
 
   const isTsaiAdjustSite = siteKey === QUICK_SITE_TSAI_ADJUST
   const isJunAdjustSite = siteKey === QUICK_SITE_JUN_ADJUST
@@ -153,6 +190,11 @@ export function applyFieldworkQuick(
       }
       block = { ...block, grid: { ...block.grid, [w]: row } }
     }
+    if (wantsMeal && dayIdx >= 0 && dayIdx < len) {
+      const mealRow = [...padArray(block.meal, len)]
+      mealRow[dayIdx] = (mealRow[dayIdx] ?? 0) + mealAmt
+      block = { ...block, meal: mealRow }
+    }
     blocks[bi] = block
 
     const newMonthsData = bookWithStaff.months.map((x, i) =>
@@ -164,22 +206,35 @@ export function applyFieldworkQuick(
         ? `已登記：${iso}、${siteKey}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
         : `出工天數為 0：未變更案場「${siteKey}」該日格線（${iso}、${workers.join('、')}）。`
   }
+  if ((isTsaiAdjustSite || isJunAdjustSite) && wantsMeal) {
+    newBook = addMealDeltaToPayrollBlockForSite(newBook, mi, siteKey, dayIdx, mealAmt)
+  }
   let newLedger = months
 
   const calMo = parseInt(iso.slice(5, 7), 10)
   const monthKey = String(calMo)
   const li = months.findIndex((row) => row.month === monthKey)
 
-  const mealAmt = payload.mealLedgerAmount
-  const miscAmtRaw =
+  const toolLinesRaw = Array.isArray(payload.toolLedgerLines) ? payload.toolLedgerLines : []
+  const toolLines = toolLinesRaw.filter(
+    (l) =>
+      (typeof l?.name === 'string' && l.name.trim()) ||
+      (Number.isFinite(l?.amount) && l.amount !== 0) ||
+      (typeof l?.unit === 'string' && l.unit.trim()) ||
+      (Number.isFinite(l?.qty) && (l.qty as number) > 0 && (l.qty as number) !== 1),
+  )
+  const miscAmtFromLines = toolLines.reduce(
+    (a, l) => a + (Number.isFinite(l.amount) ? l.amount : 0),
+    0,
+  )
+  const miscAmtRawLegacy =
     typeof payload.miscLedgerAmount === 'number' && Number.isFinite(payload.miscLedgerAmount)
       ? payload.miscLedgerAmount
       : 0
-  const miscAmt = miscAmtRaw
+  const miscAmt = toolLines.length > 0 ? miscAmtFromLines : miscAmtRawLegacy
   const otHours = payload.otHoursPerPerson
   const otManual = payload.otManualAmount
 
-  const wantsMeal = Number.isFinite(mealAmt) && mealAmt !== 0
   const wantsMisc = miscAmt !== 0
   const hours = Number.isFinite(otHours) && otHours > 0 ? otHours : 0
   const wantsOtAuto = hours > 0 && workers.length > 0
@@ -208,26 +263,23 @@ export function applyFieldworkQuick(
     msg += ` 月表「${gridLabel}」已於 ${iso} 為所選人員每人 +${hours} 時（與加班費試算同一條日薪線）。`
   }
 
+  if (wantsMeal && dayIdx >= 0 && dayIdx < len) {
+    msg += ` 月表「${siteKey}」${iso} 餐費欄 +${mealAmt}；公司損益表「餐費」將依月表自動加總。`
+  }
+
   if (li < 0) {
-    if (wantsMeal || wantsMisc || wantsOtAuto || wantsOtManual) {
-      msg += ` 公司損益表：找不到「${monthKey} 月」列，略過餐費／工具（雜項）／加班費加帳。`
+    if (wantsMisc || wantsOtAuto || wantsOtManual) {
+      msg += ` 公司損益表：找不到「${monthKey} 月」列，略過工具／加班費加帳。`
     }
   } else {
     const parts: string[] = []
     let ledger = months
 
-    if (wantsMeal) {
-      ledger = ledger.map((row, i) =>
-        i !== li ? row : { ...row, meals: row.meals + mealAmt },
-      )
-      parts.push(`餐費 ${mealAmt}`)
-    }
-
     if (wantsMisc) {
       ledger = ledger.map((row, i) =>
         i !== li ? row : { ...row, tools: row.tools + miscAmt },
       )
-      parts.push(`工具（雜項） ${miscAmt}`)
+      parts.push(`工具 ${miscAmt}`)
     }
 
     let otDelta = 0
