@@ -25,10 +25,6 @@ function* walkTs(dir) {
 /** 禁止：首載／合併回傳物件內先展開雲端再整包展開本機 `prev`（會把估價、損益、分頁等古早本機整包糊在雲端上）。 */
 const RE_FROM_CLOUD_THEN_SPREAD_PREV = /\.\.\.\s*fromCloud[\s\S]{0,2000}?\.\.\.\s*prev\b/
 
-/** 禁止：`mergeStoredMonthLines` 用 `defaultLedger` 逐列鋪滿 Map 再覆寫（未列出的月會留示範老闆薪）。 */
-const RE_MERGE_STORED_SEED_DEFAULT_LEDGER =
-  /function\s+mergeStoredMonthLines[\s\S]*?for\s*\(\s*const\s+row\s+of\s+defaults\s*\)\s*map\.set/
-
 function stripTsCommentsRough(text) {
   return text
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
@@ -54,11 +50,11 @@ function main() {
       })
     }
 
-    if (rel.endsWith('domain/ledgerEngine.ts') && RE_MERGE_STORED_SEED_DEFAULT_LEDGER.test(code)) {
+    if (rel === 'src/domain/ledgerEngine.ts' && /for\s*\(\s*const\s+row\s+of\s+defaults\s*\)/.test(code)) {
       hits.push({
         file: rel,
-        rule: 'forbidden: mergeStoredMonthLines seeds map from defaultLedger rows (gap months get demo bossSalary)',
-        excerpt: 'reintroduced defaultLedger map seed loop',
+        rule: 'forbidden: mergeStoredMonthLines must not seed months map from defaultLedger rows (gap months get demo bossSalary)',
+        excerpt: 'found: for (const row of defaults)',
       })
     }
   }

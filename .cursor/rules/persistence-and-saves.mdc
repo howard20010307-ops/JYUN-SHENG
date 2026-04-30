@@ -13,7 +13,22 @@ alwaysApply: true
 2. 合併時：**兩邊都出現的鍵 → 本機優先**（與 `mergeReceivablesPreferLocal` 一致）；**只在一邊出現的鍵 → 保留**。  
 3. 新開域或改欄位：先寫合併函式與測試路徑，再接到 JSONBin 首載／匯入；變更後跑 `npx tsc --noEmit`。
 
-**現有參考實作**：`mergeReceivablesPreferLocal`、`mergeWorkLogPreferLocal`、`mergeSalaryBookPreferLocal`（薪水整本含月表 id／案場區塊 id）。**尚未套用此模式之域**（須補齊才能當完成）：估價 `site`／`quoteRows`、公司損益 `months`（與薪水月表不同）等。
+**現有參考實作**：`mergeReceivablesPreferLocal`、`mergeWorkLogPreferLocal`、`mergeSalaryBookPreferLocal`（薪水整本含月表 id／案場區塊 id）、JSONBin 首載之 `mergeLedgerMonthLinesPreferLocal`（損益月列依 `month` 本機優先）。**尚未套用收帳式合併之域**（須補齊才能當完成）：估價 `site`／`quoteRows` 等（損益讀檔仍用 `mergeStoredMonthLines`，與 JSONBin 首載合併分開維護）。
+
+---
+
+## 新功能上線前自檢（須逐項勾過）
+
+新功能只要會進 **本機／備份／JSONBin／首載合併／匯入還原**，開 PR／合併前對照勾選；與規則衝突者不得合併。
+
+1. **手輸域**：是否已有**穩定鍵**（列 `id`、`logDate`、`month` 等）？新列是否禁止隨機 id（見 `stable-ids` 規則）？  
+2. **兩邊資料並存時**：是否為該域實作 **`merge*PreferLocal`（或等價鍵級合併）**，且已接到 JSONBin 首載／匯入路徑？**禁止**在合併回傳裡對雲端底稿再 **`{ ...fromCloud, ...prev }` 整包本機展開**（舊手機會污染估價、損益、分頁等非合併欄位）。  
+3. **缺欄／少列載入**：手填欄位缺 key、或陣列未列滿所有月／列時，**缺洞預設**是否為「中性 0／空字串」，**禁止**用內建示範表（如 `defaultLedger` 整表鋪底再只覆蓋有列出的月）當載入底稿。  
+4. **自動帶入 vs 手填**：若畫面會「重算覆寫」某些欄位，是否分清楚語意（只讀顯示／可覆寫存檔／另欄）？避免使用者以為已鎖定卻被 effect 改掉。  
+5. **多裝置**：是否接受「單一寫入者」或需 **唯讀／暫停上傳**？若允許整包以雲端為準，是否僅在使用者**明確按鈕**（如「從雲端還原」）時執行？  
+6. **交貨前指令**：`npm run check:stable-ids`、`npm run check:persistence`、`npx tsc --noEmit`；有動到行為時補手動情境（舊本機＋新雲端、空 `exportedAt`、少一個月的 `months` 陣列）。
+
+**自動化**：`junshan-web` 內 `npm run check:persistence` 會擋已知反模式（已接在 `prebuild`）；無法靜態分析者仍靠上方自檢表。
 
 ---
 
