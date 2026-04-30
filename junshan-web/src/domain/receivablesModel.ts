@@ -2,6 +2,7 @@
 
 import type { SalaryBook } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
+import { allocateWithSuffix, stableHash16 } from './stableIds'
 
 export type ReceivableEntryId = string
 
@@ -188,6 +189,36 @@ export function resolvedReceivableProjectName(book: SalaryBook, e: ReceivableEnt
 function payrollSiteKeyForMerge(e: ReceivableEntry): string {
   if (e.monthSheetId === '' && e.siteBlockId) return `v:${e.siteBlockId}`
   return `p:${e.projectName.trim()}`
+}
+
+/** 薪水月表／區塊 id 載入正規化後，同步舊的收帳綁定欄位 */
+export function remapReceivablePayrollBindings(
+  state: ReceivablesState,
+  monthRemap: Readonly<Record<string, string>>,
+  blockRemap: Readonly<Record<string, string>>,
+): ReceivablesState {
+  if (
+    Object.keys(monthRemap).length === 0 &&
+    Object.keys(blockRemap).length === 0
+  ) {
+    return state
+  }
+  return {
+    entries: state.entries.map((e) => {
+      let next = e
+      const mo = e.monthSheetId
+      if (typeof mo === 'string' && mo !== '') {
+        const toM = monthRemap[mo]
+        if (toM !== undefined && toM !== mo) next = { ...next, monthSheetId: toM }
+      }
+      const blk = e.siteBlockId
+      if (typeof blk === 'string' && blk !== '') {
+        const toB = blockRemap[blk]
+        if (toB !== undefined && toB !== blk) next = { ...next, siteBlockId: toB }
+      }
+      return next
+    }),
+  }
 }
 
 /**
@@ -430,7 +461,9 @@ export function migrateReceivablesState(loaded: unknown): ReceivablesState {
       syncEntriesTax(migrateEntriesArray(o.entries)),
     )
     return {
-      entries: dedupeReceivablesSansProjectFingerprints(raw, new Set()),
+      entries: assignStableReceivableIds(
+        dedupeReceivablesSansProjectFingerprints(raw, new Set()),
+      ),
     }
   }
 
@@ -439,7 +472,9 @@ export function migrateReceivablesState(loaded: unknown): ReceivablesState {
       syncEntriesTax(migrateLegacyNested(o).entries),
     )
     return {
-      entries: dedupeReceivablesSansProjectFingerprints(raw, new Set()),
+      entries: assignStableReceivableIds(
+        dedupeReceivablesSansProjectFingerprints(raw, new Set()),
+      ),
     }
   }
 
@@ -476,7 +511,6 @@ export function sumEntriesInMonth(
   return sumEntriesNetTaxGross(inMonth)
 }
 
-/** 依入帳日年份（YYYY）加總 */
 export function sumEntriesInYear(
   entries: ReceivableEntry[],
   year: string,
@@ -492,11 +526,25 @@ export function sumEntriesInYear(
   return sumEntriesNetTaxGross(inYear)
 }
 
-export function newReceivableId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `rcv-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+function assignStableReceivableIds(entries: ReceivableEntry[]): ReceivableEntry[] {
+  const sorted = sortReceivableEntriesByBookedDate(entries)
+  const used = new Set<string>()
+  return sorted.map((e) => {
+    const base = `rcv--${stableHash16(receivableCloudMergeFingerprint(e))}`
+    const id = allocateWithSuffix(base, used)
+    used.add(id)
+    return { ...e, id }
+  })
+}
+
+/**
+ * 新列 id：由與 {@link receivableCloudMergeFingerprint} 相同之業務欄位導出，兩端內容一致則 id 相同便於合併。
+ * @param entry 已填妥將存檔之欄位（至少含預設之入帳日等）
+ * @param existingIds 已有列 id，供同指紋時加 `~2` 後綴
+ */
+export function newReceivableId(entry: ReceivableEntry, existingIds: ReadonlySet<string>): string {
+  const base = `rcv--${stableHash16(receivableCloudMergeFingerprint(entry))}`
+  return allocateWithSuffix(base, existingIds)
 }
 
 const FP_SEP = '\u001f'

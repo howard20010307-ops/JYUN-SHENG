@@ -24,6 +24,7 @@ import type { QuoteSite } from '../domain/quoteEngine'
 import {
   addEmptySiteBlockToMonth,
   pickActiveMonthIdForToday,
+  monthSheetSelectOptionLabel,
 } from '../domain/salaryExcelModel'
 import { receivableSiteSelectOptionsFromOverview } from '../domain/jobSitesFromBook'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
@@ -252,7 +253,6 @@ export function ReceivablesPanel({
 
   const addRow = useCallback(() => {
     if (!canEdit) return
-    const id = newReceivableId()
     const booked = defaultBookedDateForRange(rangeMode, monthFilter, yearFilter)
     if (rangeMode === 'month') {
       setMonthFilter(booked.slice(0, 7))
@@ -266,20 +266,25 @@ export function ReceivablesPanel({
     }
     setReceivables((prev) => {
       const p = migrateReceivablesState(prev)
+      const draft: ReceivableEntry = {
+        id: '',
+        bookedDate: booked,
+        projectName: '',
+        buildingLabel: '',
+        floorLabel: '',
+        phaseLabel: '',
+        net: 0,
+        taxZero: false,
+        tax: 0,
+        note: '',
+      }
+      const id = newReceivableId(draft, new Set(p.entries.map((e) => e.id)))
       return {
         entries: sortReceivableEntriesByBookedDate([
           ...p.entries,
           {
+            ...draft,
             id,
-            bookedDate: booked,
-            projectName: '',
-            buildingLabel: '',
-            floorLabel: '',
-            phaseLabel: '',
-            net: 0,
-            taxZero: false,
-            tax: 0,
-            note: '',
           },
         ]),
       }
@@ -779,7 +784,7 @@ export function ReceivablesPanel({
               >
                 {salaryBook.months.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.label}
+                    {monthSheetSelectOptionLabel(m, salaryBook.months)}
                   </option>
                 ))}
               </select>

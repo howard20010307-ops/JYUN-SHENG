@@ -3,6 +3,7 @@
  * 變更細項清單或列展開規則時請遞增 appState 內 {@link QUOTE_ROWS_SCHEMA_VERSION}。
  */
 import type { QuoteLayout, QuoteRow } from './quoteEngine'
+import { stableHash16 } from './stableIds'
 import {
   EXCEL_ABOVE_STANDARD_ITEMS,
   EXCEL_BASEMENT_ITEMS,
@@ -25,10 +26,7 @@ type Seed = Pick<
 > & { riskPct?: number }
 
 function rowId(seed: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `q-${Date.now()}-${seed}-${Math.random().toString(36).slice(2, 10)}`
+  return `q--${stableHash16(`quoteRow\0${seed}`)}`
 }
 
 function makeRow(

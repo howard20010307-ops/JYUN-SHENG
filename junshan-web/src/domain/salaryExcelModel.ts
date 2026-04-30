@@ -71,6 +71,153 @@ export function normalizePayrollSiteBlockMergeKey(raw: string): string {
   return t
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * 由月表日期欄得出的穩定 id（雲端／本機合併與備份還原時，與建立當下裝置無關）。
+ * 無有效 ISO 日期時為 `m-nodates`；同書內多張表同區間時另以 {@link stabilizeSalaryBookPayrollIds} 加 `~2` 等後綴。
+ */
+export function stableMonthSheetIdFromDates(dates: readonly string[]): string {
+  const valid = dates
+    .filter((d): d is string => typeof d === 'string' && ISO_DATE_RE.test(d.trim()))
+    .map((d) => d.trim())
+    .sort()
+  if (valid.length === 0) return 'm-nodates'
+  const a = valid[0]!
+  const b = valid[valid.length - 1]!
+  return a === b ? `m-${a}` : `m-${a}_${b}`
+}
+
+function slugForStableBlockIdSegment(rawKey: string): string {
+  let o = ''
+  for (const ch of rawKey) {
+    const cp = ch.codePointAt(0)!
+    if (
+      (cp >= 48 && cp <= 57) ||
+      (cp >= 65 && cp <= 90) ||
+      (cp >= 97 && cp <= 122) ||
+      cp === 45 ||
+      cp === 95
+    ) {
+      o += ch
+    } else {
+      o += '_' + cp.toString(16) + '_'
+    }
+  }
+  return o.slice(0, 160)
+}
+
+/** 新建區塊時寫入之穩定 `SiteBlock.id`（已定案之 id 不因案場更名而改寫）。 */
+export function buildStableSiteBlockId(
+  monthSheetId: string,
+  siteNameRaw: string,
+  kind: 'named' | 'placeholder' | 'empty',
+  ordinal: number,
+): string {
+  const mid = monthSheetId
+  if (kind === 'placeholder') return `blk--${mid}--ph--${ordinal}`
+  if (kind === 'empty') return `blk--${mid}--em--${ordinal}`
+  const k = normalizePayrollSiteBlockMergeKey(siteNameRaw)
+  const slug = slugForStableBlockIdSegment(k || 'x')
+  return `blk--${mid}--${slug}`
+}
+
+function isStableSiteBlockId(id: string): boolean {
+  return /^blk--m-/.test(id)
+}
+
+function siteBlockKindForStableId(raw: string): 'named' | 'placeholder' | 'empty' {
+  if (isPlaceholderMonthBlockSiteName(raw)) return 'placeholder'
+  if (!raw.trim()) return 'empty'
+  return 'named'
+}
+
+export type PayrollIdsRemap = {
+  monthByOldId: Record<string, string>
+  blockByOldId: Record<string, string>
+}
+
+/**
+ * 將舊版 `Date.now()`／`m-init-*` 等月表與 `blk-173…` 區塊 id 改為穩定鍵；已穩定之區塊 id 不因案名變更而重算（收帳綁定可沿用）。
+ * 於 {@link migrateAppState} 載入時執行；可重複呼叫直至無需變更。
+ */
+export function stabilizeSalaryBookPayrollIds(book: SalaryBook): {
+  book: SalaryBook
+  remap: PayrollIdsRemap
+} {
+  const monthRemap = new Map<string, string>()
+  const blockRemap = new Map<string, string>()
+
+  const baseCounts = new Map<string, number>()
+  const targetMonthIds: string[] = []
+  for (const m of book.months) {
+    const base = stableMonthSheetIdFromDates(m.dates)
+    const n = (baseCounts.get(base) ?? 0) + 1
+    baseCounts.set(base, n)
+    targetMonthIds.push(n === 1 ? base : `${base}~${n}`)
+  }
+
+  const newMonths: MonthSheetData[] = book.months.map((m, mi) => {
+    const newMid = targetMonthIds[mi]!
+    if (m.id !== newMid) monthRemap.set(m.id, newMid)
+    const monthIdChanged = m.id !== newMid
+
+    let phOrd = 0
+    let emOrd = 0
+    const usedNamed = new Set<string>()
+
+    const newBlocks = m.blocks.map((b) => {
+      const kind = siteBlockKindForStableId(typeof b.siteName === 'string' ? b.siteName : '')
+      const ord = kind === 'placeholder' ? phOrd++ : kind === 'empty' ? emOrd++ : 0
+
+      let nid: string
+      if (!isStableSiteBlockId(b.id)) {
+        nid = buildStableSiteBlockId(newMid, b.siteName, kind, ord)
+        if (kind === 'named') {
+          if (usedNamed.has(nid)) {
+            let c = 2
+            while (usedNamed.has(`${nid}__${c}`)) c++
+            nid = `${nid}__${c}`
+          }
+          usedNamed.add(nid)
+        }
+        if (nid !== b.id) blockRemap.set(b.id, nid)
+      } else if (monthIdChanged) {
+        nid = b.id.replace(
+          new RegExp(`^blk--${escapeRegex(m.id)}--`),
+          `blk--${newMid}--`,
+        )
+        if (nid !== b.id) blockRemap.set(b.id, nid)
+        if (kind === 'named') usedNamed.add(nid)
+      } else {
+        nid = b.id
+        if (kind === 'named') usedNamed.add(nid)
+      }
+
+      return { ...b, id: nid }
+    })
+
+    return { ...m, id: newMid, blocks: newBlocks }
+  })
+
+  if (monthRemap.size === 0 && blockRemap.size === 0) {
+    return { book, remap: { monthByOldId: {}, blockByOldId: {} } }
+  }
+
+  const next: SalaryBook = { ...book, months: newMonths }
+  return {
+    book: next,
+    remap: {
+      monthByOldId: Object.fromEntries(monthRemap),
+      blockByOldId: Object.fromEntries(blockRemap),
+    },
+  }
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')
+}
+
 /** 月表以外之摘要／明細：不露出保留案名「新案場」；空白案名仍為未命名。 */
 export function siteBlockLabelForSummary(siteNameRaw: string): string {
   if (isPlaceholderMonthBlockSiteName(siteNameRaw)) return '（草稿案場）'
@@ -445,11 +592,16 @@ export function defaultFebruary2026Dates(): string[] {
   ]
 }
 
-/** 新案場區塊格線人員列；未傳則為預設班底（必含 {@link MONTH_STAFF_FIXED} 置前） */
+/**
+ * 新案場區塊格線人員列；未傳則為預設班底（必含 {@link MONTH_STAFF_FIXED} 置前）。
+ * `ordinalPlaceholderOrEmpty`：該月內第幾個「新案場」或空白案名區塊（由 0 起）；具名案場可省略。
+ */
 export function emptyBlock(
+  monthSheetId: string,
   siteName: string,
   dateLen: number,
   staffRowKeys?: readonly string[],
+  ordinalPlaceholderOrEmpty?: number,
 ): SiteBlock {
   const fromArg =
     staffRowKeys && staffRowKeys.length > 0 ? [...staffRowKeys] : [...DEFAULT_STAFF]
@@ -457,8 +609,11 @@ export function emptyBlock(
   const base = [...MONTH_STAFF_FIXED, ...rest]
   const grid: Record<string, number[]> = {}
   for (const n of base) grid[n] = Array(dateLen).fill(0)
+  const ord = ordinalPlaceholderOrEmpty ?? 0
+  const kind = siteBlockKindForStableId(siteName)
+  const id = buildStableSiteBlockId(monthSheetId, siteName, kind, ord)
   return {
-    id: `blk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id,
     siteName,
     grid,
     meal: Array(dateLen).fill(0),
@@ -803,7 +958,13 @@ export function addEmptySiteBlockToMonth(
     }
   }
   const staffOrder = staffKeysForMonthDisplay(month)
-  const nb = emptyBlock(siteT, month.dates.length, staffOrder)
+  const phCount = isPlaceholderMonthBlockSiteName(siteT)
+    ? month.blocks.filter((b) => isPlaceholderMonthBlockSiteName(b.siteName)).length
+    : undefined
+  const nb =
+    phCount !== undefined
+      ? emptyBlock(month.id, siteT, month.dates.length, staffOrder, phCount)
+      : emptyBlock(month.id, siteT, month.dates.length, staffOrder)
   const nextMonth: MonthSheetData = { ...month, blocks: [...month.blocks, nb] }
   const nextBook: SalaryBook = {
     ...book,
@@ -974,13 +1135,14 @@ export function newMonthSheet(label: string, dates: string[]): MonthSheetData {
     junOtHours[n] = Array(dates.length).fill(0)
     tsaiOtHours[n] = Array(dates.length).fill(0)
   }
+  const mid = stableMonthSheetIdFromDates(dates)
   return {
-    id: `m-${label}-${Date.now()}`,
+    id: mid,
     label,
     dates,
     rateJun,
     rateTsai,
-    blocks: [emptyBlock(PLACEHOLDER_MONTH_BLOCK_SITE_NAME, dates.length)],
+    blocks: [emptyBlock(mid, PLACEHOLDER_MONTH_BLOCK_SITE_NAME, dates.length, undefined, 0)],
     advances,
     junAdjustDays,
     tsaiAdjustDays,
@@ -1047,18 +1209,16 @@ export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
 export function defaultSalaryBook(): SalaryBook {
   const year = 2026
   const months: MonthSheetData[] = []
-  let seq = 0
   for (let mo = 1; mo <= 12; mo++) {
     const label = `${mo}月`
     const dates = defaultDatesForStandardMonth(year, mo)
     const sheet = newMonthSheet(label, dates)
-    const withId: MonthSheetData = {
-      ...sheet,
-      id: `m-init-${year}-${String(mo).padStart(2, '0')}-${++seq}`,
-    }
     if (mo === 2) {
       /** 與匯出檔「富邦」區塊一致之範例（可刪改） */
-      const b0 = withId.blocks[0]
+      const b0 = sheet.blocks[0]
+      const mid = sheet.id
+      const fbId = buildStableSiteBlockId(mid, '富邦', 'named', 0)
+      b0.id = fbId
       b0.siteName = '富邦'
       b0.grid['蕭上彬'] = [
         1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1,
@@ -1073,7 +1233,7 @@ export function defaultSalaryBook(): SalaryBook {
         300, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 300, 300, 0, 0, 300, 300,
       ]
     }
-    months.push(withId)
+    months.push(sheet)
   }
   return {
     version: 1,
@@ -1150,6 +1310,19 @@ export function monthSheetCalendarMonth(m: MonthSheetData): number {
     if (Number.isFinite(mo) && mo >= 1 && mo <= 12) return mo
   }
   return 99
+}
+
+/**
+ * 月表 `<select>` 顯示字：僅「◯月」標題（`label` 或依日期推斷），不附日期區間。
+ * `scope`／`options` 保留為相容舊呼叫點，已不再使用。
+ */
+export function monthSheetSelectOptionLabel(
+  m: MonthSheetData,
+  _scope?: readonly MonthSheetData[],
+  _options?: { omitYearInDateRange?: number },
+): string {
+  const cal = monthSheetCalendarMonth(m)
+  return (m.label ?? '').trim() || `${cal}月`
 }
 
 export function advanceSumInPeriod(
@@ -2614,6 +2787,90 @@ function mergeMonthSheetPairPreferLocal(l: MonthSheetData, r: MonthSheetData): M
   }
 }
 
+function monthDatesColumnKeyForCollapse(m: MonthSheetData): string {
+  if (m.dates.length === 0) return `\0empty\0${m.id}`
+  return m.dates.join('\0')
+}
+
+/**
+ * `dates` 【逐欄、長度、內容】皆相同之多張月表（常來自本機＋雲端各一份）合併為一張，格線等資料與 {@link mergeMonthSheetPairPreferLocal} 相同策略。
+ */
+export function collapseMonthSheetsWithIdenticalDateColumns(book: SalaryBook): {
+  book: SalaryBook
+  monthByOldId: Record<string, string>
+} {
+  const monthRemap = new Map<string, string>()
+  type Row = { m: MonthSheetData; idx: number }
+  const rows: Row[] = book.months.map((m, idx) => ({ m, idx }))
+  const groups = new Map<string, Row[]>()
+  for (const row of rows) {
+    const key = monthDatesColumnKeyForCollapse(row.m)
+    const arr = groups.get(key) ?? []
+    arr.push(row)
+    groups.set(key, arr)
+  }
+  const chunks: { minIdx: number; month: MonthSheetData }[] = []
+  for (const g of groups.values()) {
+    g.sort((a, b) => a.idx - b.idx)
+    const first = g[0]!
+    let acc = first.m
+    for (let i = 1; i < g.length; i++) {
+      const other = g[i]!.m
+      monthRemap.set(other.id, acc.id)
+      acc = mergeMonthSheetPairPreferLocal(acc, other)
+    }
+    chunks.push({ minIdx: first.idx, month: acc })
+  }
+  chunks.sort((a, b) => a.minIdx - b.minIdx)
+  if (monthRemap.size === 0) {
+    return { book, monthByOldId: {} }
+  }
+  return {
+    book: { ...book, months: chunks.map((c) => c.month) },
+    monthByOldId: Object.fromEntries(monthRemap),
+  }
+}
+
+/** 載入／合併時月表 id 先「併重複月」再「穩定化 id」兩步時，收帳綁定需串聯兩張對照表。 */
+export function composePayrollMonthIdRemaps(
+  first: Readonly<Record<string, string>>,
+  second: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  const cand = new Set([...Object.keys(first), ...Object.keys(second)])
+  for (const start of cand) {
+    let x = first[start] ?? start
+    x = second[x] ?? x
+    if (x !== start) out[start] = x
+  }
+  for (const [k, v] of Object.entries(first)) {
+    const end = second[v] ?? v
+    if (end !== k) out[k] = end
+  }
+  return out
+}
+
+/** 正規化 → 合併同日期欄之重複月表 → 穩定化 id；備份還原／JSONBin／合併皆應經此得到一致薪水書。 */
+export function finalizeSalaryBookPayroll(book: SalaryBook): {
+  book: SalaryBook
+  remap: PayrollIdsRemap
+} {
+  const normalized = normalizeSalaryBook(book)
+  const collapsed = collapseMonthSheetsWithIdenticalDateColumns(normalized)
+  const stabilized = stabilizeSalaryBookPayrollIds(collapsed.book)
+  const monthByOldId = composePayrollMonthIdRemaps(
+    collapsed.monthByOldId,
+    stabilized.remap.monthByOldId,
+  )
+  return {
+    book: stabilized.book,
+    remap: {
+      monthByOldId,
+      blockByOldId: stabilized.remap.blockByOldId,
+    },
+  }
+}
+
 function mergeMonthsArrayPreferLocal(
   localMonths: readonly MonthSheetData[],
   remoteMonths: readonly MonthSheetData[],
@@ -2695,13 +2952,20 @@ function mergePayrollPeriodColumnsPreferLocal(
  * 月內 `grid`／預支／調工／加班等 `Record<string, number[]>` 為列鍵聯集，同鍵本機列優先；餐列隨區塊本機優先。
  * 供 JSONBin 首載，避免整包雲端覆寫抹掉本機手輸月表。
  */
-export function mergeSalaryBookPreferLocal(local: SalaryBook, remote: SalaryBook): SalaryBook {
-  const l = normalizeSalaryBook(local)
-  const r = normalizeSalaryBook(remote)
+export function mergeSalaryBookPreferLocalEx(
+  local: SalaryBook,
+  remote: SalaryBook,
+): { book: SalaryBook; remap: PayrollIdsRemap } {
+  const l = finalizeSalaryBookPayroll(local).book
+  const r = finalizeSalaryBookPayroll(remote).book
   const merged: SalaryBook = {
     version: 1,
     periodColumns: mergePayrollPeriodColumnsPreferLocal(l.periodColumns, r.periodColumns),
     months: mergeMonthsArrayPreferLocal(l.months, r.months),
   }
-  return normalizeSalaryBook(merged)
+  return finalizeSalaryBookPayroll(merged)
+}
+
+export function mergeSalaryBookPreferLocal(local: SalaryBook, remote: SalaryBook): SalaryBook {
+  return mergeSalaryBookPreferLocalEx(local, remote).book
 }

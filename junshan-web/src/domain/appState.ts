@@ -12,7 +12,7 @@ import { defaultLedger, mergeStoredMonthLines, type MonthLine } from './ledgerEn
 import {
   defaultSalaryBook,
   inferPayrollYearFromBook,
-  normalizeSalaryBook,
+  finalizeSalaryBookPayroll,
   type SalaryBook,
 } from './salaryExcelModel'
 import {
@@ -23,6 +23,7 @@ import {
 import {
   initialReceivablesState,
   migrateReceivablesState,
+  remapReceivablePayrollBindings,
   type ReceivablesState,
 } from './receivablesModel'
 import {
@@ -117,10 +118,13 @@ export function migrateAppState(loaded: unknown): AppState {
     }
   }
 
-  const salaryBook =
-    d.salaryBook && Array.isArray(d.salaryBook.months)
-      ? normalizeSalaryBook(d.salaryBook as SalaryBook)
-      : init.salaryBook
+  let salaryBook = init.salaryBook
+  let payrollIdRemap = { monthByOldId: {} as Record<string, string>, blockByOldId: {} as Record<string, string> }
+  if (d.salaryBook && Array.isArray(d.salaryBook.months)) {
+    const fin = finalizeSalaryBookPayroll(d.salaryBook as SalaryBook)
+    salaryBook = fin.book
+    payrollIdRemap = fin.remap
+  }
 
   const ledgerYear =
     typeof d.ledgerYear === 'number' &&
@@ -144,7 +148,11 @@ export function migrateAppState(loaded: unknown): AppState {
     months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     receivables:
       d.receivables !== undefined && d.receivables !== null
-        ? migrateReceivablesState(d.receivables)
+        ? remapReceivablePayrollBindings(
+            migrateReceivablesState(d.receivables),
+            payrollIdRemap.monthByOldId,
+            payrollIdRemap.blockByOldId,
+          )
         : init.receivables,
   }
   const { billingProgress: _legacyBillingProgress, ...out } = merged as typeof merged & {

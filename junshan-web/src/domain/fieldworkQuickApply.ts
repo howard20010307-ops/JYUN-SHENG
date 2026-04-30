@@ -111,7 +111,7 @@ function addMealDeltaToPayrollBlockForSite(
   let blocks = [...sheet.blocks]
   let bi = blocks.findIndex((b) => b.siteName === siteName)
   if (bi < 0) {
-    blocks = [...blocks, emptyBlock(siteName, len, staffKeysForMonthDisplay(sheet))]
+    blocks = [...blocks, emptyBlock(sheet.id, siteName, len, staffKeysForMonthDisplay(sheet))]
     bi = blocks.length - 1
   }
   const block = blocks[bi]
@@ -298,7 +298,7 @@ export function applyFieldworkQuick(
     let bi = m.blocks.findIndex((b) => b.siteName === siteKey)
     let blocks = [...m.blocks]
     if (bi < 0) {
-      blocks = [...blocks, emptyBlock(siteKey, len, staffKeysForMonthDisplay(m))]
+      blocks = [...blocks, emptyBlock(m.id, siteKey, len, staffKeysForMonthDisplay(m))]
       bi = blocks.length - 1
     }
 

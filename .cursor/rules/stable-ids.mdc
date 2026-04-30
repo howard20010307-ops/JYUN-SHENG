@@ -1,0 +1,25 @@
+---
+description: 全站禁止隨機 ID；新功能與持久化實體一律使用可重現的穩定鍵。
+alwaysApply: true
+---
+
+# 穩定 ID（全站鐵律）
+
+**任何會存入 state／localStorage／JSONBin／匯出備份／與雲端合併的實體（列、區塊、表單列、選項列等），一律禁止「隨機」產生 id。** 本機與雲端、不同裝置、重新整理後，**相同語意／相同結構位置**必須能得到**相同或可預期的一貫規則**（雜湊指紋、父鍵 + 索引、`allocateWithSuffix` 等同日碰撞後綴等）。
+
+## 嚴禁（舉例）
+
+- `crypto.randomUUID()`、`Math.random()`（用來當 entity id）、`Date.now()`／`performance.now()` 單獨或拼字串當 id  
+- `nanoid`／其他隨機字串套件當**持久化** id  
+- 未遷移的旧資料可保留舊 id；**新寫入程式碼**不得再新增上述來源
+
+## 應該怎麼做
+
+1. **優先**沿用專案既有：`junshan-web/src/domain/stableIds.ts`（`stableHash16`、`stableDomId`、`allocateWithSuffix`）、工作日誌的 `wldoc--`／`wlln--`／`wltl--`／`wle--` 等既有前綴與 `finalize*StableIds`／`normalizeWorkLogDayDocumentNestedIds`。  
+2. **新建列／巢狀列**：用 **父實體已存在的穩定 id + 陣列索引**（與 finalize 後命名一致），避免「空白新列」用 random。  
+3. **新 domain**：在 `*Model.ts`（或對應 domain）集中定義 id 規則與 `migrate*`，載入／合併後跑一次穩定化；與 `merge*PreferLocal` 同路線的需要合併後再 finalize。  
+4. 僅限 **React `key` 的暫時內部**、與**永不持久化**的純 UI 狀態：若可保證不寫入 JSON，才得以使用與存檔無關的區分鍵（仍優先穩定鍵以便除錯）。
+
+## 實作前自检
+
+新增或修改功能時：**搜尋** `randomUUID`、`Math.random`、`nanoid`、`Date.now()` 是否出現在 id／`_id`／`new*Id` 建立路徑；`npx tsc --noEmit` 通過后再交。

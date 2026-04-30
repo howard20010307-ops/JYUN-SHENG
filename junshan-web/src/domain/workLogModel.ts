@@ -10,6 +10,41 @@ import {
   normalizeQuickSiteKey,
   QUICK_SITE_JUN_ADJUST,
 } from './fieldworkQuickApply'
+import { allocateWithSuffix, stableHash16 } from './stableIds'
+
+/** 整日文件根 id（同_finalize_首段；重複同日由 {@link finalizeWorkLogStableIds} 加 `~2`）。 */
+export function stableWorkLogDayDocBaseId(logDate: string): string {
+  return `wldoc--${logDate}`
+}
+
+/** 與 {@link finalizeWorkLogStableIds} 一致之區塊／列 id，供新建與表單即時使用。 */
+export function stableWorkLogBlockId(docId: string, blockIndex: number): string {
+  return `wlblk--${docId}--b--${blockIndex}`
+}
+
+export function stableWorkLogWorkLineId(
+  docId: string,
+  blockIndex: number,
+  lineIndex: number,
+): string {
+  return `wlln--${docId}--${blockIndex}--${lineIndex}`
+}
+
+export function stableWorkLogToolLineId(docId: string, toolIndex: number): string {
+  return `wltl--${docId}--${toolIndex}`
+}
+
+/**
+ * 表單／草稿：有已存 `docId` 時沿用，否則以日期得 canonical id（與新文件預設相同）。
+ */
+export function canonicalWorkLogDayDocIdForDraft(
+  logDate: string,
+  docId: string | null | undefined,
+): string {
+  const t = (docId ?? '').trim()
+  if (t) return t
+  return stableWorkLogDayDocBaseId(logDate)
+}
 
 const TIME_RE = /^\d{1,2}:\d{2}$/
 
@@ -285,11 +320,26 @@ export type WorkLogDayDocument = {
   updatedAt: string
 }
 
-function newId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `wl-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+/** 依目前 `doc.id` 重排巢狀 id（列／工具列索引）；不改變整日業務欄位。 */
+export function normalizeWorkLogDayDocumentNestedIds(doc: WorkLogDayDocument): WorkLogDayDocument {
+  const docId = doc.id
+  const blocks = (doc.blocks ?? []).map((b, bi) => ({
+    ...b,
+    id: stableWorkLogBlockId(docId, bi),
+    workLines: (b.workLines ?? []).map((wl, li) => ({
+      ...wl,
+      id: stableWorkLogWorkLineId(docId, bi, li),
+    })),
+  }))
+  const tls = doc.toolLines
+  const toolLines =
+    Array.isArray(tls) && tls.length > 0
+      ? tls.map((tl, ti) => ({
+          ...tl,
+          id: stableWorkLogToolLineId(docId, ti),
+        }))
+      : tls
+  return { ...doc, blocks, toolLines }
 }
 
 export function nowIso(): string {
@@ -393,7 +443,7 @@ function migrateOne(e: unknown): WorkLogEntry | null {
         : ''
 
   const entry: WorkLogEntry = {
-    id: typeof o.id === 'string' && o.id.trim() ? o.id : newId(),
+    id: '',
     logDate,
     siteName,
     staffNames: staffNames.length ? staffNames : [],
@@ -414,6 +464,8 @@ function migrateOne(e: unknown): WorkLogEntry | null {
     entry.remark = entry.remark || legacyContent.trim()
     entry.content = legacyContent.trim()
   }
+  const fromFile = typeof o.id === 'string' && o.id.trim() ? o.id.trim() : ''
+  entry.id = fromFile || `wle--${stableHash16(workLogEntryCloudMergeFingerprint(entry))}`
   return entry
 }
 
@@ -431,20 +483,28 @@ export function initialWorkLogState(): WorkLogState {
 export function migrateWorkLogState(raw: unknown): WorkLogState {
   const customWorkItemLabels = migrateCustomLabels(raw)
   if (!raw || typeof raw !== 'object') {
-    return { entries: [], dayDocuments: [], customWorkItemLabels }
+    return finalizeWorkLogStableIds({
+      entries: [],
+      dayDocuments: [],
+      customWorkItemLabels,
+    })
   }
   const w = raw as { entries?: unknown; dayDocuments?: unknown }
   if (!Array.isArray(w.entries)) {
-    return { entries: [], dayDocuments: migrateDayDocuments(w.dayDocuments), customWorkItemLabels }
+    return finalizeWorkLogStableIds({
+      entries: [],
+      dayDocuments: migrateDayDocuments(w.dayDocuments),
+      customWorkItemLabels,
+    })
   }
   const entries = w.entries
     .map(migrateOne)
     .filter((x): x is WorkLogEntry => x !== null)
-  return {
+  return finalizeWorkLogStableIds({
     entries,
     dayDocuments: migrateDayDocuments(w.dayDocuments),
     customWorkItemLabels,
-  }
+  })
 }
 
 function compareWorkLogEntryByDateId(a: WorkLogEntry, b: WorkLogEntry): number {
@@ -478,6 +538,52 @@ function workLogEntryCloudMergeFingerprint(e: WorkLogEntry): string {
     (e.content ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim(),
   ]
   return parts.join(WL_MERGE_FP_SEP)
+}
+
+/** 載入／同步後：日誌條目與整日文件內巢狀 id 改為可重現鍵，與本機／雲端一致。 */
+export function finalizeWorkLogStableIds(state: WorkLogState): WorkLogState {
+  const usedEntry = new Set<string>()
+  const entries = [...state.entries]
+    .sort(compareWorkLogEntryByDateId)
+    .map((e) => {
+      const base = `wle--${stableHash16(workLogEntryCloudMergeFingerprint(e))}`
+      const id = allocateWithSuffix(base, usedEntry)
+      usedEntry.add(id)
+      return { ...e, id }
+    })
+
+  const usedDoc = new Set<string>()
+  const dayDocuments = (state.dayDocuments ?? [])
+    .map((doc) => {
+      const ld = doc.logDate
+      const docId = allocateWithSuffix(`wldoc--${ld}`, usedDoc)
+      usedDoc.add(docId)
+      const blocks = (doc.blocks ?? []).map((b, bi) => {
+        const bid = stableWorkLogBlockId(docId, bi)
+        const workLines = (b.workLines ?? []).map((wl, li) => ({
+          ...wl,
+          id: stableWorkLogWorkLineId(docId, bi, li),
+        }))
+        return { ...b, id: bid, workLines }
+      })
+      const tls = doc.toolLines
+      const toolLines =
+        Array.isArray(tls) && tls.length > 0
+          ? tls.map((tl, ti) => ({
+              ...tl,
+              id: stableWorkLogToolLineId(docId, ti),
+            }))
+          : tls
+      return {
+        ...doc,
+        id: docId,
+        blocks,
+        toolLines,
+      }
+    })
+    .sort((a, b) => a.logDate.localeCompare(b.logDate))
+
+  return { ...state, entries, dayDocuments }
 }
 
 function dedupeWorkLogEntriesAfterIdMerge(
@@ -537,25 +643,37 @@ export function mergeWorkLogPreferLocal(
     ),
   )
 
-  return {
+  return finalizeWorkLogStableIds({
     entries,
     dayDocuments,
     customWorkItemLabels: mergedLabels,
-  }
+  })
 }
 
-function migrateWorkLine(o: unknown): WorkLogSiteWorkLine {
+function migrateWorkLine(
+  o: unknown,
+  docId: string,
+  blockIndex: number,
+  lineIndex: number,
+): WorkLogSiteWorkLine {
   if (!o || typeof o !== 'object') {
-    return { id: newId(), label: '' }
+    return { id: stableWorkLogWorkLineId(docId, blockIndex, lineIndex), label: '' }
   }
   const r = o as Record<string, unknown>
-  const id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : newId()
+  const id =
+    typeof r.id === 'string' && r.id.trim()
+      ? r.id.trim()
+      : stableWorkLogWorkLineId(docId, blockIndex, lineIndex)
   const label = typeof r.label === 'string' ? r.label : ''
   return { id, label: label.trim() }
 }
 
-export function newWorkLogSiteWorkLine(): WorkLogSiteWorkLine {
-  return { id: newId(), label: '' }
+export function newWorkLogSiteWorkLine(
+  docId: string,
+  blockIndex: number,
+  lineIndex: number,
+): WorkLogSiteWorkLine {
+  return { id: stableWorkLogWorkLineId(docId, blockIndex, lineIndex), label: '' }
 }
 
 /** 區塊內各列非空之工作文字 */
@@ -607,22 +725,25 @@ function migrateStaffLine(o: unknown): WorkLogStaffLine | null {
   }
 }
 
-function migrateSiteBlock(o: unknown): WorkLogSiteBlock | null {
+function migrateSiteBlock(o: unknown, docId: string, blockIndex: number): WorkLogSiteBlock | null {
   if (!o || typeof o !== 'object') return null
   const r = o as Record<string, unknown>
-  const id = typeof r.id === 'string' && r.id.trim() ? r.id : newId()
+  const id =
+    typeof r.id === 'string' && r.id.trim()
+      ? r.id.trim()
+      : stableWorkLogBlockId(docId, blockIndex)
   const siteName = typeof r.siteName === 'string' ? r.siteName : ''
   const workItem = typeof r.workItem === 'string' ? r.workItem : ''
   const equipmentField = typeof r.equipment === 'string' ? r.equipment : ''
   const remark = typeof r.remark === 'string' ? r.remark : ''
   const wlRaw = r.workLines
   let workLines: WorkLogSiteWorkLine[] = Array.isArray(wlRaw)
-    ? wlRaw.map(migrateWorkLine)
+    ? wlRaw.map((x, li) => migrateWorkLine(x, docId, blockIndex, li))
     : []
   if (workLines.length === 0) {
     workLines = workItem.trim()
-      ? [{ id: newId(), label: workItem.trim() }]
-      : [newWorkLogSiteWorkLine()]
+      ? [{ id: stableWorkLogWorkLineId(docId, blockIndex, 0), label: workItem.trim() }]
+      : [newWorkLogSiteWorkLine(docId, blockIndex, 0)]
   } else if (
     workItem.trim() &&
     !workLines.some((wl) => wl.label.trim())
@@ -699,9 +820,12 @@ function hoistLegacyDayLevelFieldsIntoBlocks(doc: WorkLogDayDocument): void {
     (b) => blockHasAnyWorkText(b) || blockHasEquip(b) || b.remark.trim() || blockHasSiteMeta(b),
   )
   if (!anyBlockHas) {
-    for (const b of blocks) {
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const b = blocks[bi]!
       if (legacyW) {
-        const lines = b.workLines?.length ? [...b.workLines] : [newWorkLogSiteWorkLine()]
+        const lines = b.workLines?.length
+          ? [...b.workLines]
+          : [newWorkLogSiteWorkLine(doc.id, bi, 0)]
         lines[0] = { ...lines[0], label: lines[0].label.trim() || legacyW }
         b.workLines = lines
       }
@@ -713,9 +837,12 @@ function hoistLegacyDayLevelFieldsIntoBlocks(doc: WorkLogDayDocument): void {
       if (legacyR) b.remark = legacyR
     }
   } else {
-    for (const b of blocks) {
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const b = blocks[bi]!
       if (!blockHasAnyWorkText(b) && legacyW) {
-        const lines = b.workLines?.length ? [...b.workLines] : [newWorkLogSiteWorkLine()]
+        const lines = b.workLines?.length
+          ? [...b.workLines]
+          : [newWorkLogSiteWorkLine(doc.id, bi, 0)]
         lines[0] = { ...lines[0], label: lines[0].label.trim() || legacyW }
         b.workLines = lines
       }
@@ -732,10 +859,13 @@ function hoistLegacyDayLevelFieldsIntoBlocks(doc: WorkLogDayDocument): void {
   doc.remark = ''
 }
 
-function migrateToolLineOne(o: unknown): WorkLogDayToolLine | null {
+function migrateToolLineOne(o: unknown, docId: string, toolIndex: number): WorkLogDayToolLine | null {
   if (!o || typeof o !== 'object') return null
   const x = o as Record<string, unknown>
-  const id = typeof x.id === 'string' && x.id.trim() ? x.id.trim() : newId()
+  const id =
+    typeof x.id === 'string' && x.id.trim()
+      ? x.id.trim()
+      : stableWorkLogToolLineId(docId, toolIndex)
   const name = typeof x.name === 'string' ? x.name : ''
   const amount = num(x.amount)
   let qty = 1
@@ -749,11 +879,11 @@ function migrateToolLineOne(o: unknown): WorkLogDayToolLine | null {
   return { id, name, qty, unit, amount }
 }
 
-function migrateToolLinesArray(raw: unknown): WorkLogDayToolLine[] | undefined {
+function migrateToolLinesArray(raw: unknown, docId: string): WorkLogDayToolLine[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: WorkLogDayToolLine[] = []
   for (const it of raw) {
-    const t = migrateToolLineOne(it)
+    const t = migrateToolLineOne(it, docId, out.length)
     if (t && (t.name.trim() || t.amount !== 0 || t.unit.trim() || t.qty !== 1)) out.push(t)
   }
   return out.length ? out : undefined
@@ -764,25 +894,29 @@ function migrateDayDocumentOne(o: unknown): WorkLogDayDocument | null {
   const r = o as Record<string, unknown>
   const logDate =
     typeof r.logDate === 'string' && DATE_RE.test(r.logDate) ? r.logDate : todayYmdLocal()
+  const docIdForNested =
+    typeof r.id === 'string' && r.id.trim()
+      ? r.id.trim()
+      : stableWorkLogDayDocBaseId(logDate)
   const blocksRaw = r.blocks
   const blocks: WorkLogSiteBlock[] = []
   if (Array.isArray(blocksRaw)) {
-    for (const b of blocksRaw) {
-      const blk = migrateSiteBlock(b)
+    for (let bi = 0; bi < blocksRaw.length; bi++) {
+      const blk = migrateSiteBlock(blocksRaw[bi], docIdForNested, bi)
       if (blk) blocks.push(blk)
     }
   }
   const t0 = typeof r.createdAt === 'string' ? r.createdAt : nowIso()
   const t1 = typeof r.updatedAt === 'string' ? r.updatedAt : nowIso()
-  if (blocks.length === 0) blocks.push(newSiteBlock())
+  if (blocks.length === 0) blocks.push(newSiteBlock(docIdForNested, 0))
   const doc: WorkLogDayDocument = {
-    id: typeof r.id === 'string' && r.id.trim() ? r.id : newId(),
+    id: docIdForNested,
     logDate,
     workItem: typeof r.workItem === 'string' ? r.workItem : '',
     equipment: typeof r.equipment === 'string' ? r.equipment : '',
     mealCost: num(r.mealCost),
     miscCost: num(r.miscCost),
-    toolLines: migrateToolLinesArray(r.toolLines),
+    toolLines: migrateToolLinesArray(r.toolLines, docIdForNested),
     instrumentCost: num(r.instrumentCost),
     remark: typeof r.remark === 'string' ? r.remark : '',
     blocks,
@@ -939,8 +1073,9 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
   const logDate = entries[0].logDate
   if (entries.some((e) => e.logDate !== logDate)) return null
   const t = nowIso()
+  const docId = stableWorkLogDayDocBaseId(logDate)
   const doc: WorkLogDayDocument = {
-    id: newId(),
+    id: docId,
     logDate,
     workItem: '',
     equipment: '',
@@ -970,10 +1105,10 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
     if (!agg) {
       agg = {
         block: {
-          id: newId(),
+          id: '',
           siteName: e.siteName,
           workItem: '',
-          workLines: [newWorkLogSiteWorkLine()],
+          workLines: [],
           equipment: '',
           instrumentQty: emptyInstrumentQty(),
           remark: '',
@@ -1005,25 +1140,30 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
       })
     }
   }
-  for (const agg of bySite.values()) {
+  const ordered = [...bySite.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant'))
+  doc.blocks = ordered.map(([_, agg], bi) => {
     const w = [...agg.works].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-    if (w.length === 0) {
-      agg.block.workLines = [newWorkLogSiteWorkLine()]
-    } else if (w.length === 1) {
-      agg.block.workLines = [{ id: newId(), label: w[0]! }]
-    } else {
-      agg.block.workLines = w.map((label) => ({ id: newId(), label }))
-    }
-    agg.block.workItem = ''
+    const workLines =
+      w.length === 0
+        ? [newWorkLogSiteWorkLine(docId, bi, 0)]
+        : w.map((label, li) => ({ id: stableWorkLogWorkLineId(docId, bi, li), label }))
     const eq = [...agg.equipments].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-    agg.block.equipment = eq.join('、') || ''
-    agg.block.instrumentQty = parseLegacyEquipmentString(agg.block.equipment)
-    if (instrumentQtyAnyPositive(agg.block.instrumentQty)) {
-      agg.block.equipment = formatInstrumentQty(agg.block.instrumentQty)
+    const equipmentJoined = eq.join('、') || ''
+    const instrumentQty = parseLegacyEquipmentString(equipmentJoined)
+    let equipmentOut = equipmentJoined
+    if (instrumentQtyAnyPositive(instrumentQty)) {
+      equipmentOut = formatInstrumentQty(instrumentQty)
     }
-    agg.block.remark = agg.remarks.join('\n')
-  }
-  doc.blocks = [...bySite.values()].map((a) => a.block)
+    return {
+      ...agg.block,
+      id: stableWorkLogBlockId(docId, bi),
+      workLines,
+      workItem: '',
+      equipment: equipmentOut,
+      instrumentQty,
+      remark: agg.remarks.join('\n'),
+    }
+  })
   return doc
 }
 
@@ -1132,7 +1272,7 @@ export function flattenDayDocumentToLegacyEntries(doc: WorkLogDayDocument): Work
       const metaLine = formatSiteBlockMetaLine(b)
       const remarkBlock = [metaLine, (b.remark ?? '').trim()].filter(Boolean).join('\n')
       const entry: WorkLogEntry = {
-        id: `d-${doc.id}-${idx}`,
+        id: `wlflat--${doc.id}--${String(idx).padStart(6, '0')}`,
         logDate: doc.logDate,
         siteName: b.siteName,
         staffNames: [line.name.trim()],
@@ -1222,7 +1362,7 @@ export function newWorkLogEntry(
     ? over.staffNames.map((x) => x.trim()).filter(Boolean)
     : []
   const entry: WorkLogEntry = {
-    id: newId(),
+    id: '',
     logDate,
     siteName: typeof over.siteName === 'string' ? over.siteName : '',
     staffNames,
@@ -1239,6 +1379,7 @@ export function newWorkLogEntry(
     updatedAt: t,
   }
   if (!entry.content) entry.content = buildWorkLogContentSummary(entry)
+  entry.id = `wle--${stableHash16(workLogEntryCloudMergeFingerprint(entry))}`
   return entry
 }
 
@@ -1273,12 +1414,12 @@ export function datesWithEntriesInMonth(
   return set
 }
 
-export function newSiteBlock(): WorkLogSiteBlock {
+export function newSiteBlock(docId: string, blockIndex: number): WorkLogSiteBlock {
   return {
-    id: newId(),
+    id: stableWorkLogBlockId(docId, blockIndex),
     siteName: '',
     workItem: '',
-    workLines: [newWorkLogSiteWorkLine()],
+    workLines: [newWorkLogSiteWorkLine(docId, blockIndex, 0)],
     equipment: '',
     instrumentQty: emptyInstrumentQty(),
     remark: '',
@@ -1298,9 +1439,10 @@ export function newSiteBlock(): WorkLogSiteBlock {
 
 export function newWorkLogDayDocument(logDate: string, blocks?: WorkLogSiteBlock[]): WorkLogDayDocument {
   const t = nowIso()
-  const bs = blocks?.length ? blocks : [newSiteBlock()]
-  return {
-    id: newId(),
+  const docId = stableWorkLogDayDocBaseId(logDate)
+  const bs = blocks?.length ? blocks : [newSiteBlock(docId, 0)]
+  return normalizeWorkLogDayDocumentNestedIds({
+    id: docId,
     logDate,
     workItem: '',
     equipment: '',
@@ -1311,7 +1453,7 @@ export function newWorkLogDayDocument(logDate: string, blocks?: WorkLogSiteBlock
     blocks: bs,
     createdAt: t,
     updatedAt: t,
-  }
+  })
 }
 
 function workLogSiteRenameMatch(siteName: string, oldExact: string): boolean {
@@ -1350,8 +1492,4 @@ export function countDistinctNamedSites(blocks: readonly { siteName: string }[])
       .map((b) => b.siteName.trim())
       .filter((t) => t && !isPlaceholderMonthBlockSiteName(t)),
   ).size
-}
-
-export function newWorkLogEntityId(): string {
-  return newId()
 }

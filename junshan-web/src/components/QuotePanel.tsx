@@ -21,7 +21,13 @@ import {
   floorPricingNumericBreakdown,
   itemPricingBreakdown,
 } from '../domain/quotePricingTooltipBreakdown'
+import { allocateWithSuffix, stableHash16 } from '../domain/stableIds'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
+
+function allocManualQuoteRowId(rows: readonly QuoteRow[], seed: string): string {
+  const base = `q--${stableHash16(`manual\0${seed}`)}`
+  return allocateWithSuffix(base, new Set(rows.map((r) => r.id)))
+}
 
 type Props = {
   site: QuoteSite
@@ -268,7 +274,7 @@ export function QuotePanel({
     setRows([
       ...rows,
       {
-        id: `r${Date.now()}`,
+        id: allocManualQuoteRowId(rows, `mod\0${zone}\0${rows.length}`),
         zone,
         item: '新細項',
         ...newManualRowBase,
@@ -282,7 +288,7 @@ export function QuotePanel({
     if (!base) return
     const label = item.trim() || '新細項'
     const newRow: QuoteRow = {
-      id: `r${Date.now()}`,
+      id: allocManualQuoteRowId(rows, `sub\0${base.zone}\0${i}\0${label}\0${rows.length}`),
       zone: base.zone,
       item: label,
       sameFloors: base.sameFloors,

@@ -16,6 +16,7 @@ import {
   staffTotalPay,
   mealTotalPay,
   emptyBlock,
+  isPlaceholderMonthBlockSiteName,
   PLACEHOLDER_MONTH_BLOCK_SITE_NAME,
   buildStaffSummaryRows,
   NET_TAKE_HOME_ROW_PREFIX,
@@ -33,6 +34,7 @@ import {
   pickActiveMonthIdForToday,
   inferYearFromMonthSheet,
   monthSheetCalendarMonth,
+  monthSheetSelectOptionLabel,
   autoPayrollPeriodColumns,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
@@ -42,6 +44,7 @@ import { PayrollSitesByMonthReadonly } from './PayrollSitesByMonthReadonly'
 import { PayrollNumberInput } from './PayrollNumberInput'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 import { usePayrollSummaryShowDailyMoney } from '../hooks/usePayrollSummaryShowDailyMoney'
+import { stableDomId } from '../domain/stableIds'
 
 type Props = {
   salaryBook: SalaryBook
@@ -534,7 +537,9 @@ export function PayrollPanel({
                 >
                   {monthsInPayrollYear.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.label}
+                      {monthSheetSelectOptionLabel(m, monthsInPayrollYear, {
+                        omitYearInDateRange: payrollYear,
+                      })}
                     </option>
                   ))}
                 </select>
@@ -713,6 +718,7 @@ export function PayrollPanel({
                       </td>
                       <td>
                         <PayrollNumberInput
+                          domId={stableDomId('pay', [month.id, 'rateJun', name])}
                           value={month.rateJun[name] ?? 0}
                           onCommit={(nv) =>
                             patchMonth(month.id, (m) => ({
@@ -727,6 +733,7 @@ export function PayrollPanel({
                       </td>
                       <td>
                         <PayrollNumberInput
+                          domId={stableDomId('pay', [month.id, 'rateTsai', name])}
                           value={month.rateTsai[name] ?? 0}
                           onCommit={(nv) =>
                             patchMonth(month.id, (m) => ({
@@ -832,9 +839,13 @@ export function PayrollPanel({
                       blocks: [
                         ...m.blocks,
                         emptyBlock(
+                          month.id,
                           PLACEHOLDER_MONTH_BLOCK_SITE_NAME,
                           m.dates.length,
                           staffKeysForMonthDisplay(m),
+                          m.blocks.filter((bl) =>
+                            isPlaceholderMonthBlockSiteName(bl.siteName),
+                          ).length,
                         ),
                       ],
                     }))
@@ -935,12 +946,19 @@ export function PayrollPanel({
                         return (
                           <tr key={name}>
                             <td>{name}</td>
-                            {month.dates.map((_, j) => {
+                            {month.dates.map((dIso, j) => {
                               const cell = row[j] ?? 0
                               const hasWork = cell > 0 && Number.isFinite(cell)
                               return (
                                 <td key={j}>
                                   <PayrollNumberInput
+                                    domId={stableDomId('pay', [
+                                      month.id,
+                                      block.id,
+                                      'grid',
+                                      name,
+                                      dIso,
+                                    ])}
                                     className={`cellIn${hasWork ? ' cellIn--work' : ''}`}
                                     value={row[j] ?? 0}
                                     onCommit={(nv) =>
@@ -965,12 +983,13 @@ export function PayrollPanel({
                       })}
                     <tr>
                       <td>餐</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const mealCell = padArray(block.meal, month.dates.length)[j] ?? 0
                         const hasMeal = mealCell > 0 && Number.isFinite(mealCell)
                         return (
                           <td key={j}>
                             <PayrollNumberInput
+                              domId={stableDomId('pay', [month.id, block.id, 'meal', dIso])}
                               className={`cellIn${hasMeal ? ' cellIn--meal' : ''}`}
                               value={padArray(block.meal, month.dates.length)[j] ?? 0}
                               onCommit={(nv) =>
@@ -1143,12 +1162,13 @@ export function PayrollPanel({
                   {staffAdvanceRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const advCell = month.advances[name]?.[j] ?? 0
                         const advHas = cellNeedsWorkHighlight(advCell)
                         return (
                         <td key={j}>
                           <PayrollNumberInput
+                            domId={stableDomId('pay', [month.id, 'adv', name, dIso])}
                             className={`cellIn${advHas ? ' cellIn--work' : ''}`}
                             value={month.advances[name]?.[j] ?? 0}
                             onCommit={(nv) =>
@@ -1223,12 +1243,13 @@ export function PayrollPanel({
                   {staffJunAdjRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const junAdjCell = month.junAdjustDays?.[name]?.[j] ?? 0
                         const junAdjHas = cellNeedsWorkHighlight(junAdjCell)
                         return (
                         <td key={j}>
                           <PayrollNumberInput
+                            domId={stableDomId('pay', [month.id, 'junAdj', name, dIso])}
                             className={`cellIn${junAdjHas ? ' cellIn--work' : ''}`}
                             value={month.junAdjustDays?.[name]?.[j] ?? 0}
                             onCommit={(nv) =>
@@ -1304,12 +1325,13 @@ export function PayrollPanel({
                   {staffTsaiAdjRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const tsaiAdjCell = month.tsaiAdjustDays?.[name]?.[j] ?? 0
                         const tsaiAdjHas = cellNeedsWorkHighlight(tsaiAdjCell)
                         return (
                         <td key={j}>
                           <PayrollNumberInput
+                            domId={stableDomId('pay', [month.id, 'tsaiAdj', name, dIso])}
                             className={`cellIn${tsaiAdjHas ? ' cellIn--work' : ''}`}
                             value={month.tsaiAdjustDays?.[name]?.[j] ?? 0}
                             onCommit={(nv) =>
@@ -1385,12 +1407,13 @@ export function PayrollPanel({
                   {staffJunOtRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const junOtCell = month.junOtHours[name]?.[j] ?? 0
                         const junOtHas = cellNeedsWorkHighlight(junOtCell)
                         return (
                         <td key={j}>
                           <PayrollNumberInput
+                            domId={stableDomId('pay', [month.id, 'junOt', name, dIso])}
                             className={`cellIn${junOtHas ? ' cellIn--work' : ''}`}
                             value={month.junOtHours[name]?.[j] ?? 0}
                             onCommit={(nv) =>
@@ -1465,12 +1488,13 @@ export function PayrollPanel({
                   {staffTsaiOtRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
-                      {month.dates.map((_, j) => {
+                      {month.dates.map((dIso, j) => {
                         const tsaiOtCell = month.tsaiOtHours[name]?.[j] ?? 0
                         const tsaiOtHas = cellNeedsWorkHighlight(tsaiOtCell)
                         return (
                         <td key={j}>
                           <PayrollNumberInput
+                            domId={stableDomId('pay', [month.id, 'tsaiOt', name, dIso])}
                             className={`cellIn${tsaiOtHas ? ' cellIn--work' : ''}`}
                             value={month.tsaiOtHours[name]?.[j] ?? 0}
                             onCommit={(nv) =>

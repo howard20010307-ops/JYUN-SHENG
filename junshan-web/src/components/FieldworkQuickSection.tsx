@@ -20,7 +20,9 @@ import {
   formatInstrumentQty,
   instrumentQtyAnyPositive,
   parseInstrumentQtyFromDraftStrings,
-  newWorkLogEntityId,
+  stableWorkLogDayDocBaseId,
+  stableWorkLogToolLineId,
+  stableWorkLogWorkLineId,
   WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER,
   WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER,
   WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION,
@@ -202,9 +204,10 @@ export function FieldworkQuickSection({
   const [dayVal, setDayVal] = useState('1')
   const [timeStart, setTimeStart] = useState(DEFAULT_WORK_START)
   const [timeEnd, setTimeEnd] = useState(DEFAULT_WORK_END)
-  const [workLineRows, setWorkLineRows] = useState<{ id: string; label: string }[]>(() => [
-    { id: newWorkLogEntityId(), label: '' },
-  ])
+  const [workLineRows, setWorkLineRows] = useState<{ id: string; label: string }[]>(() => {
+    const docId = stableWorkLogDayDocBaseId(todayIso())
+    return [{ id: stableWorkLogWorkLineId(docId, 0, 0), label: '' }]
+  })
   const [instrumentTotalStation, setInstrumentTotalStation] = useState('')
   const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
   const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
@@ -213,7 +216,10 @@ export function FieldworkQuickSection({
   const [advancePerPerson, setAdvancePerPerson] = useState('')
   const [toolRows, setToolRows] = useState<
     { id: string; name: string; qty: string; unit: string; amount: string }[]
-  >(() => [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }])
+  >(() => {
+    const docId = stableWorkLogDayDocBaseId(todayIso())
+    return [{ id: stableWorkLogToolLineId(docId, 0), name: '', qty: '', unit: '', amount: '' }]
+  })
   const [otHoursPerPerson, setOtHoursPerPerson] = useState('')
   const [otManualAmount, setOtManualAmount] = useState('')
   const [otRateLine, setOtRateLine] = useState<'jun' | 'tsai'>('jun')
@@ -221,6 +227,12 @@ export function FieldworkQuickSection({
   const [globalPresetDraft, setGlobalPresetDraft] = useState('')
   const [presetEditKey, setPresetEditKey] = useState<string | null>(null)
   const [presetRenameDraft, setPresetRenameDraft] = useState('')
+
+  useEffect(() => {
+    const docId = stableWorkLogDayDocBaseId(iso)
+    setWorkLineRows((rows) => rows.map((r, i) => ({ ...r, id: stableWorkLogWorkLineId(docId, 0, i) })))
+    setToolRows((rows) => rows.map((r, i) => ({ ...r, id: stableWorkLogToolLineId(docId, i) })))
+  }, [iso])
 
   const sitePickClear = useClearWhenOpenedByPointer(setSite)
   const setFirstWorkLineLabel = useCallback((v: string) => {
@@ -569,7 +581,13 @@ export function FieldworkQuickSection({
               className="btn secondary"
               disabled={workLineRows.length <= 1}
               onClick={() =>
-                setWorkLineRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)))
+                setWorkLineRows((rows) => {
+                  if (rows.length <= 1) return rows
+                  const docId = stableWorkLogDayDocBaseId(iso)
+                  return rows
+                    .filter((_, i) => i !== idx)
+                    .map((r, i) => ({ ...r, id: stableWorkLogWorkLineId(docId, 0, i) }))
+                })
               }
             >
               移除此列
@@ -580,7 +598,10 @@ export function FieldworkQuickSection({
           type="button"
           className="btn secondary"
           onClick={() =>
-            setWorkLineRows((rows) => [...rows, { id: newWorkLogEntityId(), label: '' }])
+            setWorkLineRows((rows) => {
+              const docId = stableWorkLogDayDocBaseId(iso)
+              return [...rows, { id: stableWorkLogWorkLineId(docId, 0, rows.length), label: '' }]
+            })
           }
         >
           新增工作內容列
@@ -730,7 +751,13 @@ export function FieldworkQuickSection({
                   className="btn secondary"
                   disabled={toolRows.length <= 1}
                   onClick={() =>
-                    setToolRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== idx)))
+                    setToolRows((rows) => {
+                      if (rows.length <= 1) return rows
+                      const docId = stableWorkLogDayDocBaseId(iso)
+                      return rows
+                        .filter((_, i) => i !== idx)
+                        .map((r, i) => ({ ...r, id: stableWorkLogToolLineId(docId, i) }))
+                    })
                   }
                 >
                   移除此列
@@ -741,10 +768,19 @@ export function FieldworkQuickSection({
               type="button"
               className="btn secondary"
               onClick={() =>
-                setToolRows((rows) => [
-                  ...rows,
-                  { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' },
-                ])
+                setToolRows((rows) => {
+                  const docId = stableWorkLogDayDocBaseId(iso)
+                  return [
+                    ...rows,
+                    {
+                      id: stableWorkLogToolLineId(docId, rows.length),
+                      name: '',
+                      qty: '',
+                      unit: '',
+                      amount: '',
+                    },
+                  ]
+                })
               }
             >
               新增工具列

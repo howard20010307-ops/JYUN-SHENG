@@ -11,6 +11,8 @@ type Props = {
   value: number
   onCommit: (n: number) => void
   className?: string
+  /** 穩定 HTML id（本機／雲端同一格同一值） */
+  domId?: string
   'aria-label'?: string
 }
 
@@ -23,6 +25,7 @@ export function PayrollNumberInput({
   value,
   onCommit,
   className,
+  domId,
   'aria-label': ariaLabel,
 }: Props) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -66,6 +69,7 @@ export function PayrollNumberInput({
 
   return (
     <input
+      id={domId}
       type="text"
       inputMode="decimal"
       className={className}

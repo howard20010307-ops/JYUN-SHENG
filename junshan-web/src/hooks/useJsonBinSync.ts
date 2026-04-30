@@ -10,8 +10,11 @@ import {
   uploadAppStateToJsonBin,
   type JsonBinLastUploadMeta,
 } from '../services/jsonbin'
-import { mergeReceivablesPreferLocal } from '../domain/receivablesModel'
-import { mergeSalaryBookPreferLocal } from '../domain/salaryExcelModel'
+import { mergeReceivablesPreferLocal, remapReceivablePayrollBindings } from '../domain/receivablesModel'
+import {
+  finalizeSalaryBookPayroll,
+  mergeSalaryBookPreferLocalEx,
+} from '../domain/salaryExcelModel'
 import { mergeWorkLogPreferLocal } from '../domain/workLogModel'
 import { mergeWorkItemPresetLabelsPreferLocal } from '../domain/workItemPresets'
 import { readJunshanLocalStorageSavedAtMs } from './usePersistentState'
@@ -19,6 +22,28 @@ import { readJunshanLocalStorageSavedAtMs } from './usePersistentState'
 export type JsonBinLine = { text: string; isError: boolean } | null
 
 const SAVE_MS = 700
+
+function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppState) {
+  const prevFin = finalizeSalaryBookPayroll(prev.salaryBook)
+  const cloudFin = finalizeSalaryBookPayroll(fromCloud.salaryBook)
+  const recvPrev = remapReceivablePayrollBindings(
+    prev.receivables,
+    prevFin.remap.monthByOldId,
+    prevFin.remap.blockByOldId,
+  )
+  const recvCloud = remapReceivablePayrollBindings(
+    fromCloud.receivables,
+    cloudFin.remap.monthByOldId,
+    cloudFin.remap.blockByOldId,
+  )
+  const ex = mergeSalaryBookPreferLocalEx(prevFin.book, cloudFin.book)
+  const receivables = remapReceivablePayrollBindings(
+    mergeReceivablesPreferLocal(recvPrev, recvCloud),
+    ex.remap.monthByOldId,
+    ex.remap.blockByOldId,
+  )
+  return { salaryBook: ex.book, receivables }
+}
 
 /**
  * 已設定 VITE_JSONBIN_* 時：開啟時自 JSONBin 拉下有效資料則覆寫 state；
@@ -148,13 +173,14 @@ export function useJsonBinSync(
               cloudExportedAtMs > 0 &&
               diskSavedAtMs > cloudExportedAtMs &&
               stringifyAppBackupFingerprint(prev) !== stringifyAppBackupFingerprint(fromCloud)
+            const { salaryBook, receivables } = mergeSalaryBookAndReceivablesForJsonBin(prev, fromCloud)
             if (preferLocal) {
               return {
                 ...fromCloud,
                 ...prev,
-                receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+                receivables,
                 workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
-                salaryBook: mergeSalaryBookPreferLocal(prev.salaryBook, fromCloud.salaryBook),
+                salaryBook,
                 workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
                   prev.workItemPresetLabels,
                   fromCloud.workItemPresetLabels,
@@ -163,9 +189,9 @@ export function useJsonBinSync(
             }
             return {
               ...fromCloud,
-              receivables: mergeReceivablesPreferLocal(prev.receivables, fromCloud.receivables),
+              receivables,
               workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
-              salaryBook: mergeSalaryBookPreferLocal(prev.salaryBook, fromCloud.salaryBook),
+              salaryBook,
               workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
                 prev.workItemPresetLabels,
                 fromCloud.workItemPresetLabels,

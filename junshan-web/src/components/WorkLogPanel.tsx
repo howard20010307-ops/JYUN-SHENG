@@ -21,8 +21,10 @@ import {
   datesWithAnyLogInMonth,
   newSiteBlock,
   countDistinctNamedSites,
-  newWorkLogEntityId,
   newWorkLogSiteWorkLine,
+  canonicalWorkLogDayDocIdForDraft,
+  stableWorkLogWorkLineId,
+  stableWorkLogToolLineId,
   WORK_LOG_INSTRUMENT_OPTIONS,
   instrumentQtyAnyPositive,
   parseInstrumentQtyFromDraftStrings,
@@ -700,17 +702,23 @@ export function WorkLogPanel({
       if (!opts.includes(v)) {
         ensureWorkItemLabelsInPresets([v])
       }
+      const docId = canonicalWorkLogDayDocIdForDraft(dayDraft.logDate, dayDraft.docId)
       setDayDraft((d) => ({
         ...d,
         blocks: d.blocks.map((b, i) => {
           if (i !== blockIdx) return b
-          const raw = b.workLines?.length ? [...b.workLines] : [{ ...newWorkLogSiteWorkLine() }]
+          const raw = b.workLines?.length
+            ? [...b.workLines]
+            : [{ ...newWorkLogSiteWorkLine(docId, blockIdx, 0) }]
           const emptyIdx = raw.findIndex((w) => !(w.label ?? '').trim())
           let workLines: typeof raw
           if (emptyIdx >= 0) {
             workLines = raw.map((w, j) => (j === emptyIdx ? { ...w, label: v } : w))
           } else {
-            workLines = [...raw, { id: newWorkLogEntityId(), label: v }]
+            workLines = [
+              ...raw,
+              { id: stableWorkLogWorkLineId(docId, blockIdx, raw.length), label: v },
+            ]
           }
           return { ...b, workLines }
         }),
@@ -731,66 +739,86 @@ export function WorkLogPanel({
   )
 
   const addWorkLine = useCallback((blockIdx: number) => {
-    setDayDraft((d) => ({
-      ...d,
-      blocks: d.blocks.map((b, i) =>
-        i === blockIdx
-          ? {
-              ...b,
-              workLines: [
-                ...(b.workLines?.length ? b.workLines : [newWorkLogSiteWorkLine()]),
-                { id: newWorkLogEntityId(), label: '' },
-              ],
-            }
-          : b,
-      ),
-    }))
+    setDayDraft((d) => {
+      const docId = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
+      return {
+        ...d,
+        blocks: d.blocks.map((b, i) => {
+          if (i !== blockIdx) return b
+          const base = b.workLines?.length
+            ? b.workLines
+            : [newWorkLogSiteWorkLine(docId, blockIdx, 0)]
+          return {
+            ...b,
+            workLines: [
+              ...base,
+              { id: stableWorkLogWorkLineId(docId, blockIdx, base.length), label: '' },
+            ],
+          }
+        }),
+      }
+    })
   }, [])
 
   const removeWorkLine = useCallback((blockIdx: number, lineIdx: number) => {
-    setDayDraft((d) => ({
-      ...d,
-      blocks: d.blocks.map((b, i) => {
-        if (i !== blockIdx) return b
-        const lines = b.workLines?.length ? b.workLines : [newWorkLogSiteWorkLine()]
-        if (lines.length <= 1) return { ...b, workLines: [newWorkLogSiteWorkLine()] }
-        return { ...b, workLines: lines.filter((_, j) => j !== lineIdx) }
-      }),
-    }))
+    setDayDraft((d) => {
+      const docId = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
+      return {
+        ...d,
+        blocks: d.blocks.map((b, i) => {
+          if (i !== blockIdx) return b
+          const lines = b.workLines?.length
+            ? b.workLines
+            : [newWorkLogSiteWorkLine(docId, blockIdx, 0)]
+          if (lines.length <= 1) {
+            return { ...b, workLines: [newWorkLogSiteWorkLine(docId, blockIdx, 0)] }
+          }
+          return {
+            ...b,
+            workLines: lines
+              .filter((_, j) => j !== lineIdx)
+              .map((wl, li) => ({ ...wl, id: stableWorkLogWorkLineId(docId, blockIdx, li) })),
+          }
+        }),
+      }
+    })
   }, [])
 
   const addBlock = useCallback(() => {
-    const nb = newSiteBlock()
-    setDayDraft((d) => ({
-      ...d,
-      blocks: [
-        ...d.blocks,
-        {
-          id: nb.id,
-          siteName: nb.siteName,
-          workLines: nb.workLines.map((x) => ({ ...x })),
-          instrumentTotalStation: '',
-          instrumentRotatingLaser: '',
-          instrumentLineLaser: '',
-          equipment: '',
-          remark: nb.remark,
-          dong: nb.dong,
-          floorLevel: nb.floorLevel,
-          workPhase: nb.workPhase,
-          staffLines: nb.staffLines.map((x) => ({
-            name: x.name,
-            timeStart: x.timeStart,
-            timeEnd: x.timeEnd,
-            workDays:
-              x.workDays !== undefined &&
-              Number.isFinite(x.workDays) &&
-              normStaffWorkDays(x.workDays) !== 1
-                ? String(normStaffWorkDays(x.workDays))
-                : '',
-          })),
-        },
-      ],
-    }))
+    setDayDraft((d) => {
+      const docId = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
+      const nb = newSiteBlock(docId, d.blocks.length)
+      return {
+        ...d,
+        blocks: [
+          ...d.blocks,
+          {
+            id: nb.id,
+            siteName: nb.siteName,
+            workLines: nb.workLines.map((x) => ({ ...x })),
+            instrumentTotalStation: '',
+            instrumentRotatingLaser: '',
+            instrumentLineLaser: '',
+            equipment: '',
+            remark: nb.remark,
+            dong: nb.dong,
+            floorLevel: nb.floorLevel,
+            workPhase: nb.workPhase,
+            staffLines: nb.staffLines.map((x) => ({
+              name: x.name,
+              timeStart: x.timeStart,
+              timeEnd: x.timeEnd,
+              workDays:
+                x.workDays !== undefined &&
+                Number.isFinite(x.workDays) &&
+                normStaffWorkDays(x.workDays) !== 1
+                  ? String(normStaffWorkDays(x.workDays))
+                  : '',
+            })),
+          },
+        ],
+      }
+    })
   }, [])
 
   const removeBlock = useCallback((idx: number) => {
@@ -829,19 +857,43 @@ export function WorkLogPanel({
   }, [])
 
   const addToolLineRow = useCallback(() => {
-    setDayDraft((d) => ({
-      ...d,
-      toolLines: [...(d.toolLines ?? []), { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }],
-    }))
+    setDayDraft((d) => {
+      const docId = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
+      const tl = d.toolLines ?? []
+      return {
+        ...d,
+        toolLines: [
+          ...tl,
+          {
+            id: stableWorkLogToolLineId(docId, tl.length),
+            name: '',
+            qty: '',
+            unit: '',
+            amount: '',
+          },
+        ],
+      }
+    })
   }, [])
 
   const removeToolLineRow = useCallback((lineIdx: number) => {
     setDayDraft((d) => {
+      const docId = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
       const tl = d.toolLines ?? []
       if (tl.length <= 1) {
-        return { ...d, toolLines: [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }] }
+        return {
+          ...d,
+          toolLines: [
+            { id: stableWorkLogToolLineId(docId, 0), name: '', qty: '', unit: '', amount: '' },
+          ],
+        }
       }
-      return { ...d, toolLines: tl.filter((_, j) => j !== lineIdx) }
+      return {
+        ...d,
+        toolLines: tl
+          .filter((_, j) => j !== lineIdx)
+          .map((row, ti) => ({ ...row, id: stableWorkLogToolLineId(docId, ti) })),
+      }
     })
   }, [])
 
@@ -1554,7 +1606,16 @@ export function WorkLogPanel({
                 <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
                   全站選單請至<strong>薪水</strong>分頁 → <strong>快速登記</strong>最下方「工作內容選項」管理。
                 </p>
-                {(block.workLines?.length ? block.workLines : [newWorkLogSiteWorkLine()]).map((wl, li) => (
+                {(block.workLines?.length
+                  ? block.workLines
+                  : [
+                      newWorkLogSiteWorkLine(
+                        canonicalWorkLogDayDocIdForDraft(dayDraft.logDate, dayDraft.docId),
+                        bi,
+                        0,
+                      ),
+                    ]
+                ).map((wl, li) => (
                   <div
                     key={wl.id}
                     className="worklogWorkLineBlock"

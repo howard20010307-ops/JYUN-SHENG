@@ -35,14 +35,19 @@ import {
   instrumentQtyAnyPositive,
   legacyEntriesToDayDocument,
   newSiteBlock,
-  newWorkLogEntityId,
   newWorkLogSiteWorkLine,
+  canonicalWorkLogDayDocIdForDraft,
+  normalizeWorkLogDayDocumentNestedIds,
   nowIso,
   parseInstrumentQtyFromDraftStrings,
   parseLegacyEquipmentString,
   replaceDayDocument,
   staffWorkDaysFromDraftString,
   normStaffWorkDays,
+  stableWorkLogBlockId,
+  stableWorkLogDayDocBaseId,
+  stableWorkLogToolLineId,
+  stableWorkLogWorkLineId,
   type WorkLogDayDocument,
   type WorkLogDayToolLine,
   type WorkLogSiteBlock,
@@ -85,18 +90,29 @@ export type LinkedDayBlockDraft = {
   staffLines: LinkedDayStaffLineDraft[]
 }
 
-function emptyWorkLineDraft(): LinkedDayWorkLineDraft {
-  return { id: newWorkLogEntityId(), label: '' }
+function emptyWorkLineDraftAt(
+  logDate: string,
+  docIdPreferred: string | null | undefined,
+  blockIdx: number,
+  lineIdx: number,
+): LinkedDayWorkLineDraft {
+  const cid = canonicalWorkLogDayDocIdForDraft(logDate, docIdPreferred)
+  return { id: stableWorkLogWorkLineId(cid, blockIdx, lineIdx), label: '' }
 }
 
-function workLinesDraftFromSiteBlock(b: WorkLogSiteBlock): LinkedDayWorkLineDraft[] {
+function workLinesDraftFromSiteBlock(
+  b: WorkLogSiteBlock,
+  docLogDate: string,
+  docId: string,
+  blockIdx: number,
+): LinkedDayWorkLineDraft[] {
   const raw =
     b.workLines && b.workLines.length > 0
       ? b.workLines
       : typeof b.workItem === 'string' && b.workItem.trim()
-        ? [{ ...newWorkLogSiteWorkLine(), label: b.workItem.trim() }]
+        ? [{ ...newWorkLogSiteWorkLine(docId, blockIdx, 0), label: b.workItem.trim() }]
         : []
-  if (raw.length === 0) return [emptyWorkLineDraft()]
+  if (raw.length === 0) return [emptyWorkLineDraftAt(docLogDate, docId, blockIdx, 0)]
   return raw.map((wl) => ({
     id: wl.id,
     label: wl.label,
@@ -343,14 +359,17 @@ function appendAdjustColumnSkeletonBlocks(
   snap: PayrollDaySnapshot,
   blocks: LinkedDayBlockDraft[],
   staffOptionsOrdered: readonly string[],
+  ymdStr: string,
 ): void {
+  const dayDocId = stableWorkLogDayDocBaseId(ymdStr)
   if (!skeletonHasSiteKey(blocks, QUICK_SITE_JUN_ADJUST)) {
     const jun = payrollStaffMealForFormSite(snap, QUICK_SITE_JUN_ADJUST)
     if (jun && jun.staffNames.length > 0) {
+      const bi = blocks.length
       blocks.push({
-        id: newWorkLogEntityId(),
+        id: stableWorkLogBlockId(dayDocId, bi),
         siteName: QUICK_SITE_JUN_ADJUST,
-        workLines: [emptyWorkLineDraft()],
+        workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, bi, 0)],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
         dong: '',
@@ -367,10 +386,11 @@ function appendAdjustColumnSkeletonBlocks(
   if (!skeletonHasSiteKey(blocks, QUICK_SITE_TSAI_ADJUST)) {
     const tsai = payrollStaffMealForFormSite(snap, QUICK_SITE_TSAI_ADJUST)
     if (tsai && tsai.staffNames.length > 0) {
+      const bi = blocks.length
       blocks.push({
-        id: newWorkLogEntityId(),
+        id: stableWorkLogBlockId(dayDocId, bi),
         siteName: QUICK_SITE_TSAI_ADJUST,
-        workLines: [emptyWorkLineDraft()],
+        workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, bi, 0)],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
         dong: '',
@@ -391,6 +411,7 @@ function payrollSnapshotToSkeleton(
   ymdStr: string,
   staffOptionsOrdered: readonly string[],
 ): { mealCost: string; blocks: LinkedDayBlockDraft[]; logDate: string } {
+  const dayDocId = stableWorkLogDayDocBaseId(ymdStr)
   const activeBlocks = snap.blocks.filter(
     (b) => b.workers.length > 0 || (b.mealAmount ?? 0) !== 0,
   )
@@ -412,10 +433,11 @@ function payrollSnapshotToSkeleton(
               workDays: fmtWorkDaysDraftFromPayroll(dayByName.get(name) ?? 1),
             }))
           : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
+      const bi = blocks.length
       blocks.push({
-        id: newWorkLogEntityId(),
+        id: stableWorkLogBlockId(dayDocId, bi),
         siteName: b.siteName,
-        workLines: [emptyWorkLineDraft()],
+        workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, bi, 0)],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
         dong: '',
@@ -424,7 +446,7 @@ function payrollSnapshotToSkeleton(
         staffLines,
       })
     }
-    appendAdjustColumnSkeletonBlocks(snap, blocks, staffOptionsOrdered)
+    appendAdjustColumnSkeletonBlocks(snap, blocks, staffOptionsOrdered, ymdStr)
     return {
       logDate: ymdStr,
       mealCost: mealSum === 0 ? '' : String(mealSum),
@@ -439,10 +461,11 @@ function payrollSnapshotToSkeleton(
   const tsaiScoped = hasTsaiWork ? payrollStaffMealForFormSite(snap, QUICK_SITE_TSAI_ADJUST) : null
   const adjustOnlyBlocks: LinkedDayBlockDraft[] = []
   if (junScoped && junScoped.staffNames.length > 0) {
+    const bi = adjustOnlyBlocks.length
     adjustOnlyBlocks.push({
-      id: newWorkLogEntityId(),
+      id: stableWorkLogBlockId(dayDocId, bi),
       siteName: QUICK_SITE_JUN_ADJUST,
-      workLines: [emptyWorkLineDraft()],
+      workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, bi, 0)],
       ...emptyLinkedInstrumentDraftFields(),
       remark: '',
       dong: '',
@@ -456,10 +479,11 @@ function payrollSnapshotToSkeleton(
     })
   }
   if (tsaiScoped && tsaiScoped.staffNames.length > 0) {
+    const bi = adjustOnlyBlocks.length
     adjustOnlyBlocks.push({
-      id: newWorkLogEntityId(),
+      id: stableWorkLogBlockId(dayDocId, bi),
       siteName: QUICK_SITE_TSAI_ADJUST,
-      workLines: [emptyWorkLineDraft()],
+      workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, bi, 0)],
       ...emptyLinkedInstrumentDraftFields(),
       remark: '',
       dong: '',
@@ -495,9 +519,9 @@ function payrollSnapshotToSkeleton(
     mealCost: p.mealCost === 0 ? '' : String(p.mealCost),
     blocks: [
       {
-        id: newWorkLogEntityId(),
+        id: stableWorkLogBlockId(dayDocId, 0),
         siteName: p.siteName,
-        workLines: [emptyWorkLineDraft()],
+        workLines: [emptyWorkLineDraftAt(ymdStr, dayDocId, 0, 0)],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
         dong: '',
@@ -509,11 +533,16 @@ function payrollSnapshotToSkeleton(
   }
 }
 
-function linkedDayBlockDraftFromSiteBlock(b: WorkLogSiteBlock): LinkedDayBlockDraft {
+function linkedDayBlockDraftFromSiteBlock(
+  b: WorkLogSiteBlock,
+  docLogDate: string,
+  docId: string,
+  blockIdx: number,
+): LinkedDayBlockDraft {
   return {
     id: b.id,
     siteName: b.siteName,
-    workLines: workLinesDraftFromSiteBlock(b),
+    workLines: workLinesDraftFromSiteBlock(b, docLogDate, docId, blockIdx),
     ...linkedInstrumentFieldsFromSiteBlock(b),
     remark: typeof b.remark === 'string' ? b.remark : '',
     dong: typeof b.dong === 'string' ? b.dong : '',
@@ -532,7 +561,7 @@ function linkedDayBlockDraftFromSiteBlock(b: WorkLogSiteBlock): LinkedDayBlockDr
 }
 
 function documentToLinkedDraft(doc: WorkLogDayDocument): LinkedDayDraft {
-  const blockSrc = doc.blocks?.length ? doc.blocks : [newSiteBlock()]
+  const blockSrc = doc.blocks?.length ? doc.blocks : [newSiteBlock(doc.id, 0)]
   const tl = ensureToolLinesDraftForForm(doc)
   const miscStr =
     Array.isArray(doc.toolLines) && doc.toolLines.length > 0
@@ -547,7 +576,7 @@ function documentToLinkedDraft(doc: WorkLogDayDocument): LinkedDayDraft {
     miscCost: miscStr,
     instrumentCost: doc.instrumentCost === 0 ? '' : String(doc.instrumentCost),
     toolLines: tl,
-    blocks: blockSrc.map((b) => linkedDayBlockDraftFromSiteBlock(b)),
+    blocks: blockSrc.map((b, bi) => linkedDayBlockDraftFromSiteBlock(b, doc.logDate, doc.id, bi)),
   }
 }
 
@@ -586,10 +615,10 @@ function mergePayrollSkeletonWithDayDocument(
       mealCost: skeleton.mealCost,
       miscCost: '',
       instrumentCost: '',
-      toolLines: [oneEmptyToolLineDraft()],
-      blocks: skeleton.blocks.map((b) => ({
+      toolLines: [oneEmptyToolLineDraftFor(skeleton.logDate, null)],
+      blocks: skeleton.blocks.map((b, bi) => ({
         ...b,
-        workLines: [emptyWorkLineDraft()],
+        workLines: [emptyWorkLineDraftAt(skeleton.logDate, null, bi, 0)],
         ...emptyLinkedInstrumentDraftFields(),
         remark: '',
         dong: '',
@@ -603,7 +632,7 @@ function mergePayrollSkeletonWithDayDocument(
   const skeletonSiteKeys = new Set(skeleton.blocks.map((b) => siteKey(b.siteName)))
   const usedDocBlockIds = new Set<string>()
 
-  const mergedBlocks = skeleton.blocks.map((sb) => {
+  const mergedBlocks = skeleton.blocks.map((sb, bi) => {
     const sigSb = staffSignatureFromLinkedStaffLines(sb.staffLines)
     const unused = docBlocks.filter((b) => !usedDocBlockIds.has(b.id))
     const candidates = unused.filter((b) => {
@@ -639,7 +668,7 @@ function mergePayrollSkeletonWithDayDocument(
       workLines:
         ob && (ob.workLines?.length ?? 0) > 0
           ? ob.workLines.map((wl) => ({ ...wl }))
-          : [emptyWorkLineDraft()],
+          : [emptyWorkLineDraftAt(skeleton.logDate, overlay.id, bi, 0)],
       ...(ob ? linkedInstrumentFieldsFromSiteBlock(ob) : emptyLinkedInstrumentDraftFields()),
       remark: ob ? ob.remark : '',
       dong: ob ? (typeof ob.dong === 'string' ? ob.dong : '') : '',
@@ -651,10 +680,12 @@ function mergePayrollSkeletonWithDayDocument(
 
   /** 月表骨架當日未列案場，但已存日誌有該區塊時須保留（否則表單重載會憑空消失） */
   const orphanBlocks: LinkedDayBlockDraft[] = []
+  let orphanBi = mergedBlocks.length
   for (const ob of docBlocks) {
     if (usedDocBlockIds.has(ob.id)) continue
     if (skeletonSiteKeys.has(siteKey(ob.siteName))) continue
-    orphanBlocks.push(linkedDayBlockDraftFromSiteBlock(ob))
+    orphanBlocks.push(linkedDayBlockDraftFromSiteBlock(ob, overlay.logDate, overlay.id, orphanBi))
+    orphanBi += 1
   }
   const blocksOut = [...mergedBlocks, ...orphanBlocks]
 
@@ -690,8 +721,12 @@ function parseMoney(s: string): number {
   return Number.isFinite(n) ? n : 0
 }
 
-function oneEmptyToolLineDraft(): LinkedDayToolLineDraft {
-  return { id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }
+function oneEmptyToolLineDraftFor(
+  logDate: string,
+  docIdPreferred: string | null | undefined,
+): LinkedDayToolLineDraft {
+  const cid = canonicalWorkLogDayDocIdForDraft(logDate, docIdPreferred)
+  return { id: stableWorkLogToolLineId(cid, 0), name: '', qty: '', unit: '', amount: '' }
 }
 
 function parseToolLineQtyString(raw: string): number {
@@ -719,14 +754,14 @@ function documentToolLinesToDraft(doc: WorkLogDayDocument): LinkedDayToolLineDra
     }))
   }
   if (typeof doc.miscCost === 'number' && Number.isFinite(doc.miscCost) && doc.miscCost !== 0) {
-    return [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: String(doc.miscCost) }]
+    return [{ id: stableWorkLogToolLineId(doc.id, 0), name: '', qty: '', unit: '', amount: String(doc.miscCost) }]
   }
   return []
 }
 
 function ensureToolLinesDraftForForm(doc: WorkLogDayDocument): LinkedDayToolLineDraft[] {
   const t = documentToolLinesToDraft(doc)
-  return t.length > 0 ? t : [oneEmptyToolLineDraft()]
+  return t.length > 0 ? t : [oneEmptyToolLineDraftFor(doc.logDate, doc.id)]
 }
 
 function draftHasToolExpenseDraft(d: LinkedDayDraft): boolean {
@@ -745,15 +780,23 @@ export function linkedDayDraftToDayDocument(
   existing?: WorkLogDayDocument | null,
 ): WorkLogDayDocument {
   const t = nowIso()
+  const docId =
+    (existing?.id && existing.id.trim()) ||
+    (d.docId && d.docId.trim()) ||
+    stableWorkLogDayDocBaseId(d.logDate)
   let blocks: WorkLogSiteBlock[] = d.blocks
-    .map((b) => {
+    .map((b, bi) => {
       let workLines = (b.workLines ?? [])
         .map((wl) => ({
-          id: (wl.id ?? '').trim() || newWorkLogEntityId(),
+          id: (wl.id ?? '').trim(),
           label: wl.label.trim(),
         }))
         .filter((wl) => wl.label)
-      if (workLines.length === 0) workLines = [newWorkLogSiteWorkLine()]
+      workLines = workLines.map((wl, li) => ({
+        ...wl,
+        id: wl.id || stableWorkLogWorkLineId(docId, bi, li),
+      }))
+      if (workLines.length === 0) workLines = [newWorkLogSiteWorkLine(docId, bi, 0)]
       const iq = parseInstrumentQtyFromDraftStrings(
         b.instrumentTotalStation,
         b.instrumentRotatingLaser,
@@ -798,7 +841,7 @@ export function linkedDayDraftToDayDocument(
       parseMoney(d.instrumentCost) !== 0 ||
       hasAnyBlockText)
   ) {
-    const nb = newSiteBlock()
+    const nb = newSiteBlock(docId, 0)
     blocks = [
       {
         id: nb.id,
@@ -821,7 +864,7 @@ export function linkedDayDraftToDayDocument(
     const amount = parseMoney(row.amount)
     if (!name && amount === 0) continue
     parsedToolLines.push({
-      id: (row.id ?? '').trim() || newWorkLogEntityId(),
+      id: (row.id ?? '').trim() || stableWorkLogToolLineId(docId, parsedToolLines.length),
       name,
       qty: parseToolLineQtyString(row.qty ?? ''),
       unit: (row.unit ?? '').trim(),
@@ -842,8 +885,8 @@ export function linkedDayDraftToDayDocument(
     ? instrumentExpenseFromSiteBlocks(blocks)
     : Math.round(parseMoney(d.instrumentCost))
 
-  return {
-    id: existing?.id ?? d.docId ?? newWorkLogEntityId(),
+  return normalizeWorkLogDayDocumentNestedIds({
+    id: docId,
     logDate: d.logDate,
     workItem: '',
     equipment: '',
@@ -855,7 +898,7 @@ export function linkedDayDraftToDayDocument(
     blocks,
     createdAt: existing?.createdAt ?? t,
     updatedAt: t,
-  }
+  })
 }
 
 export type QuickApplyTextOverlay = {
@@ -885,6 +928,7 @@ export type QuickApplyTextOverlay = {
 
 function baseToolLinesBeforeQuickApply(d: LinkedDayDraft): LinkedDayToolLineDraft[] {
   const rows = d.toolLines ?? []
+  const cid = canonicalWorkLogDayDocIdForDraft(d.logDate, d.docId)
   const hasMeaningful = rows.some(
     (r) =>
       r.name.trim() ||
@@ -894,14 +938,18 @@ function baseToolLinesBeforeQuickApply(d: LinkedDayDraft): LinkedDayToolLineDraf
   )
   if (hasMeaningful) return [...rows]
   const legacy = parseMoney(d.miscCost)
-  if (legacy !== 0) return [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: String(legacy) }]
-  return rows.length > 0 ? [...rows] : [oneEmptyToolLineDraft()]
+  if (legacy !== 0)
+    return [{ id: stableWorkLogToolLineId(cid, 0), name: '', qty: '', unit: '', amount: String(legacy) }]
+  return rows.length > 0 ? [...rows] : [oneEmptyToolLineDraftFor(d.logDate, d.docId)]
 }
 
 function appendQuickToolLines(
   base: LinkedDayToolLineDraft[],
   q: QuickApplyTextOverlay,
+  logDate: string,
+  docIdPreferred: string | null | undefined,
 ): LinkedDayToolLineDraft[] {
+  const cid = canonicalWorkLogDayDocIdForDraft(logDate, docIdPreferred)
   const out = [...base]
   const incoming =
     q.toolLines?.filter(
@@ -914,7 +962,7 @@ function appendQuickToolLines(
   if (incoming.length > 0) {
     for (const l of incoming) {
       out.push({
-        id: newWorkLogEntityId(),
+        id: stableWorkLogToolLineId(cid, out.length),
         name: (l.name ?? '').trim(),
         qty:
           l.qty !== undefined && Number.isFinite(l.qty) && l.qty > 0 && l.qty !== 1
@@ -928,7 +976,7 @@ function appendQuickToolLines(
   }
   if (q.miscCost !== undefined && Number.isFinite(q.miscCost) && q.miscCost !== 0) {
     out.push({
-      id: newWorkLogEntityId(),
+      id: stableWorkLogToolLineId(cid, out.length),
       name: '',
       qty: '',
       unit: '',
@@ -959,10 +1007,10 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
     (q.miscCost !== undefined && Number.isFinite(q.miscCost) && q.miscCost !== 0)
 
   const toolLinesAfter = hasQuickToolAppend
-    ? appendQuickToolLines(baseToolLinesBeforeQuickApply(d), q)
+    ? appendQuickToolLines(baseToolLinesBeforeQuickApply(d), q, d.logDate, d.docId)
     : d.toolLines?.length
       ? d.toolLines
-      : [oneEmptyToolLineDraft()]
+      : [oneEmptyToolLineDraftFor(d.logDate, d.docId)]
   const miscCostAfter = hasQuickToolAppend ? '' : d.miscCost
 
   const mealAdd =
@@ -994,13 +1042,16 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
           if (q.workItems !== undefined) {
             const labels = q.workItems.map((x) => String(x).trim()).filter(Boolean)
             if (labels.length === 0) return b.workLines
-            return labels.map((label) => ({ ...emptyWorkLineDraft(), label }))
+            return labels.map((label, li) => ({
+              ...emptyWorkLineDraftAt(d.logDate, d.docId, i, li),
+              label,
+            }))
           }
           if (q.workItem !== undefined) {
             const single = String(q.workItem).trim()
             return b.workLines?.length
               ? b.workLines.map((wl, j) => (j === 0 ? { ...wl, label: single } : wl))
-              : [{ ...emptyWorkLineDraft(), label: single }]
+              : [{ ...emptyWorkLineDraftAt(d.logDate, d.docId, i, 0), label: single }]
           }
           return b.workLines
         })(),
@@ -1376,14 +1427,15 @@ export function buildLinkedDayDraftFromState(
     const mergedDoc = legacyEntriesToDayDocument(legacy)
     if (mergedDoc) return documentToLinkedDraft(mergedDoc)
   }
-  const nb = newSiteBlock()
+  const cid = stableWorkLogDayDocBaseId(ymdStr)
+  const nb = newSiteBlock(cid, 0)
   return {
     docId: null,
     logDate: ymdStr,
     mealCost: '',
     miscCost: '',
     instrumentCost: '',
-    toolLines: [oneEmptyToolLineDraft()],
+    toolLines: [oneEmptyToolLineDraftFor(ymdStr, cid)],
     blocks: [
       {
         id: nb.id,
