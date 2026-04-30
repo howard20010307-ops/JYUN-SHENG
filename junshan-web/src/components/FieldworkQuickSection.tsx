@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } fr
 import {
   applyFieldworkQuick,
   normalizeQuickSiteKey,
+  quickToolDraftRowStatus,
   QUICK_SITE_JUN_ADJUST,
   QUICK_SITE_TSAI_ADJUST,
 } from '../domain/fieldworkQuickApply'
@@ -33,6 +34,8 @@ type Props = {
   setMonths: (m: MonthLine[]) => void
   workItemPresetLabels: readonly string[]
   ensureWorkItemLabelsInPresets: (labels: readonly string[]) => void
+  renameWorkItemPresetLabel: (fromLabel: string, toLabel: string) => void
+  removeWorkItemPresetLabel: (label: string) => void
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
   /** 登記成功後呼叫（例如重掛表單以清空欄位） */
@@ -114,6 +117,8 @@ export function FieldworkQuickSection({
   setMonths,
   workItemPresetLabels,
   ensureWorkItemLabelsInPresets,
+  renameWorkItemPresetLabel,
+  removeWorkItemPresetLabel,
   workLog,
   setWorkLog,
   onApplySuccess,
@@ -152,6 +157,8 @@ export function FieldworkQuickSection({
   const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
   const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
   const [mealAmount, setMealAmount] = useState('')
+  /** 月表預支：每人該日加帳（元）；空白／0 不寫入 */
+  const [advancePerPerson, setAdvancePerPerson] = useState('')
   const [toolRows, setToolRows] = useState<
     { id: string; name: string; qty: string; unit: string; amount: string }[]
   >(() => [{ id: newWorkLogEntityId(), name: '', qty: '', unit: '', amount: '' }])
@@ -159,11 +166,73 @@ export function FieldworkQuickSection({
   const [otManualAmount, setOtManualAmount] = useState('')
   const [otRateLine, setOtRateLine] = useState<'jun' | 'tsai'>('jun')
 
+  const [globalPresetDraft, setGlobalPresetDraft] = useState('')
+  const [presetEditKey, setPresetEditKey] = useState<string | null>(null)
+  const [presetRenameDraft, setPresetRenameDraft] = useState('')
+
   const sitePickClear = useClearWhenOpenedByPointer(setSite)
   const setFirstWorkLineLabel = useCallback((v: string) => {
     setWorkLineRows((rows) => rows.map((r, i) => (i === 0 ? { ...r, label: v } : r)))
   }, [])
   const workLine0PickClear = useClearWhenOpenedByPointer(setFirstWorkLineLabel)
+
+  const commitGlobalPresetDraft = useCallback(() => {
+    const v = globalPresetDraft.trim()
+    if (!v) {
+      alert('請輸入要新增的工作內容。')
+      return
+    }
+    const opts = mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? [])
+    if (opts.includes(v)) {
+      alert('此項目已在選項清單中。')
+      setGlobalPresetDraft('')
+      return
+    }
+    ensureWorkItemLabelsInPresets([v])
+    setGlobalPresetDraft('')
+  }, [globalPresetDraft, workItemPresetLabels, workLog.customWorkItemLabels, ensureWorkItemLabelsInPresets])
+
+  const startPresetRename = useCallback((label: string) => {
+    setPresetEditKey(label)
+    setPresetRenameDraft(label)
+  }, [])
+
+  const cancelPresetRename = useCallback(() => {
+    setPresetEditKey(null)
+    setPresetRenameDraft('')
+  }, [])
+
+  const applyPresetRename = useCallback(
+    (originalLabel: string) => {
+      const v = presetRenameDraft.trim()
+      if (!v) {
+        alert('名稱不可為空白。')
+        return
+      }
+      if (v === originalLabel) {
+        cancelPresetRename()
+        return
+      }
+      renameWorkItemPresetLabel(originalLabel, v)
+      cancelPresetRename()
+    },
+    [presetRenameDraft, renameWorkItemPresetLabel, cancelPresetRename],
+  )
+
+  const removePresetLabel = useCallback(
+    (label: string) => {
+      if (
+        !window.confirm(
+          `確定從「工作內容」選單刪除以下項目？\n\n${label}\n\n已儲存日誌內已填寫的同一串文字不會被刪除，僅自選單移除。`,
+        )
+      ) {
+        return
+      }
+      removeWorkItemPresetLabel(label)
+      if (presetEditKey === label) cancelPresetRename()
+    },
+    [removeWorkItemPresetLabel, presetEditKey, cancelPresetRename],
+  )
 
   useEffect(() => {
     const key = normalizeQuickSiteKey(site.trim())
@@ -201,25 +270,24 @@ export function FieldworkQuickSection({
       seen.add(w)
       workers.push(w)
     }
+    for (const row of toolRows) {
+      const st = quickToolDraftRowStatus(row)
+      if (st === 'partial') {
+        alert(
+          '工具：請完整填寫每一列的「名稱、數量、單位、金額」，或清空未使用之列（不可只填一部分）。',
+        )
+        return
+      }
+    }
     const toolLedgerLines = toolRows
-      .map((row) => {
-        const qRaw = row.qty.trim()
-        const qn = qRaw === '' ? 1 : num(row.qty)
-        const qty = Number.isFinite(qn) && qn > 0 ? qn : 1
-        return {
-          name: row.name.trim(),
-          amount: num(row.amount),
-          qty,
-          unit: row.unit.trim(),
-        }
-      })
-      .filter(
-        (row) =>
-          row.name ||
-          row.amount !== 0 ||
-          row.unit ||
-          (Number.isFinite(row.qty) && row.qty > 0 && row.qty !== 1),
-      )
+      .filter((row) => quickToolDraftRowStatus(row) === 'complete')
+      .map((row) => ({
+        name: row.name.trim(),
+        amount: num(row.amount),
+        qty: num(row.qty),
+        unit: row.unit.trim(),
+      }))
+    const advN = num(advancePerPerson)
     const r = applyFieldworkQuick(salaryBook, months, {
       isoDate: iso,
       siteName: site,
@@ -230,6 +298,7 @@ export function FieldworkQuickSection({
       otHoursPerPerson: num(otHoursPerPerson),
       otManualAmount: num(otManualAmount),
       otRateLine,
+      ...(advN !== 0 ? { advanceLedgerAmountPerPerson: advN } : {}),
     })
     if (!r.ok) {
       alert(r.message)
@@ -276,7 +345,7 @@ export function FieldworkQuickSection({
     <section className="card">
       <h3>快速登記（出工＋公司損益表＋工作日誌）</h3>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司損益表</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容會併入本次登記）。
+        可<strong>分開登記</strong>：<strong>預支</strong>僅需日期＋人員（可不填地點）；<strong>工具</strong>入損益表需日期且每列名稱、數量、單位、金額皆填妥（可不填地點）；<strong>餐費</strong>需日期＋案場（地點）＋金額。有填地點與人員時另寫月表出工／調工、加班，並依月表<strong>同步整日工作日誌</strong>。
       </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -338,6 +407,19 @@ export function FieldworkQuickSection({
             value={dayVal}
             onFocus={(e) => clearSingleZeroOnFocus(e, setDayVal)}
             onChange={(e) => setDayVal(e.target.value)}
+          />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+          <span>預支（元／人，選填）</span>
+          <input
+            type="number"
+            step={1}
+            className="narrow"
+            value={advancePerPerson}
+            onFocus={(e) => clearSingleZeroOnFocus(e, setAdvancePerPerson)}
+            onChange={(e) => setAdvancePerPerson(e.target.value)}
+            placeholder="空白則不寫"
+            title="寫入月表「預支」該日欄，每人累加相同金額；可填負數沖帳"
           />
         </label>
       </div>
@@ -672,6 +754,123 @@ export function FieldworkQuickSection({
         <button type="button" className="btn" onClick={submit}>
           登記到月表、公司損益表與工作日誌
         </button>
+      </div>
+
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border, #ddd)' }}>
+        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem' }}>工作內容選項（全站清單）</h4>
+        <p className="hint muted" style={{ marginTop: 0, marginBottom: 10, fontSize: 13 }}>
+          與「放樣估價」分開儲存；清單依字長排序。此處新增／更名／刪除後，工作日誌與本表單工作列的建議會一併更新。
+        </p>
+        <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 260px' }}>
+            <span>新增到選項清單</span>
+            <input
+              type="text"
+              value={globalPresetDraft}
+              onChange={(e) => setGlobalPresetDraft(e.target.value)}
+              list="fieldwork-workitem-preset-global-dl"
+              placeholder="輸入後按「新增」或 Enter"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitGlobalPresetDraft()
+                }
+              }}
+            />
+          </label>
+          <button type="button" className="btn secondary" onClick={commitGlobalPresetDraft}>
+            新增
+          </button>
+        </div>
+        <datalist id="fieldwork-workitem-preset-global-dl">
+          {workItemOptions.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+
+        <div style={{ marginTop: 16 }}>
+          <h4 style={{ margin: '12px 0 8px', fontSize: '1rem', fontWeight: 600 }}>清單項目：更名與刪除</h4>
+          <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
+            下列為目前選單內全部項目（含舊版自訂）。已儲存日誌裡已寫入的同一串文字不會自動改寫。
+          </p>
+          <div
+            style={{
+              maxHeight: 'min(50vh, 22rem)',
+              overflowY: 'auto',
+              border: '1px solid var(--border, #e0e0e0)',
+              borderRadius: 8,
+              padding: 10,
+            }}
+          >
+            {workItemOptions.length === 0 ? (
+              <p className="hint muted" style={{ margin: 0 }}>
+                尚無項目，請先以「新增到選項清單」加入。
+              </p>
+            ) : (
+              <ul
+                style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
+              >
+                {workItemOptions.map((label) => (
+                  <li
+                    key={label}
+                    className="btnRow"
+                    style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}
+                  >
+                    {presetEditKey === label ? (
+                      <>
+                        <input
+                          type="text"
+                          className="titleInput"
+                          style={{ flex: '1 1 220px', minWidth: 160 }}
+                          value={presetRenameDraft}
+                          onChange={(e) => setPresetRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              applyPresetRename(label)
+                            }
+                            if (e.key === 'Escape') {
+                              e.preventDefault()
+                              cancelPresetRename()
+                            }
+                          }}
+                          aria-label="新名稱"
+                        />
+                        <button type="button" className="btn secondary" onClick={() => applyPresetRename(label)}>
+                          套用
+                        </button>
+                        <button type="button" className="btn secondary ghost" onClick={cancelPresetRename}>
+                          取消
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: '1 1 220px', minWidth: 120, wordBreak: 'break-word' }}>{label}</span>
+                        <button type="button" className="btn secondary" onClick={() => startPresetRename(label)}>
+                          改名
+                        </button>
+                        <button
+                          type="button"
+                          className="btn danger ghost"
+                          onClick={() => removePresetLabel(label)}
+                        >
+                          刪除
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   )

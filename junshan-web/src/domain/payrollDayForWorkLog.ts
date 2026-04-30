@@ -381,6 +381,26 @@ function payrollGridStaffUnnamedBlocks(s: PayrollDaySnapshot): string[] {
 }
 
 /**
+ * 月表該日：各案場出工格＋調工支援／蔡董調工「天數」加總（同人跨案場多格各算一格）。
+ */
+export function payrollDayTotalWorkDays(s: PayrollDaySnapshot): number {
+  let sum = 0
+  for (const b of s.blocks) {
+    for (const w of b.workers) {
+      const v = w.dayValue
+      if (Number.isFinite(v)) sum += v
+    }
+  }
+  for (const x of s.junAdjust) {
+    if (Number.isFinite(x.value)) sum += x.value
+  }
+  for (const x of s.tsaiAdjust) {
+    if (Number.isFinite(x.value)) sum += x.value
+  }
+  return Math.round(sum * 1000) / 1000
+}
+
+/**
  * 月曆格僅有月表、無日誌時：地點／人數／人員與表單帶入一致——
  * 多具名案場（或具名＋未命名）時人員依「案場：人員」分段；單一案場格線時人員含當日預支／加班等列（與 {@link payrollStaffMealForFormSite} 一致）。
  * **地點**僅表示格線或調工案場；僅有預支列非零時地點仍內部記為「—」，且設 {@link advanceOnlyMinimalCell}：月曆格**不顯示**地點／人數／人員／工作列；**仍**顯示「預」角標（明細見整日工作誌底部月表預支區塊）。
@@ -390,6 +410,8 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
   staffCount: number
   staffLabel: string
   workLabel: string
+  /** 月表該日出工格＋調工天數加總（天） */
+  totalWorkDays: number
   /** 僅預支、無案場／調工：月曆格不顯示摘要列（「預」仍由 UI 依月表顯示） */
   advanceOnlyMinimalCell: boolean
 } {
@@ -462,9 +484,10 @@ export function payrollCalendarCellSummary(s: PayrollDaySnapshot): {
   const workLabel = '—'
   /** 本函式內僅「僅預支」分支會將地點設為「—」 */
   const advanceOnlyMinimalCell = siteLabel === '—'
+  const totalWorkDays = payrollDayTotalWorkDays(s)
   if (advanceOnlyMinimalCell) {
     staffCount = 0
     staffLabel = ''
   }
-  return { siteLabel, staffCount, staffLabel, workLabel, advanceOnlyMinimalCell }
+  return { siteLabel, staffCount, staffLabel, workLabel, totalWorkDays, advanceOnlyMinimalCell }
 }

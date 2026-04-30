@@ -103,6 +103,49 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     [setState],
   )
 
+  const renameWorkItemPresetLabel = useCallback(
+    (from: string, to: string) => {
+      const fromTrim = from.trim()
+      const toTrim = to.trim()
+      if (!fromTrim || !toTrim || fromTrim === toTrim) return
+      setState((s) => {
+        const inPreset = s.workItemPresetLabels.includes(fromTrim)
+        const inCustom = (s.workLog.customWorkItemLabels ?? []).includes(fromTrim)
+        if (!inPreset && !inCustom) return s
+        const workItemPresetLabels = sortWorkItemLabelsList(
+          s.workItemPresetLabels.map((x) => (x === fromTrim ? toTrim : x)),
+        )
+        const customWorkItemLabels = sortWorkItemLabelsList(
+          (s.workLog.customWorkItemLabels ?? []).map((x) => (x === fromTrim ? toTrim : x)),
+        )
+        return {
+          ...s,
+          workItemPresetLabels,
+          workLog: { ...s.workLog, customWorkItemLabels },
+        }
+      })
+    },
+    [setState],
+  )
+
+  const removeWorkItemPresetLabel = useCallback(
+    (label: string) => {
+      const t = label.trim()
+      if (!t) return
+      setState((s) => ({
+        ...s,
+        workItemPresetLabels: sortWorkItemLabelsList(s.workItemPresetLabels.filter((x) => x !== t)),
+        workLog: {
+          ...s.workLog,
+          customWorkItemLabels: sortWorkItemLabelsList(
+            (s.workLog.customWorkItemLabels ?? []).filter((x) => x !== t),
+          ),
+        },
+      }))
+    },
+    [setState],
+  )
+
   const namedSitesFingerprint = useMemo(
     () => salaryBookNamedSitesFingerprint(state.salaryBook),
     [state.salaryBook],
@@ -296,6 +339,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               setMonths={(months) => patch({ months })}
               workItemPresetLabels={state.workItemPresetLabels}
               ensureWorkItemLabelsInPresets={ensureWorkItemLabelsInPresets}
+              renameWorkItemPresetLabel={renameWorkItemPresetLabel}
+              removeWorkItemPresetLabel={removeWorkItemPresetLabel}
               workLog={state.workLog}
               setWorkLog={(fn) =>
                 setState((s) => ({

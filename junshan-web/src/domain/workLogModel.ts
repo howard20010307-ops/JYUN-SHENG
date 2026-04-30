@@ -79,6 +79,11 @@ export type WorkLogStaffLine = {
   timeStart: string
   /** HH:mm */
   timeEnd: string
+  /**
+   * 計工數（天），與薪水月表該案場該日格一致；存檔後寫回月表。
+   * 缺省或無效值視為 1；0 表示該列不計出工（仍保留姓名列時寫回 0）。
+   */
+  workDays: number
 }
 
 /**
@@ -310,6 +315,23 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+export const DEFAULT_STAFF_WORK_DAYS = 1
+
+/** 計工數（天）：與月表格線相同語意；負數或非有限數改為 1；上限 99 */
+export function normStaffWorkDays(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw ?? '').trim().replace(/,/g, ''))
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_STAFF_WORK_DAYS
+  if (n === 0) return 0
+  return Math.min(99, Math.round(n * 1000) / 1000)
+}
+
+/** 整日表單「計工數」欄：空白視為 1 */
+export function staffWorkDaysFromDraftString(raw: string | undefined): number {
+  const t = String(raw ?? '').trim().replace(/,/g, '')
+  if (t === '') return DEFAULT_STAFF_WORK_DAYS
+  return normStaffWorkDays(t)
+}
+
 function staffListFromUnknown(o: Record<string, unknown>): string[] {
   if (Array.isArray(o.staffNames)) {
     return o.staffNames
@@ -317,6 +339,18 @@ function staffListFromUnknown(o: Record<string, unknown>): string[] {
       .filter(Boolean)
   }
   return []
+}
+
+/** 整日文件：所有具名施工列之計工數加總（天） */
+export function sumStaffWorkDaysInDayDocument(doc: WorkLogDayDocument): number {
+  let sum = 0
+  for (const b of doc.blocks ?? []) {
+    for (const ln of b.staffLines ?? []) {
+      if (!ln.name.trim()) continue
+      sum += normStaffWorkDays(ln.workDays)
+    }
+  }
+  return Math.round(sum * 1000) / 1000
 }
 
 /** 由結構化欄位產生一行式摘要（寫入 content 利於搜尋／舊版相容） */
@@ -511,6 +545,7 @@ function migrateStaffLine(o: unknown): WorkLogStaffLine | null {
     name,
     timeStart: normTime(r.timeStart, DEFAULT_WORK_START),
     timeEnd: normTime(r.timeEnd, DEFAULT_WORK_END),
+    workDays: normStaffWorkDays(r.workDays),
   }
 }
 
@@ -552,6 +587,7 @@ function migrateSiteBlock(o: unknown): WorkLogSiteBlock | null {
           name,
           timeStart: normTime(r2.timeStart, DEFAULT_WORK_START),
           timeEnd: normTime(r2.timeEnd, DEFAULT_WORK_END),
+          workDays: normStaffWorkDays(r2.workDays),
         })
       }
     }
@@ -561,6 +597,7 @@ function migrateSiteBlock(o: unknown): WorkLogSiteBlock | null {
       name: '',
       timeStart: DEFAULT_WORK_START,
       timeEnd: DEFAULT_WORK_END,
+      workDays: DEFAULT_STAFF_WORK_DAYS,
     })
   }
   const instrumentQty = migrateInstrumentQtyFromRaw(r.instrumentQty, equipmentField)
@@ -903,6 +940,7 @@ export function legacyEntriesToDayDocument(entries: readonly WorkLogEntry[]): Wo
       if (seen.has(name)) continue
       seen.add(name)
       agg.block.staffLines.push({
+        workDays: DEFAULT_STAFF_WORK_DAYS,
         name,
         timeStart: e.timeStart,
         timeEnd: e.timeEnd,
@@ -1194,6 +1232,7 @@ export function newSiteBlock(): WorkLogSiteBlock {
         name: '',
         timeStart: DEFAULT_WORK_START,
         timeEnd: DEFAULT_WORK_END,
+        workDays: DEFAULT_STAFF_WORK_DAYS,
       },
     ],
   }

@@ -1306,6 +1306,72 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+
+/* 整日 overlay：標題／內容兩欄（標題後加：） */
+.worklogDayOverlayScroll .worklogKvRow {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 10.5rem) minmax(0, 1fr);
+  gap: 10px 18px;
+  align-items: start;
+  margin-top: var(--ui-space-2);
+  padding-top: var(--ui-space-2);
+  border-top: 1px solid var(--border);
+}
+.worklogDayOverlayScroll .worklogKvRow--first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.worklogDayOverlayScroll .worklogSharedDayFields > .worklogKvRow:first-of-type {
+  margin-top: 10px;
+}
+.worklogDayOverlayScroll .worklogKvTitle {
+  margin: 0;
+  padding-top: 6px;
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  color: var(--muted, rgba(230, 237, 247, 0.72));
+  line-height: 1.45;
+}
+.worklogDayOverlayScroll .worklogKvTitle::after {
+  content: '：';
+}
+.worklogDayOverlayScroll .worklogKvTitle .worklogDayInfoNum {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.worklogDayOverlayScroll .worklogKvValue {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.worklogDayOverlayScroll .worklogKvValue .worklogDayInfoZhDate {
+  margin: 0;
+}
+.worklogDayOverlayScroll .worklogKvValue > .titleInput,
+.worklogDayOverlayScroll .worklogKvValue > input.titleInput,
+.worklogDayOverlayScroll .worklogKvValue > select.titleInput,
+.worklogDayOverlayScroll .worklogKvValue > textarea.titleInput {
+  width: 100%;
+}
+.worklogDayOverlayScroll .worklogSiteBlockSiteInfo .worklogKvRow {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+.worklogDayOverlayScroll .worklogSiteBlockSiteInfo .worklogKvRow + .btnRow {
+  margin-top: 10px;
+}
+@media (max-width: 480px) {
+  .worklogDayOverlayScroll .worklogKvRow {
+    grid-template-columns: 1fr;
+    gap: 4px 0;
+  }
+  .worklogDayOverlayScroll .worklogKvTitle {
+    padding-top: 0;
+  }
+}
 @media (max-width: 520px) {
   .worklogDayOverlay {
     padding: 0;

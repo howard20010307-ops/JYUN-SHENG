@@ -1,5 +1,5 @@
 /**
- * 整日工作日誌與薪水月表連動：案場／人員／餐費以月表為骨架，已存日誌僅覆寫文字與上下班時間等。
+ * 整日工作日誌與薪水月表連動：案場／人員／餐費以月表為骨架，已存日誌覆寫文字、上下班時間、**計工數**等。
  */
 
 import type { MonthSheetData, SalaryBook } from './salaryExcelModel'
@@ -21,6 +21,7 @@ import {
   findMonthSheetContainingDate,
   payrollStaffMealForFormSite,
   prefillFromPayrollDaySnapshot,
+  type PayrollDayNameAmount,
   type PayrollDaySnapshot,
 } from './payrollDayForWorkLog'
 import {
@@ -40,6 +41,8 @@ import {
   parseInstrumentQtyFromDraftStrings,
   parseLegacyEquipmentString,
   replaceDayDocument,
+  staffWorkDaysFromDraftString,
+  normStaffWorkDays,
   type WorkLogDayDocument,
   type WorkLogDayToolLine,
   type WorkLogSiteBlock,
@@ -51,6 +54,8 @@ export type LinkedDayStaffLineDraft = {
   name: string
   timeStart: string
   timeEnd: string
+  /** 計工數（天）；空白表示 1，存檔寫入月表 */
+  workDays: string
 }
 
 export type LinkedDayWorkLineDraft = {
@@ -299,11 +304,37 @@ function staffLinesFromOrderedNames(
 ): LinkedDayStaffLineDraft[] {
   const ordered = orderStaffNamesForLinkedForm(staffOptionsOrdered, [...names])
   if (ordered.length === 0)
-    return [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }]
+    return [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
   return ordered.map((name) => ({
     name,
     timeStart: DEFAULT_WORK_START,
     timeEnd: DEFAULT_WORK_END,
+    workDays: '',
+  }))
+}
+
+function fmtWorkDaysDraftFromPayroll(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return ''
+  const n = normStaffWorkDays(v)
+  if (n === 1) return ''
+  return String(n)
+}
+
+/** 調工支援／蔡董調工：依月表當日每人數值帶入計工數 */
+function staffLinesFromAdjustNamesAndAmounts(
+  staffNames: readonly string[],
+  amounts: readonly PayrollDayNameAmount[],
+  staffOptionsOrdered: readonly string[],
+): LinkedDayStaffLineDraft[] {
+  const valBy = new Map(amounts.map((r) => [r.name.trim(), r.value]))
+  const ordered = orderStaffNamesForLinkedForm(staffOptionsOrdered, [...staffNames])
+  if (ordered.length === 0)
+    return [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
+  return ordered.map((name) => ({
+    name,
+    timeStart: DEFAULT_WORK_START,
+    timeEnd: DEFAULT_WORK_END,
+    workDays: fmtWorkDaysDraftFromPayroll(valBy.get(name.trim()) ?? 1),
   }))
 }
 
@@ -325,7 +356,11 @@ function appendAdjustColumnSkeletonBlocks(
         dong: '',
         floorLevel: '',
         workPhase: '',
-        staffLines: staffLinesFromOrderedNames(jun.staffNames, staffOptionsOrdered),
+        staffLines: staffLinesFromAdjustNamesAndAmounts(
+          jun.staffNames,
+          snap.junAdjust,
+          staffOptionsOrdered,
+        ),
       })
     }
   }
@@ -341,7 +376,11 @@ function appendAdjustColumnSkeletonBlocks(
         dong: '',
         floorLevel: '',
         workPhase: '',
-        staffLines: staffLinesFromOrderedNames(tsai.staffNames, staffOptionsOrdered),
+        staffLines: staffLinesFromAdjustNamesAndAmounts(
+          tsai.staffNames,
+          snap.tsaiAdjust,
+          staffOptionsOrdered,
+        ),
       })
     }
   }
@@ -363,14 +402,16 @@ function payrollSnapshotToSkeleton(
       mealSum += b.mealAmount ?? 0
       const rawNames = b.workers.map((w) => w.name)
       const names = orderStaffNamesForLinkedForm(staffOptionsOrdered, rawNames)
+      const dayByName = new Map(b.workers.map((w) => [w.name, w.dayValue]))
       const staffLines: LinkedDayStaffLineDraft[] =
         names.length > 0
           ? names.map((name) => ({
               name,
               timeStart: DEFAULT_WORK_START,
               timeEnd: DEFAULT_WORK_END,
+              workDays: fmtWorkDaysDraftFromPayroll(dayByName.get(name) ?? 1),
             }))
-          : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }]
+          : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
       blocks.push({
         id: newWorkLogEntityId(),
         siteName: b.siteName,
@@ -407,7 +448,11 @@ function payrollSnapshotToSkeleton(
       dong: '',
       floorLevel: '',
       workPhase: '',
-      staffLines: staffLinesFromOrderedNames(junScoped.staffNames, staffOptionsOrdered),
+      staffLines: staffLinesFromAdjustNamesAndAmounts(
+        junScoped.staffNames,
+        snap.junAdjust,
+        staffOptionsOrdered,
+      ),
     })
   }
   if (tsaiScoped && tsaiScoped.staffNames.length > 0) {
@@ -420,7 +465,11 @@ function payrollSnapshotToSkeleton(
       dong: '',
       floorLevel: '',
       workPhase: '',
-      staffLines: staffLinesFromOrderedNames(tsaiScoped.staffNames, staffOptionsOrdered),
+      staffLines: staffLinesFromAdjustNamesAndAmounts(
+        tsaiScoped.staffNames,
+        snap.tsaiAdjust,
+        staffOptionsOrdered,
+      ),
     })
   }
   if (adjustOnlyBlocks.length > 0) {
@@ -438,8 +487,9 @@ function payrollSnapshotToSkeleton(
           name,
           timeStart: DEFAULT_WORK_START,
           timeEnd: DEFAULT_WORK_END,
+          workDays: '',
         }))
-      : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }]
+      : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
   return {
     logDate: ymdStr,
     mealCost: p.mealCost === 0 ? '' : String(p.mealCost),
@@ -475,8 +525,9 @@ function linkedDayBlockDraftFromSiteBlock(b: WorkLogSiteBlock): LinkedDayBlockDr
             name: l.name,
             timeStart: l.timeStart,
             timeEnd: l.timeEnd,
+            workDays: fmtWorkDaysDraftFromPayroll(l.workDays ?? 1),
           }))
-        : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }],
+        : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }],
   }
 }
 
@@ -569,7 +620,17 @@ function mergePayrollSkeletonWithDayDocument(
     const staffLines = sb.staffLines.map((sl) => {
       if (!sl.name.trim()) return sl
       const line = ob?.staffLines.find((l) => l.name.trim() === sl.name.trim())
-      if (line) return { name: sl.name, timeStart: line.timeStart, timeEnd: line.timeEnd }
+      if (line) {
+        return {
+          name: sl.name,
+          timeStart: line.timeStart,
+          timeEnd: line.timeEnd,
+          workDays:
+            line.workDays !== undefined && Number.isFinite(line.workDays)
+              ? fmtWorkDaysDraftFromPayroll(normStaffWorkDays(line.workDays))
+              : sl.workDays,
+        }
+      }
       return sl
     })
     return {
@@ -717,6 +778,7 @@ export function linkedDayDraftToDayDocument(
             name: ln.name.trim(),
             timeStart: toHhmm24(ln.timeStart, DEFAULT_WORK_START),
             timeEnd: toHhmm24(ln.timeEnd, DEFAULT_WORK_END),
+            workDays: staffWorkDaysFromDraftString(ln.workDays),
           })),
       }
     })
@@ -1092,7 +1154,7 @@ export function clearPayrollBookWorkGridMealAndAdjustForDate(book: SalaryBook, i
 
 /**
  * 依整日工作日誌（須已與月表修剪一致）覆寫該日：案場格線、調工支援／蔡董調工天數、整日餐費。
- * 日誌沒有的出工／調工／餐費欄位會先歸零再依文件寫入（與日誌一致）。
+ * 日誌沒有的出工／調工／餐費欄位會先歸零再依文件寫入；**每人每案場之計工數**取自日誌該列 `workDays`（與月表 1、0.5 等一致）。
  */
 export function syncPayrollBookFromDayDocument(
   book: SalaryBook,
@@ -1117,23 +1179,26 @@ export function syncPayrollBookFromDayDocument(
 
   for (const db of doc.blocks ?? []) {
     const sn = normDocPayrollSiteKey(db.siteName ?? '')
-    const names = (db.staffLines ?? [])
-      .map((ln) => (ln.name ?? '').trim())
-      .filter(Boolean)
+    const staffRows = (db.staffLines ?? [])
+      .map((ln) => ({
+        name: (ln.name ?? '').trim(),
+        days: normStaffWorkDays(ln.workDays),
+      }))
+      .filter((x) => x.name)
 
     if (sn === QUICK_SITE_JUN_ADJUST) {
-      for (const w of names) {
-        const row = [...padArray(junAdjustDays[w], len)]
-        if (j < row.length) row[j] = 1
-        junAdjustDays = { ...junAdjustDays, [w]: row }
+      for (const { name, days } of staffRows) {
+        const row = [...padArray(junAdjustDays[name], len)]
+        if (j < row.length) row[j] = days
+        junAdjustDays = { ...junAdjustDays, [name]: row }
       }
       continue
     }
     if (sn === QUICK_SITE_TSAI_ADJUST) {
-      for (const w of names) {
-        const row = [...padArray(tsaiAdjustDays[w], len)]
-        if (j < row.length) row[j] = 1
-        tsaiAdjustDays = { ...tsaiAdjustDays, [w]: row }
+      for (const { name, days } of staffRows) {
+        const row = [...padArray(tsaiAdjustDays[name], len)]
+        if (j < row.length) row[j] = days
+        tsaiAdjustDays = { ...tsaiAdjustDays, [name]: row }
       }
       continue
     }
@@ -1141,11 +1206,11 @@ export function syncPayrollBookFromDayDocument(
     const bi = blocks.findIndex((b) => normDocPayrollSiteKey(b.siteName) === sn)
     if (bi < 0) continue
     let bl = blocks[bi]!
-    for (const w of names) {
-      bl = ensureGridWorker(bl, w, len)
-      const row = [...padArray(bl.grid[w], len)]
-      if (j < row.length) row[j] = 1
-      bl = { ...bl, grid: { ...bl.grid, [w]: row } }
+    for (const { name, days } of staffRows) {
+      bl = ensureGridWorker(bl, name, len)
+      const row = [...padArray(bl.grid[name], len)]
+      if (j < row.length) row[j] = days
+      bl = { ...bl, grid: { ...bl.grid, [name]: row } }
     }
     blocks = blocks.map((x, i) => (i === bi ? bl : x))
   }
@@ -1329,7 +1394,17 @@ export function buildLinkedDayDraftFromState(
         dong: nb.dong,
         floorLevel: nb.floorLevel,
         workPhase: nb.workPhase,
-        staffLines: nb.staffLines.map((x) => ({ ...x })),
+        staffLines: nb.staffLines.map((x) => ({
+          name: x.name,
+          timeStart: x.timeStart,
+          timeEnd: x.timeEnd,
+          workDays:
+            x.workDays !== undefined &&
+            Number.isFinite(x.workDays) &&
+            normStaffWorkDays(x.workDays) !== 1
+              ? String(normStaffWorkDays(x.workDays))
+              : '',
+        })),
       },
     ],
   }

@@ -50,6 +50,8 @@ type Props = {
   setMonths: (m: MonthLine[]) => void
   workItemPresetLabels: readonly string[]
   ensureWorkItemLabelsInPresets: (labels: readonly string[]) => void
+  renameWorkItemPresetLabel: (fromLabel: string, toLabel: string) => void
+  removeWorkItemPresetLabel: (label: string) => void
   workLog: WorkLogState
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
   /** 遞增時重掛快速登記區塊（登入／雲端首載完成後與最新資料同步；登記成功後清空表單） */
@@ -76,6 +78,16 @@ function sumRowCells(row: number[] | undefined, len: number): number {
     if (Number.isFinite(v)) s += v
   }
   return s
+}
+
+/** 該區整月是否曾輸入過非零（全為 0 則不列人） */
+function rowHasAnyRecordedValue(row: number[] | undefined, len: number): boolean {
+  const p = padArray(row, len)
+  for (let j = 0; j < len; j++) {
+    const v = p[j] ?? 0
+    if (Number.isFinite(v) && v !== 0) return true
+  }
+  return false
 }
 
 function colSumStaffGrid(
@@ -163,6 +175,8 @@ export function PayrollPanel({
   setMonths,
   workItemPresetLabels,
   ensureWorkItemLabelsInPresets,
+  renameWorkItemPresetLabel,
+  removeWorkItemPresetLabel,
   workLog,
   setWorkLog,
   fieldworkQuickResetKey = 0,
@@ -431,6 +445,25 @@ export function PayrollPanel({
   }
 
   const grand = computeGrandTotalSection(month)
+  const dateLen = month.dates.length
+  const staffGrandRows = staffOrder.filter(
+    (n) => staffTotalDays(grand.staffRows[n] ?? []) !== 0,
+  )
+  const staffAdvanceRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.advances[n], dateLen),
+  )
+  const staffJunAdjRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.junAdjustDays?.[n], dateLen),
+  )
+  const staffTsaiAdjRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.tsaiAdjustDays?.[n], dateLen),
+  )
+  const staffJunOtRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.junOtHours[n], dateLen),
+  )
+  const staffTsaiOtRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.tsaiOtHours[n], dateLen),
+  )
 
   return (
     <div className="panel">
@@ -531,6 +564,8 @@ export function PayrollPanel({
           setMonths={setMonths}
           workItemPresetLabels={workItemPresetLabels}
           ensureWorkItemLabelsInPresets={ensureWorkItemLabelsInPresets}
+          renameWorkItemPresetLabel={renameWorkItemPresetLabel}
+          removeWorkItemPresetLabel={removeWorkItemPresetLabel}
           workLog={workLog}
           setWorkLog={setWorkLog}
           onApplySuccess={onFieldworkQuickApplySuccess}
@@ -996,7 +1031,7 @@ export function PayrollPanel({
                   <tr>
                     <th />
                     {month.dates.map((d, j) => {
-                      const colHasWork = staffOrder.some((nm) => {
+                      const colHasWork = staffGrandRows.some((nm) => {
                         const r = grand.staffRows[nm] ?? []
                         return (r[j] ?? 0) > 0
                       })
@@ -1014,7 +1049,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => {
+                  {staffGrandRows.map((name) => {
                     const row = grand.staffRows[name] ?? []
                     const days = staffTotalDays(row)
                     const pay = staffTotalPay(days, month.rateJun[name] ?? 0)
@@ -1056,7 +1091,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const v = colSumStaffGrid(
-                        staffOrder,
+                        staffGrandRows,
                         month.dates.length,
                         j,
                         (n) => grand.staffRows[n],
@@ -1070,12 +1105,12 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce((s, n) => s + grand.staffTotalsDays[n], 0),
+                        staffGrandRows.reduce((s, n) => s + grand.staffTotalsDays[n], 0),
                       )}
                     </td>
                     <td className="num payrollGrandCell">
                       {Math.round(
-                        staffOrder.reduce((s, n) => s + grand.staffTotalsPay[n], 0) +
+                        staffGrandRows.reduce((s, n) => s + grand.staffTotalsPay[n], 0) +
                           grand.mealPay,
                       )}
                     </td>
@@ -1095,7 +1130,7 @@ export function PayrollPanel({
                     {month.dates.map((d, j) => (
                       <th
                         key={d}
-                        className={`dtCol${colHasPositiveInGrid(staffOrder, month.dates.length, j, (n) => month.advances[n]) ? ' dtCol--hasWork' : ''}`}
+                        className={`dtCol${colHasPositiveInGrid(staffAdvanceRows, month.dates.length, j, (n) => month.advances[n]) ? ' dtCol--hasWork' : ''}`}
                       >
                         {d.slice(5)}
                       </th>
@@ -1104,7 +1139,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => (
+                  {staffAdvanceRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
                       {month.dates.map((_, j) => {
@@ -1137,7 +1172,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const colSum = colSumStaffGrid(
-                        staffOrder,
+                        staffAdvanceRows,
                         month.dates.length,
                         j,
                         (n) => month.advances[n],
@@ -1153,7 +1188,7 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce(
+                        staffAdvanceRows.reduce(
                           (s, n) => s + sumRowCells(month.advances[n], month.dates.length),
                           0,
                         ),
@@ -1175,7 +1210,7 @@ export function PayrollPanel({
                     {month.dates.map((d, j) => (
                       <th
                         key={d}
-                        className={`dtCol${colHasPositiveInGrid(staffOrder, month.dates.length, j, (n) => month.junAdjustDays?.[n]) ? ' dtCol--hasWork' : ''}`}
+                        className={`dtCol${colHasPositiveInGrid(staffJunAdjRows, month.dates.length, j, (n) => month.junAdjustDays?.[n]) ? ' dtCol--hasWork' : ''}`}
                       >
                         {d.slice(5)}
                       </th>
@@ -1184,7 +1219,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => (
+                  {staffJunAdjRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
                       {month.dates.map((_, j) => {
@@ -1217,7 +1252,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const colSum = colSumStaffGrid(
-                        staffOrder,
+                        staffJunAdjRows,
                         month.dates.length,
                         j,
                         (n) => month.junAdjustDays?.[n],
@@ -1233,7 +1268,7 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce(
+                        staffJunAdjRows.reduce(
                           (s, n) =>
                             s + sumRowCells(month.junAdjustDays?.[n], month.dates.length),
                           0,
@@ -1256,7 +1291,7 @@ export function PayrollPanel({
                     {month.dates.map((d, j) => (
                       <th
                         key={d}
-                        className={`dtCol${colHasPositiveInGrid(staffOrder, month.dates.length, j, (n) => month.tsaiAdjustDays?.[n]) ? ' dtCol--hasWork' : ''}`}
+                        className={`dtCol${colHasPositiveInGrid(staffTsaiAdjRows, month.dates.length, j, (n) => month.tsaiAdjustDays?.[n]) ? ' dtCol--hasWork' : ''}`}
                       >
                         {d.slice(5)}
                       </th>
@@ -1265,7 +1300,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => (
+                  {staffTsaiAdjRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
                       {month.dates.map((_, j) => {
@@ -1298,7 +1333,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const colSum = colSumStaffGrid(
-                        staffOrder,
+                        staffTsaiAdjRows,
                         month.dates.length,
                         j,
                         (n) => month.tsaiAdjustDays?.[n],
@@ -1314,7 +1349,7 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce(
+                        staffTsaiAdjRows.reduce(
                           (s, n) =>
                             s + sumRowCells(month.tsaiAdjustDays?.[n], month.dates.length),
                           0,
@@ -1337,7 +1372,7 @@ export function PayrollPanel({
                     {month.dates.map((d, j) => (
                       <th
                         key={d}
-                        className={`dtCol${colHasPositiveInGrid(staffOrder, month.dates.length, j, (n) => month.junOtHours[n]) ? ' dtCol--hasWork' : ''}`}
+                        className={`dtCol${colHasPositiveInGrid(staffJunOtRows, month.dates.length, j, (n) => month.junOtHours[n]) ? ' dtCol--hasWork' : ''}`}
                       >
                         {d.slice(5)}
                       </th>
@@ -1346,7 +1381,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => (
+                  {staffJunOtRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
                       {month.dates.map((_, j) => {
@@ -1379,7 +1414,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const colSum = colSumStaffGrid(
-                        staffOrder,
+                        staffJunOtRows,
                         month.dates.length,
                         j,
                         (n) => month.junOtHours[n],
@@ -1395,7 +1430,7 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce(
+                        staffJunOtRows.reduce(
                           (s, n) => s + sumRowCells(month.junOtHours[n], month.dates.length),
                           0,
                         ),
@@ -1417,7 +1452,7 @@ export function PayrollPanel({
                     {month.dates.map((d, j) => (
                       <th
                         key={d}
-                        className={`dtCol${colHasPositiveInGrid(staffOrder, month.dates.length, j, (n) => month.tsaiOtHours[n]) ? ' dtCol--hasWork' : ''}`}
+                        className={`dtCol${colHasPositiveInGrid(staffTsaiOtRows, month.dates.length, j, (n) => month.tsaiOtHours[n]) ? ' dtCol--hasWork' : ''}`}
                       >
                         {d.slice(5)}
                       </th>
@@ -1426,7 +1461,7 @@ export function PayrollPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {staffOrder.map((name) => (
+                  {staffTsaiOtRows.map((name) => (
                     <tr key={name}>
                       <td>{name}</td>
                       {month.dates.map((_, j) => {
@@ -1459,7 +1494,7 @@ export function PayrollPanel({
                     <th scope="row">總計</th>
                     {month.dates.map((_, j) => {
                       const colSum = colSumStaffGrid(
-                        staffOrder,
+                        staffTsaiOtRows,
                         month.dates.length,
                         j,
                         (n) => month.tsaiOtHours[n],
@@ -1475,7 +1510,7 @@ export function PayrollPanel({
                     })}
                     <td className="num payrollGrandCell">
                       {fmtSum(
-                        staffOrder.reduce(
+                        staffTsaiOtRows.reduce(
                           (s, n) => s + sumRowCells(month.tsaiOtHours[n], month.dates.length),
                           0,
                         ),

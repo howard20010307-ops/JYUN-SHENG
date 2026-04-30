@@ -26,6 +26,41 @@ export function normalizeQuickSiteKey(siteTrimmed: string): string {
   return siteTrimmed
 }
 
+/** 表單工具列：空白／完整／缺欄（缺欄時不應送出） */
+export function quickToolDraftRowStatus(row: {
+  name: string
+  qty: string
+  unit: string
+  amount: string
+}): 'empty' | 'partial' | 'complete' {
+  const name = row.name.trim()
+  const unit = row.unit.trim()
+  const qtyS = row.qty.trim()
+  const amtS = row.amount.trim()
+  const qtyN = qtyS === '' ? NaN : parseFloat(qtyS)
+  const amtN = amtS === '' ? NaN : parseFloat(amtS)
+  const hasAny =
+    name.length > 0 || unit.length > 0 || qtyS.length > 0 || amtS.length > 0
+  if (!hasAny) return 'empty'
+  const qtyOk = qtyS.length > 0 && Number.isFinite(qtyN) && qtyN > 0
+  const amtOk = amtS.length > 0 && Number.isFinite(amtN) && amtN !== 0
+  if (name.length > 0 && unit.length > 0 && qtyOk && amtOk) return 'complete'
+  return 'partial'
+}
+
+function isCompleteToolPayloadLine(l: {
+  name?: string
+  amount?: number
+  qty?: number
+  unit?: string
+}): boolean {
+  const name = typeof l.name === 'string' ? l.name.trim() : ''
+  const unit = typeof l.unit === 'string' ? l.unit.trim() : ''
+  const qty = typeof l.qty === 'number' && Number.isFinite(l.qty) ? l.qty : 0
+  const amt = typeof l.amount === 'number' && Number.isFinite(l.amount) ? l.amount : 0
+  return name.length > 0 && unit.length > 0 && qty > 0 && amt !== 0
+}
+
 export type FieldworkQuickPayload = {
   isoDate: string
   siteName: string
@@ -49,6 +84,10 @@ export type FieldworkQuickPayload = {
   otRateLine: 'jun' | 'tsai'
   /** 加班費手動加帳（可正負）；僅在 otHoursPerPerson 為 0 時作為加班費入帳 */
   otManualAmount: number
+  /**
+   * 月表「預支」：所選人員該日每人累加金額（元，可正負）；0 或未傳則不變更預支欄。
+   */
+  advanceLedgerAmountPerPerson?: number
 }
 
 function monthIndexForIso(book: SalaryBook, iso: string): number {
@@ -120,12 +159,13 @@ export function applyFieldworkQuick(
   const iso = payload.isoDate.trim()
   const siteTrim = payload.siteName.trim()
   const siteKey = normalizeQuickSiteKey(siteTrim)
+  const hasSite = siteKey.length > 0
   const workers = payload.workers.map((w) => w.trim()).filter(Boolean)
   /** 0 即不加該日出工／調工；非有限數字視為 0（不再預設為 1） */
   const dayVal = Number.isFinite(payload.dayValue) ? payload.dayValue : 0
 
-  if (!iso || !siteKey || workers.length === 0) {
-    return { book, months, ok: false, message: '請填日期、地點，並至少選一位人員。' }
+  if (!iso) {
+    return { book, months, ok: false, message: '請填日期。' }
   }
 
   const mi = monthIndexForIso(book, iso)
@@ -138,91 +178,19 @@ export function applyFieldworkQuick(
     }
   }
 
-  const bookWithStaff = ensureWorkersAcrossBook(book, workers)
-
-  const dayIdx = bookWithStaff.months[mi].dates.indexOf(iso)
-  let m = bookWithStaff.months[mi]
-  const len = m.dates.length
   const mealAmt = Number.isFinite(payload.mealLedgerAmount) ? payload.mealLedgerAmount : 0
   const wantsMeal = mealAmt !== 0
-
-  const isTsaiAdjustSite = siteKey === QUICK_SITE_TSAI_ADJUST
-  const isJunAdjustSite = siteKey === QUICK_SITE_JUN_ADJUST
-
-  let newBook: SalaryBook
-  let msg: string
-
-  if (isTsaiAdjustSite || isJunAdjustSite) {
-    const field = isTsaiAdjustSite ? 'tsaiAdjustDays' : 'junAdjustDays'
-    const recIn = m[field]
-    const rec: Record<string, number[]> = { ...recIn }
-    for (const w of workers) {
-      const row = [...padArray(rec[w], len)]
-      if (dayIdx >= 0 && dayIdx < len) {
-        row[dayIdx] = (row[dayIdx] ?? 0) + dayVal
-      }
-      rec[w] = row
+  if (wantsMeal && !hasSite) {
+    return {
+      book,
+      months,
+      ok: false,
+      message: '餐費需填寫日期與案場（地點）。',
     }
-    const updatedMonth = { ...m, [field]: rec }
-    newBook = {
-      ...bookWithStaff,
-      months: bookWithStaff.months.map((x, i) => (i === mi ? updatedMonth : x)),
-    }
-    const bookLine = isTsaiAdjustSite ? '月表「蔡董調工」' : '月表「調工支援」'
-    msg =
-      dayVal !== 0
-        ? `已登記：${iso}、${workers.join('、')} → ${bookLine} 該日各 +${dayVal} 天（與案場格線分開）。`
-        : `出工天數為 0：未變更 ${bookLine} 該日天數（${iso}、${workers.join('、')}）。`
-  } else {
-    let bi = m.blocks.findIndex((b) => b.siteName === siteKey)
-    let blocks = [...m.blocks]
-    if (bi < 0) {
-      blocks = [...blocks, emptyBlock(siteKey, len, staffKeysForMonthDisplay(m))]
-      bi = blocks.length - 1
-    }
-
-    let block = blocks[bi]
-    for (const w of workers) {
-      block = ensureGridWorker(block, w, len)
-      const row = [...padArray(block.grid[w], len)]
-      if (dayIdx >= 0 && dayIdx < len) {
-        row[dayIdx] = (row[dayIdx] ?? 0) + dayVal
-      }
-      block = { ...block, grid: { ...block.grid, [w]: row } }
-    }
-    if (wantsMeal && dayIdx >= 0 && dayIdx < len) {
-      const mealRow = [...padArray(block.meal, len)]
-      mealRow[dayIdx] = (mealRow[dayIdx] ?? 0) + mealAmt
-      block = { ...block, meal: mealRow }
-    }
-    blocks[bi] = block
-
-    const newMonthsData = bookWithStaff.months.map((x, i) =>
-      i === mi ? { ...m, blocks } : x,
-    )
-    newBook = { ...bookWithStaff, months: newMonthsData }
-    msg =
-      dayVal !== 0
-        ? `已登記：${iso}、${siteKey}、${workers.join('、')}，該日出工合計 +${dayVal} 天。`
-        : `出工天數為 0：未變更案場「${siteKey}」該日格線（${iso}、${workers.join('、')}）。`
   }
-  if ((isTsaiAdjustSite || isJunAdjustSite) && wantsMeal) {
-    newBook = addMealDeltaToPayrollBlockForSite(newBook, mi, siteKey, dayIdx, mealAmt)
-  }
-  let newLedger = months
-
-  const calMo = parseInt(iso.slice(5, 7), 10)
-  const monthKey = String(calMo)
-  const li = months.findIndex((row) => row.month === monthKey)
 
   const toolLinesRaw = Array.isArray(payload.toolLedgerLines) ? payload.toolLedgerLines : []
-  const toolLines = toolLinesRaw.filter(
-    (l) =>
-      (typeof l?.name === 'string' && l.name.trim()) ||
-      (Number.isFinite(l?.amount) && l.amount !== 0) ||
-      (typeof l?.unit === 'string' && l.unit.trim()) ||
-      (Number.isFinite(l?.qty) && (l.qty as number) > 0 && (l.qty as number) !== 1),
-  )
+  const toolLines = toolLinesRaw.filter(isCompleteToolPayloadLine)
   const miscAmtFromLines = toolLines.reduce(
     (a, l) => a + (Number.isFinite(l.amount) ? l.amount : 0),
     0,
@@ -240,6 +208,129 @@ export function applyFieldworkQuick(
   const wantsOtAuto = hours > 0 && workers.length > 0
   const wantsOtManual =
     !wantsOtAuto && Number.isFinite(otManual) && otManual !== 0
+
+  const advRaw = payload.advanceLedgerAmountPerPerson
+  const advPer: number =
+    typeof advRaw === 'number' && Number.isFinite(advRaw) ? advRaw : 0
+  const wantsAdvance = advPer !== 0 && workers.length > 0
+
+  const isTsaiAdjustSite = hasSite && siteKey === QUICK_SITE_TSAI_ADJUST
+  const isJunAdjustSite = hasSite && siteKey === QUICK_SITE_JUN_ADJUST
+
+  /** 未填地點或人員時不寫出工格線，避免因表單預設出工天數阻擋「僅工具／預支」等登記 */
+  const gridDayVal =
+    hasSite && workers.length > 0 && dayVal !== 0 ? dayVal : 0
+
+  if (
+    dayVal !== 0 &&
+    gridDayVal === 0 &&
+    !wantsMisc &&
+    !wantsOtManual &&
+    !wantsAdvance &&
+    !wantsOtAuto &&
+    !wantsMeal
+  ) {
+    return {
+      book,
+      months,
+      ok: false,
+      message:
+        '出工天數已填，請填寫地點並選擇人員；若僅要登記工具、預支或加班費且不出工，請將「出工天數」改為 0。',
+    }
+  }
+
+  if (wantsOtAuto && workers.length === 0) {
+    return { book, months, ok: false, message: '加班費（依時數）需選擇人員。' }
+  }
+
+  const wantsFieldworkDays = hasSite && workers.length > 0 && gridDayVal !== 0
+  const hasAnyAction =
+    wantsAdvance ||
+    wantsMisc ||
+    (wantsMeal && hasSite) ||
+    wantsOtAuto ||
+    wantsOtManual ||
+    wantsFieldworkDays ||
+    (hasSite && workers.length > 0 && gridDayVal === 0)
+
+  if (!hasAnyAction) {
+    return {
+      book,
+      months,
+      ok: false,
+      message:
+        '沒有可登記的內容。請擇一：出工（地點＋人員）、餐費（日期＋案場＋金額）、預支（日期＋人員）、工具（日期且名稱／數量／單位／金額填妥）、或加班費。',
+    }
+  }
+
+  const bookAfterStaff =
+    workers.length > 0 ? ensureWorkersAcrossBook(book, workers) : book
+  let newBook: SalaryBook = bookAfterStaff
+  let m = newBook.months[mi]
+  const dayIdx = m.dates.indexOf(iso)
+  const len = m.dates.length
+
+  let msg = ''
+
+  if (hasSite && (isTsaiAdjustSite || isJunAdjustSite)) {
+    const field = isTsaiAdjustSite ? 'tsaiAdjustDays' : 'junAdjustDays'
+    const recIn = m[field]
+    const rec: Record<string, number[]> = { ...recIn }
+    for (const w of workers) {
+      const row = [...padArray(rec[w], len)]
+      if (dayIdx >= 0 && dayIdx < len) {
+        row[dayIdx] = (row[dayIdx] ?? 0) + gridDayVal
+      }
+      rec[w] = row
+    }
+    const updatedMonth = { ...m, [field]: rec }
+    newBook = {
+      ...bookAfterStaff,
+      months: bookAfterStaff.months.map((x, i) => (i === mi ? updatedMonth : x)),
+    }
+    const bookLine = isTsaiAdjustSite ? '月表「蔡董調工」' : '月表「調工支援」'
+    if (gridDayVal !== 0) {
+      msg = `已登記：${iso}、${workers.join('、')} → ${bookLine} 該日各 +${gridDayVal} 天（與案場格線分開）。`
+    } else if (workers.length > 0) {
+      msg = `出工天數為 0：未變更 ${bookLine} 該日天數（${iso}、${workers.join('、')}）。`
+    }
+  } else if (hasSite) {
+    let bi = m.blocks.findIndex((b) => b.siteName === siteKey)
+    let blocks = [...m.blocks]
+    if (bi < 0) {
+      blocks = [...blocks, emptyBlock(siteKey, len, staffKeysForMonthDisplay(m))]
+      bi = blocks.length - 1
+    }
+
+    let block = blocks[bi]
+    if (workers.length > 0) {
+      for (const w of workers) {
+        block = ensureGridWorker(block, w, len)
+        const row = [...padArray(block.grid[w], len)]
+        if (dayIdx >= 0 && dayIdx < len && gridDayVal !== 0) {
+          row[dayIdx] = (row[dayIdx] ?? 0) + gridDayVal
+        }
+        block = { ...block, grid: { ...block.grid, [w]: row } }
+      }
+    }
+    blocks[bi] = block
+
+    const newMonthsData = bookAfterStaff.months.map((x, i) =>
+      i === mi ? { ...m, blocks } : x,
+    )
+    newBook = { ...bookAfterStaff, months: newMonthsData }
+    if (gridDayVal !== 0 && workers.length > 0) {
+      msg = `已登記：${iso}、${siteKey}、${workers.join('、')}，該日出工合計 +${gridDayVal} 天。`
+    } else if (workers.length > 0) {
+      msg = `出工天數為 0：未變更案場「${siteKey}」該日格線（${iso}、${workers.join('、')}）。`
+    }
+  }
+
+  let newLedger = months
+
+  const calMo = parseInt(iso.slice(5, 7), 10)
+  const monthKey = String(calMo)
+  const li = months.findIndex((row) => row.month === monthKey)
 
   if (wantsOtAuto) {
     const line = otRateLineForQuick(isTsaiAdjustSite, isJunAdjustSite, payload.otRateLine)
@@ -263,7 +354,31 @@ export function applyFieldworkQuick(
     msg += ` 月表「${gridLabel}」已於 ${iso} 為所選人員每人 +${hours} 時（與加班費試算同一條日薪線）。`
   }
 
-  if (wantsMeal && dayIdx >= 0 && dayIdx < len) {
+  if (
+    advPer !== 0 &&
+    workers.length > 0 &&
+    dayIdx >= 0 &&
+    dayIdx < len
+  ) {
+    const sheet = newBook.months[mi]
+    let advances = { ...sheet.advances }
+    for (const w of workers) {
+      const row = [...padArray(advances[w], len)]
+      row[dayIdx] = (row[dayIdx] ?? 0) + advPer
+      advances = { ...advances, [w]: row }
+    }
+    newBook = {
+      ...newBook,
+      months: newBook.months.map((x, i) =>
+        i === mi ? { ...sheet, advances } : x,
+      ),
+    }
+    const advSign = advPer > 0 ? '+' : ''
+    msg += ` 月表「預支」已於 ${iso} 為所選人員每人 ${advSign}${advPer} 元。`
+  }
+
+  if (wantsMeal && hasSite && dayIdx >= 0 && dayIdx < len) {
+    newBook = addMealDeltaToPayrollBlockForSite(newBook, mi, siteKey, dayIdx, mealAmt)
     msg += ` 月表「${siteKey}」${iso} 餐費欄 +${mealAmt}；公司損益表「餐費」將依月表自動加總。`
   }
 
@@ -309,6 +424,8 @@ export function applyFieldworkQuick(
     }
   }
 
-  msg += ` 所涉人員已同步至全書各月表（新進者各案場格線為 0）。`
+  if (workers.length > 0) {
+    msg += ` 所涉人員已同步至全書各月表（新進者各案場格線為 0）。`
+  }
   return { book: newBook, months: newLedger, ok: true, message: msg }
 }

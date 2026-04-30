@@ -26,6 +26,8 @@ import {
   WORK_LOG_INSTRUMENT_OPTIONS,
   instrumentQtyAnyPositive,
   parseInstrumentQtyFromDraftStrings,
+  normStaffWorkDays,
+  sumStaffWorkDaysInDayDocument,
 } from '../domain/workLogModel'
 import {
   buildLinkedDayDraftFromState,
@@ -44,8 +46,9 @@ import {
   payrollCalendarCellSummary,
   payrollStaffMealForFormSite,
   prefillFromPayrollDaySnapshot,
+  type PayrollDaySnapshot,
 } from '../domain/payrollDayForWorkLog'
-import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
+import { normalizeQuickSiteKey, QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 
 const EMPTY_SITE = ''
 
@@ -139,15 +142,43 @@ function orderStaffNamesForForm(
   ]
 }
 
+/** 切換案場時：自月表該日帶入該員計工數（非 1 才顯示字串） */
+function staffDraftWorkDaysFromPayrollCell(
+  snap: PayrollDaySnapshot,
+  siteRaw: string,
+  name: string,
+): string {
+  const ns = normalizeQuickSiteKey(siteRaw.trim())
+  if (ns === QUICK_SITE_JUN_ADJUST) {
+    const v = snap.junAdjust.find((x) => x.name === name)?.value
+    return v !== undefined && Number.isFinite(v) && v !== 1 ? String(v) : ''
+  }
+  if (ns === QUICK_SITE_TSAI_ADJUST) {
+    const v = snap.tsaiAdjust.find((x) => x.name === name)?.value
+    return v !== undefined && Number.isFinite(v) && v !== 1 ? String(v) : ''
+  }
+  const blk = snap.blocks.find((bb) => normalizeQuickSiteKey(bb.siteName.trim()) === ns)
+  const v = blk?.workers.find((w) => w.name === name)?.dayValue
+  return v !== undefined && Number.isFinite(v) && v !== 1 ? String(v) : ''
+}
+
 type DayCellSummary = {
   siteLabel: string
   staffCount: number
   staffLabel: string
   workLabel: string
+  /** 該日計工天數加總（整日文件為各列計工數；僅月表為格線＋調工；舊 entries 為人次估算） */
+  totalWorkDays?: number
   /** 月表僅預支：月曆格不顯示地點／人數／人員／工作列（仍顯示「預」角標） */
   advanceOnlyMinimalCell?: boolean
   /** 月表該日「預支」列有非零（與出工／日誌分開標示） */
   hasPayrollAdvance?: boolean
+}
+
+function formatWorkLogCalendarTotalWorkDays(n: number | undefined): string {
+  if (n === undefined || !Number.isFinite(n)) return '—'
+  const r = Math.round(n * 100) / 100
+  return Number.isInteger(r) ? String(r) : String(r)
 }
 
 function workLogCalendarSiteKey(siteName: string): string {
@@ -159,7 +190,7 @@ function workLogCalendarSiteKey(siteName: string): string {
 
 function aggregateWorkLogEntriesForDay(
   list: WorkLogEntry[],
-): Pick<DayCellSummary, 'siteLabel' | 'staffCount' | 'staffLabel' | 'workLabel'> {
+): Pick<DayCellSummary, 'siteLabel' | 'staffCount' | 'staffLabel' | 'workLabel' | 'totalWorkDays'> {
   const sites = new Set<string>()
   const staff = new Set<string>()
   const works = new Set<string>()
@@ -234,11 +265,16 @@ function aggregateWorkLogEntriesForDay(
     }
     staffCount = staffArr.length
   }
+  const totalWorkDays = list.reduce(
+    (s, e) => s + (e.staffNames?.filter((n) => n.trim()).length ?? 0),
+    0,
+  )
   return {
     siteLabel: [...sites].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\n') || '—',
     staffCount,
     staffLabel,
     workLabel,
+    totalWorkDays,
   }
 }
 
@@ -265,10 +301,8 @@ export function WorkLogPanel({
   const [dayDraft, setDayDraft] = useState<DayDraft>(() =>
     buildLinkedDayDraftFromState(today, workLog, salaryBook, staffOptions),
   )
-  /** 各工作列「加入選項」輸入暫存（key = block.id:workLine.id） */
-  const [blockCustomWorkLine, setBlockCustomWorkLine] = useState<Record<string, string>>({})
-  /** 頂部「工作內容選項」全域新增 */
-  const [globalPresetDraft, setGlobalPresetDraft] = useState('')
+  /** 各案場「新增自訂選項到清單」暫存字串（key = block.id，每案場一組） */
+  const [blockCustomPresetDraft, setBlockCustomPresetDraft] = useState<Record<string, string>>({})
   const [formUnlocked, setFormUnlocked] = useState(false)
   /** 全螢幕編輯：月曆格顯示摘要，完整內容於 overlay（可捲、不截斷） */
   const [dayOverlayOpen, setDayOverlayOpen] = useState(false)
@@ -331,27 +365,6 @@ export function WorkLogPanel({
     [workItemPresetLabels, workLog.customWorkItemLabels],
   )
 
-  const commitGlobalPresetDraft = useCallback(() => {
-    const v = globalPresetDraft.trim()
-    if (!v) {
-      window.alert('請輸入要新增的工作內容。')
-      return
-    }
-    const opts = mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? [])
-    if (opts.includes(v)) {
-      window.alert('此項目已在選項清單中。')
-      setGlobalPresetDraft('')
-      return
-    }
-    ensureWorkItemLabelsInPresets([v])
-    setGlobalPresetDraft('')
-  }, [
-    globalPresetDraft,
-    workItemPresetLabels,
-    workLog.customWorkItemLabels,
-    ensureWorkItemLabelsInPresets,
-  ])
-
   const datesWithPayroll = useMemo(
     () => datesWithPayrollActivityInCalendarMonth(salaryBook, viewYear, viewMonth),
     [salaryBook, viewYear, viewMonth],
@@ -397,7 +410,7 @@ export function WorkLogPanel({
     for (const doc of workLog.dayDocuments ?? []) {
       if (!doc.logDate.startsWith(p)) continue
       const a = summarizeWorkLogDayDocument(doc)
-      m.set(doc.logDate, { ...a })
+      m.set(doc.logDate, { ...a, totalWorkDays: sumStaffWorkDaysInDayDocument(doc) })
     }
     const byDate = new Map<string, WorkLogEntry[]>()
     for (const e of effectiveEntriesForCalendar(workLog)) {
@@ -480,15 +493,19 @@ export function WorkLogPanel({
           if (i !== blockIndex) return b
           if (!snap) return { ...b, siteName: site }
           const lines: StaffLineDraft[] =
-            scoped && scoped.staffNames.length > 0
+            scoped && scoped.staffNames.length > 0 && snap
               ? orderStaffNamesForForm(staffOptions, scoped.staffNames).map((name) => ({
                   name,
                   timeStart: DEFAULT_WORK_START,
                   timeEnd: DEFAULT_WORK_END,
+                  workDays: staffDraftWorkDaysFromPayrollCell(snap, site, name),
                 }))
               : b.staffLines.length
-                ? b.staffLines
-                : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END }]
+                ? b.staffLines.map((s) => ({
+                    ...s,
+                    workDays: s.workDays ?? '',
+                  }))
+                : [{ name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' }]
           return { ...b, siteName: site, staffLines: lines }
         })
         const mealCost =
@@ -673,14 +690,11 @@ export function WorkLogPanel({
     setFormUnlocked(false)
   }, [dayDraft, formUnlocked, setSalaryBook, setWorkLog, salaryBook, staffOptions])
 
-  const addCustomWorkItemForBlock = useCallback(
-    (blockIdx: number, lineIdx: number) => {
+  const addCustomWorkItemForSiteBlock = useCallback(
+    (blockIdx: number) => {
       const block = dayDraft.blocks[blockIdx]
       if (!block) return
-      const wl = block.workLines[lineIdx]
-      if (!wl) return
-      const key = `${block.id}:${wl.id}`
-      const v = (blockCustomWorkLine[key] ?? '').trim()
+      const v = (blockCustomPresetDraft[block.id] ?? '').trim()
       if (!v) return
       const opts = mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? [])
       if (!opts.includes(v)) {
@@ -688,22 +702,32 @@ export function WorkLogPanel({
       }
       setDayDraft((d) => ({
         ...d,
-        blocks: d.blocks.map((b, i) =>
-          i === blockIdx
-            ? {
-                ...b,
-                workLines: b.workLines.map((w, j) => (j !== lineIdx ? w : { ...w, label: v })),
-              }
-            : b,
-        ),
+        blocks: d.blocks.map((b, i) => {
+          if (i !== blockIdx) return b
+          const raw = b.workLines?.length ? [...b.workLines] : [{ ...newWorkLogSiteWorkLine() }]
+          const emptyIdx = raw.findIndex((w) => !(w.label ?? '').trim())
+          let workLines: typeof raw
+          if (emptyIdx >= 0) {
+            workLines = raw.map((w, j) => (j === emptyIdx ? { ...w, label: v } : w))
+          } else {
+            workLines = [...raw, { id: newWorkLogEntityId(), label: v }]
+          }
+          return { ...b, workLines }
+        }),
       }))
-      setBlockCustomWorkLine((m) => {
+      setBlockCustomPresetDraft((m) => {
         const next = { ...m }
-        delete next[key]
+        delete next[block.id]
         return next
       })
     },
-    [blockCustomWorkLine, dayDraft.blocks, ensureWorkItemLabelsInPresets, workItemPresetLabels, workLog.customWorkItemLabels],
+    [
+      blockCustomPresetDraft,
+      dayDraft.blocks,
+      ensureWorkItemLabelsInPresets,
+      workItemPresetLabels,
+      workLog.customWorkItemLabels,
+    ],
   )
 
   const addWorkLine = useCallback((blockIdx: number) => {
@@ -753,7 +777,17 @@ export function WorkLogPanel({
           dong: nb.dong,
           floorLevel: nb.floorLevel,
           workPhase: nb.workPhase,
-          staffLines: nb.staffLines.map((x) => ({ ...x })),
+          staffLines: nb.staffLines.map((x) => ({
+            name: x.name,
+            timeStart: x.timeStart,
+            timeEnd: x.timeEnd,
+            workDays:
+              x.workDays !== undefined &&
+              Number.isFinite(x.workDays) &&
+              normStaffWorkDays(x.workDays) !== 1
+                ? String(normStaffWorkDays(x.workDays))
+                : '',
+          })),
         },
       ],
     }))
@@ -775,7 +809,7 @@ export function WorkLogPanel({
               ...b,
               staffLines: [
                 ...b.staffLines,
-                { name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END },
+                { name: '', timeStart: DEFAULT_WORK_START, timeEnd: DEFAULT_WORK_END, workDays: '' },
               ],
             }
           : b,
@@ -814,39 +848,6 @@ export function WorkLogPanel({
   return (
     <div className="panel">
       <h2>工作日誌</h2>
-
-      <section className="card" style={{ marginBottom: 14 }}>
-        <h3 style={{ marginTop: 0, fontSize: '1.05rem' }}>工作內容選項</h3>
-        <p className="hint" style={{ marginTop: 4, marginBottom: 10 }}>
-          與「放樣估價」分開儲存；清單依字長排序。可在此新增項目，或在編輯整日時由工作列旁「加入選項」新增。
-        </p>
-        <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 260px' }}>
-            <span>新增到選項清單</span>
-            <input
-              type="text"
-              value={globalPresetDraft}
-              onChange={(e) => setGlobalPresetDraft(e.target.value)}
-              list="worklog-workitem-preset-global-dl"
-              placeholder="輸入後按「新增」或 Enter"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitGlobalPresetDraft()
-                }
-              }}
-            />
-          </label>
-          <button type="button" className="btn secondary" onClick={commitGlobalPresetDraft}>
-            新增
-          </button>
-        </div>
-        <datalist id="worklog-workitem-preset-global-dl">
-          {workItemOptions.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
-      </section>
 
       <section
         className={`card worklogCalendarCard${calendarCompact ? ' worklogCalendarCard--compact' : ''}`}
@@ -920,6 +921,14 @@ export function WorkLogPanel({
                       <span className="worklogDayCellK">工作</span>
                       <span className="worklogDayCellV">{cellSum!.workLabel}</span>
                     </div>
+                    {cellSum!.totalWorkDays !== undefined ? (
+                      <div className="worklogDayCellLine worklogDayCellLine--count">
+                        <span className="worklogDayCellK">總計工數</span>
+                        <span className="worklogDayCellV">
+                          {formatWorkLogCalendarTotalWorkDays(cellSum!.totalWorkDays)}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </button>
@@ -1017,52 +1026,54 @@ export function WorkLogPanel({
             <div className="worklogDayOverlayScroll">
               <section className="card worklogForm worklogDayInfoCard worklogDayOverlayCard">
 
-          <div className="worklogDayInfoField">
-            <span className="worklogDayInfoLabel">
-              <span className="worklogDayInfoNum" aria-hidden>
-                1
-              </span>
-              記錄幾月幾號
-            </span>
-            <p className="worklogDayInfoZhDate">
-              {formatYmdChinese(dayDraft.logDate)}
-              <span className="muted">（{dayDraft.logDate}）</span>
-            </p>
-            <input
-              type="date"
-              className="titleInput"
-              disabled={!formUnlocked}
-              title="僅變更本筆要儲存的日期；表單內已填內容會保留"
-              value={dayDraft.logDate}
-              onChange={(e) => {
-                const v = e.target.value
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                  setDayDraft((d) => ({ ...d, logDate: v }))
-                  return
-                }
-                setSelectedYmd(v)
-                jumpCalendarToYmd(v)
-                setDayDraft((d) => ({ ...d, logDate: v }))
-              }}
-            />
-          </div>
-
           <datalist id="worklog-workitem-list">
             {workItemOptions.map((o) => (
               <option key={o} value={o} />
             ))}
           </datalist>
 
+          <div className="worklogKvRow worklogKvRow--first">
+            <div className="worklogKvTitle">
+              <span className="worklogDayInfoNum" aria-hidden>
+                1
+              </span>
+              記錄日期
+            </div>
+            <div className="worklogKvValue">
+              <p className="worklogDayInfoZhDate">
+                {formatYmdChinese(dayDraft.logDate)}
+                <span className="muted">（{dayDraft.logDate}）</span>
+              </p>
+              <input
+                type="date"
+                className="titleInput"
+                disabled={!formUnlocked}
+                title="僅變更本筆要儲存的日期；表單內已填內容會保留"
+                value={dayDraft.logDate}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                    setDayDraft((d) => ({ ...d, logDate: v }))
+                    return
+                  }
+                  setSelectedYmd(v)
+                  jumpCalendarToYmd(v)
+                  setDayDraft((d) => ({ ...d, logDate: v }))
+                }}
+              />
+            </div>
+          </div>
+
           <div className={`worklogSharedDayFields${multiSiteMode ? ' worklogSharedDayFields--multi' : ''}`}>
             <p className="worklogSharedDayFieldsTitle">當日共用（餐費、工具、儀器支出）</p>
-            <div className="worklogFormGrid" style={{ marginTop: 4 }}>
-              <label className="worklogFormLabel">
-                <span className="worklogDayInfoLabel">
-                  <span className="worklogDayInfoNum" aria-hidden>
-                    2
-                  </span>
-                  餐費（元）
+            <div className="worklogKvRow">
+              <div className="worklogKvTitle">
+                <span className="worklogDayInfoNum" aria-hidden>
+                  2
                 </span>
+                餐費（元）
+              </div>
+              <div className="worklogKvValue">
                 <input
                   type="number"
                   className="titleInput"
@@ -1071,19 +1082,20 @@ export function WorkLogPanel({
                   onChange={(e) => setDayDraft((d) => ({ ...d, mealCost: e.target.value }))}
                   placeholder="0"
                 />
-              </label>
+              </div>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <span className="worklogDayInfoLabel">
+            <div className="worklogKvRow">
+              <div className="worklogKvTitle">
                 <span className="worklogDayInfoNum" aria-hidden>
                   3
                 </span>
-                工具（名稱、數量、單位、金額，可複數列）
-              </span>
-              <p className="hint muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
-                數量空白則視為 1；損益仍以「金額」加總。
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+                工具
+              </div>
+              <div className="worklogKvValue">
+                <p className="hint muted" style={{ margin: 0, fontSize: 12 }}>
+                  名稱、數量、單位、金額，可複數列。數量空白則視為 1；損益仍以「金額」加總。
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(dayDraft.toolLines ?? []).map((row, ti) => (
                   <div key={row.id} className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
                     <label className="worklogFormLabel" style={{ flex: '1 1 140px', minWidth: 100 }}>
@@ -1184,41 +1196,44 @@ export function WorkLogPanel({
                 </button>
               </div>
             </div>
-            <label className="worklogFormLabel" style={{ marginTop: 12 }}>
-              <span className="worklogDayInfoLabel">
+            </div>
+            <div className="worklogKvRow">
+              <div className="worklogKvTitle">
                 <span className="worklogDayInfoNum" aria-hidden>
                   4
                 </span>
                 儀器支出（元）
-              </span>
-              <p className="hint muted" style={{ margin: '4px 0 6px', fontSize: 12 }}>
-                單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
-                {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
-                {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
-                {instrumentUsesStructuredQty
-                  ? ' 各案場有填台數時由此欄自動加總（唯讀）。'
-                  : ' 此欄唯讀；請於各案場填寫儀器台數後儲存，即會依台數自動計入；僅舊資料無台數時顯示已存金額。'}
-              </p>
-              <input
-                type="number"
-                className="titleInput"
-                disabled
-                readOnly
-                value={
-                  instrumentUsesStructuredQty
-                    ? instrumentExpenseAuto
-                    : dayDraft.instrumentCost === ''
-                      ? ''
-                      : dayDraft.instrumentCost
-                }
-                placeholder="0"
-                title={
-                  instrumentUsesStructuredQty
-                    ? '依各案場儀器台數與單價自動加總（唯讀）'
-                    : '唯讀：無台數時顯示已存金額，請改由各案場填寫台數後自動計算'
-                }
-              />
-            </label>
+              </div>
+              <div className="worklogKvValue">
+                <p className="hint muted" style={{ margin: 0, fontSize: 12 }}>
+                  單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
+                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
+                  {instrumentUsesStructuredQty
+                    ? ' 各案場有填台數時由此欄自動加總（唯讀）。'
+                    : ' 此欄唯讀；請於各案場填寫儀器台數後儲存，即會依台數自動計入；僅舊資料無台數時顯示已存金額。'}
+                </p>
+                <input
+                  type="number"
+                  className="titleInput"
+                  disabled
+                  readOnly
+                  value={
+                    instrumentUsesStructuredQty
+                      ? instrumentExpenseAuto
+                      : dayDraft.instrumentCost === ''
+                        ? ''
+                        : dayDraft.instrumentCost
+                  }
+                  placeholder="0"
+                  title={
+                    instrumentUsesStructuredQty
+                      ? '依各案場儀器台數與單價自動加總（唯讀）'
+                      : '唯讀：無台數時顯示已存金額，請改由各案場填寫台數後自動計算'
+                  }
+                />
+              </div>
+            </div>
           </div>
 
           <div className="worklogDayBlockActionsGlobal btnRow" style={{ marginTop: 12, flexWrap: 'wrap' }}>
@@ -1264,22 +1279,24 @@ export function WorkLogPanel({
                     </span>
                   ) : null}
                 </p>
-                <label className="worklogFormLabel" style={{ margin: '0 0 10px', width: '100%' }}>
-                  <span className="worklogDayInfoLabel">案場地點</span>
-                  <select
-                    className="titleInput"
-                    disabled={!formUnlocked}
-                    value={block.siteName ? block.siteName : EMPTY_SITE}
-                    onChange={(e) => fixApplyBlockSite(bi, e.target.value)}
-                  >
-                    <option value={EMPTY_SITE}>請選擇</option>
-                    {siteChoices.map((n) => (
-                      <option key={n} value={n}>
-                        {isPlaceholderMonthBlockSiteName(n) ? '（草稿案場）' : n}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="worklogKvRow">
+                  <div className="worklogKvTitle">案場地點</div>
+                  <div className="worklogKvValue">
+                    <select
+                      className="titleInput"
+                      disabled={!formUnlocked}
+                      value={block.siteName ? block.siteName : EMPTY_SITE}
+                      onChange={(e) => fixApplyBlockSite(bi, e.target.value)}
+                    >
+                      <option value={EMPTY_SITE}>請選擇</option>
+                      {siteChoices.map((n) => (
+                        <option key={n} value={n}>
+                          {isPlaceholderMonthBlockSiteName(n) ? '（草稿案場）' : n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
                 <div
                   className="btnRow"
                   style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 10, width: '100%' }}
@@ -1355,6 +1372,7 @@ export function WorkLogPanel({
                       <th>上班</th>
                       <th>下班</th>
                       <th aria-label="操作" />
+                      <th>計工數</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1444,16 +1462,86 @@ export function WorkLogPanel({
                             刪列
                           </button>
                         </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="titleInput"
+                            disabled={!formUnlocked}
+                            min={0}
+                            max={99}
+                            step={0.5}
+                            placeholder="1"
+                            value={ln.workDays}
+                            onChange={(e) =>
+                              setDayDraft((d) => ({
+                                ...d,
+                                blocks: d.blocks.map((b, i) =>
+                                  i !== bi
+                                    ? b
+                                    : {
+                                        ...b,
+                                        staffLines: b.staffLines.map((s, j) =>
+                                          j !== li ? s : { ...s, workDays: e.target.value },
+                                        ),
+                                      },
+                                ),
+                              }))
+                            }
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="worklogDayInfoField" style={{ marginTop: 12 }}>
-                <span className="worklogDayInfoLabel">
-                  工作內容（本案場，可多列）
-                </span>
-                <div className="btnRow" style={{ marginTop: 8, marginBottom: 10 }}>
+              <div className="worklogKvRow">
+                <div className="worklogKvTitle">工作內容（本案場）</div>
+                <div className="worklogKvValue">
+                  <div
+                    className="btnRow"
+                    style={{
+                      flexWrap: 'wrap',
+                      alignItems: 'flex-end',
+                      gap: 10,
+                      marginBottom: 8,
+                      width: '100%',
+                    }}
+                  >
+                    <div
+                      className="worklogCustomItemRow"
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        alignItems: 'center',
+                        flex: '1 1 280px',
+                        minWidth: 0,
+                        marginTop: 0,
+                      }}
+                    >
+                    <input
+                      type="text"
+                      className="titleInput"
+                      disabled={!formUnlocked}
+                      placeholder="新增自訂選項到清單"
+                      style={{ flex: '1 1 160px', minWidth: 120 }}
+                      value={blockCustomPresetDraft[block.id] ?? ''}
+                      onChange={(e) =>
+                        setBlockCustomPresetDraft((m) => ({
+                          ...m,
+                          [block.id]: e.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={!formUnlocked}
+                      onClick={() => addCustomWorkItemForSiteBlock(bi)}
+                    >
+                      加入選項
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="btn secondary"
@@ -1463,19 +1551,29 @@ export function WorkLogPanel({
                     新增工作列
                   </button>
                 </div>
-                {(block.workLines?.length ? block.workLines : [newWorkLogSiteWorkLine()]).map((wl, li) => {
-                  const customKey = `${block.id}:${wl.id}`
-                  return (
+                <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
+                  全站選單請至<strong>薪水</strong>分頁 → <strong>快速登記</strong>最下方「工作內容選項」管理。
+                </p>
+                {(block.workLines?.length ? block.workLines : [newWorkLogSiteWorkLine()]).map((wl, li) => (
+                  <div
+                    key={wl.id}
+                    className="worklogWorkLineBlock"
+                    style={{
+                      marginBottom: 12,
+                      paddingBottom: 12,
+                      borderBottom: '1px solid var(--border, #e8e8e8)',
+                    }}
+                  >
                     <div
-                      key={wl.id}
-                      className="worklogWorkLineBlock"
+                      className="btnRow"
                       style={{
-                        marginBottom: 12,
-                        paddingBottom: 12,
-                        borderBottom: '1px solid var(--border, #e8e8e8)',
+                        flexWrap: 'wrap',
+                        alignItems: 'flex-end',
+                        gap: 8,
+                        width: '100%',
                       }}
                     >
-                      <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
+                      <label className="worklogFormLabel" style={{ margin: 0, flex: '1 1 200px', minWidth: 0 }}>
                         <span className="muted" style={{ fontSize: 13 }}>
                           工作描述
                         </span>
@@ -1502,48 +1600,29 @@ export function WorkLogPanel({
                           placeholder="從清單選或自填"
                         />
                       </label>
-                      <div className="worklogCustomItemRow" style={{ marginTop: 8 }}>
-                        <input
-                          type="text"
-                          className="titleInput"
-                          disabled={!formUnlocked}
-                          placeholder="新增自訂選項到清單"
-                          value={blockCustomWorkLine[customKey] ?? ''}
-                          onChange={(e) =>
-                            setBlockCustomWorkLine((m) => ({ ...m, [customKey]: e.target.value }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="btn secondary"
-                          disabled={!formUnlocked}
-                          onClick={() => addCustomWorkItemForBlock(bi, li)}
-                        >
-                          加入選項
-                        </button>
-                      </div>
-                      <div className="btnRow" style={{ marginTop: 8 }}>
-                        <button
-                          type="button"
-                          className="btn secondary ghost"
-                          disabled={!formUnlocked}
-                          onClick={() => removeWorkLine(bi, li)}
-                        >
-                          刪除此工作列
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className="btn secondary ghost"
+                        disabled={!formUnlocked}
+                        style={{ flexShrink: 0 }}
+                        onClick={() => removeWorkLine(bi, li)}
+                      >
+                        刪除此工作列
+                      </button>
                     </div>
-                  )
-                })}
+                  </div>
+                ))}
               </div>
-              <div className="worklogDayInfoField">
-                <span className="worklogDayInfoLabel">使用儀器（本案場）</span>
-                <p className="hint muted" style={{ margin: '6px 0 10px', fontSize: 13 }}>
-                  僅三種：全站儀、旋轉雷射、墨線儀。請填<strong>台數</strong>（0 或空白＝未使用）；有使用才填數量。
-                  儀器支出單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
-                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
-                  {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台（全日各案場台數加總）。
-                </p>
+              </div>
+              <div className="worklogKvRow">
+                <div className="worklogKvTitle">使用儀器（本案場）</div>
+                <div className="worklogKvValue">
+                  <p className="hint muted" style={{ margin: 0, fontSize: 13 }}>
+                    僅三種：全站儀、旋轉雷射、墨線儀。請填<strong>台數</strong>（0 或空白＝未使用）；有使用才填數量。
+                    儀器支出單價：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
+                    {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+                    {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台（全日各案場台數加總）。
+                  </p>
                 {(() => {
                   const q = parseInstrumentQtyFromDraftStrings(
                     block.instrumentTotalStation ?? '',
@@ -1601,9 +1680,10 @@ export function WorkLogPanel({
                   })}
                 </div>
               </div>
-              <div className="worklogDayInfoField" style={{ marginTop: 12 }}>
-                <label className="worklogFormLabel" style={{ margin: 0, width: '100%' }}>
-                  <span className="worklogDayInfoLabel">備註（本案場）</span>
+              </div>
+              <div className="worklogKvRow">
+                <div className="worklogKvTitle">備註（本案場）</div>
+                <div className="worklogKvValue">
                   <textarea
                     className="titleInput"
                     disabled={!formUnlocked}
@@ -1614,11 +1694,11 @@ export function WorkLogPanel({
                         blocks: d.blocks.map((b, i) => (i === bi ? { ...b, remark: e.target.value } : b)),
                       }))
                     }
-                    placeholder="該案場施工重點、注意事項、與月表／放樣相關說明等"
+                    placeholder="該案場施工重點、注意事項等（選填）"
                     rows={3}
                     style={{ width: '100%', minHeight: '5.5rem', resize: 'vertical' }}
                   />
-                </label>
+                </div>
               </div>
             </div>
           ))}
