@@ -8,9 +8,7 @@ import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
-import { renameReceivableProjectNames } from './domain/receivablesModel'
-import { renameQuoteSiteIfProjectNameMatches } from './domain/quoteEngine'
-import { renameWorkLogSiteNames } from './domain/workLogModel'
+import { applySiteRenameAcrossAppState } from './domain/siteRenameAcrossApp'
 import { withAutoLedgerDerived } from './domain/ledgerEngine'
 import {
   repairWorkLogDayDocumentsAgainstPayroll,
@@ -294,14 +292,16 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               onFieldworkQuickApplySuccess={() =>
                 setFieldworkQuickResetKey((k) => k + 1)
               }
-              onSiteNameRenamed={(oldEx, newN) =>
-                setState((s) => ({
-                  ...s,
-                  site: renameQuoteSiteIfProjectNameMatches(s.site, oldEx, newN),
-                  receivables: renameReceivableProjectNames(s.receivables, oldEx, newN),
-                  workLog: renameWorkLogSiteNames(s.workLog, oldEx, newN),
-                }))
-              }
+              commitSiteRenameAcrossApp={({ oldExact, newTrimmed, edited }) => {
+                let out: { ok: boolean; message: string } = { ok: false, message: '' }
+                setState((s) => {
+                  const r = applySiteRenameAcrossAppState(s, oldExact, newTrimmed, edited)
+                  out = { ok: r.ok, message: r.message }
+                  if (!r.ok) return s
+                  return r.state
+                })
+                return out
+              }}
             />
           </fieldset>
         )}
@@ -313,6 +313,20 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               rows={state.quoteRows}
               setRows={(quoteRows) =>
                 patch({ quoteRows, quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION })
+              }
+              commitSiteRenameFromQuoteNameBlur={
+                canEdit
+                  ? (oldEx, newT) => {
+                      let out: { ok: boolean; message: string } = { ok: false, message: '' }
+                      setState((s) => {
+                        const r = applySiteRenameAcrossAppState(s, oldEx, newT)
+                        out = { ok: r.ok, message: r.message }
+                        if (!r.ok) return { ...s, site: { ...s.site, name: oldEx } }
+                        return r.state
+                      })
+                      return out
+                    }
+                  : undefined
               }
             />
           </fieldset>
@@ -357,6 +371,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               quoteRows={state.quoteRows}
               staffOptions={worklogStaffKeys}
               salaryBook={state.salaryBook}
+              setSalaryBook={(fn) =>
+                setState((s) => ({ ...s, salaryBook: fn(s.salaryBook) }))
+              }
             />
           </fieldset>
         )}

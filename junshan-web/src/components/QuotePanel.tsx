@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildQuoteRowsFromLayout,
   computeFloorPricingTable,
@@ -28,6 +28,14 @@ type Props = {
   setSite: (s: QuoteSite) => void
   rows: QuoteRow[]
   setRows: (r: QuoteRow[]) => void
+  /**
+   * 案名輸入 blur 時：與薪水月表、日誌、收帳全書同步（與月表案場更名同一套邏輯）。
+   * 失敗時父層會還原案名；此處仍應呼叫以顯示錯誤。
+   */
+  commitSiteRenameFromQuoteNameBlur?: (
+    oldExact: string,
+    newTrimmed: string,
+  ) => { ok: boolean; message: string }
 }
 
 /** 受控 number 清空會立刻被寫回 0；改為文字輸入，輸入中可空，blur 再定稿 */
@@ -137,8 +145,15 @@ function lastIndexForZone(rows: readonly QuoteRow[], zone: string): number {
   return -1
 }
 
-export function QuotePanel({ site, setSite, rows, setRows }: Props) {
+export function QuotePanel({
+  site,
+  setSite,
+  rows,
+  setRows,
+  commitSiteRenameFromQuoteNameBlur,
+}: Props) {
   const { bindDecimal, bindInt } = useLooseNumericDrafts()
+  const quoteSiteNameOnFocusRef = useRef(site.name)
   const result = useMemo(() => computeQuote(site, rows), [site, rows])
   const floorPricingRows = useMemo(() => computeFloorPricingTable(site, rows), [site, rows])
   const floorPricingTotals = useMemo(() => {
@@ -489,7 +504,21 @@ export function QuotePanel({ site, setSite, rows, setRows }: Props) {
             案名
             <input
               value={site.name}
+              onFocus={() => {
+                quoteSiteNameOnFocusRef.current = site.name
+              }}
               onChange={(e) => setSite({ ...site, name: e.target.value })}
+              onBlur={() => {
+                if (!commitSiteRenameFromQuoteNameBlur) return
+                const oldEx = quoteSiteNameOnFocusRef.current
+                const newT = site.name.trim()
+                if (oldEx === newT) return
+                const r = commitSiteRenameFromQuoteNameBlur(oldEx, newT)
+                if (!r.ok) {
+                  window.alert(r.message)
+                  setSite({ ...site, name: oldEx })
+                }
+              }}
               placeholder="新案估價請填本案名稱"
             />
           </label>

@@ -2,11 +2,13 @@
  * 整日工作日誌與薪水月表連動：案場／人員／餐費以月表為骨架，已存日誌僅覆寫文字與上下班時間等。
  */
 
-import type { SalaryBook } from './salaryExcelModel'
-import { staffKeysAcrossBook } from './salaryExcelModel'
+import type { MonthSheetData, SalaryBook } from './salaryExcelModel'
+import { staffKeysAcrossBook, padArray } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 import {
   buildPayrollDaySnapshot,
+  dayIndexInSheet,
+  findMonthSheetContainingDate,
   payrollStaffMealForFormSite,
   prefillFromPayrollDaySnapshot,
   type PayrollDaySnapshot,
@@ -488,6 +490,30 @@ function documentToLinkedDraft(doc: WorkLogDayDocument): LinkedDayDraft {
   }
 }
 
+function docMealNum(doc: WorkLogDayDocument | null): number {
+  if (!doc) return 0
+  const m = doc.mealCost
+  return typeof m === 'number' && Number.isFinite(m) ? m : 0
+}
+
+function skeletonMealNumFromString(s: string): number {
+  const n = parseFloat(String(s ?? '').trim())
+  return Number.isFinite(n) ? n : 0
+}
+
+/** 整日餐費：已存文件有填寫（非 0）以文件為準；否則用月表骨架加總。 */
+function mergedMealCostDraftString(
+  overlay: WorkLogDayDocument | null,
+  skeletonMealCost: string,
+): string {
+  if (!overlay) return skeletonMealCost
+  const docM = docMealNum(overlay)
+  const skM = skeletonMealNumFromString(skeletonMealCost)
+  if (docM !== 0) return String(docM)
+  if (skM !== 0) return skeletonMealCost
+  return ''
+}
+
 function mergePayrollSkeletonWithDayDocument(
   skeleton: { mealCost: string; blocks: LinkedDayBlockDraft[]; logDate: string },
   overlay: WorkLogDayDocument | null,
@@ -564,7 +590,7 @@ function mergePayrollSkeletonWithDayDocument(
   return {
     docId: overlay.id,
     logDate: skeleton.logDate,
-    mealCost: skeleton.mealCost,
+    mealCost: mergedMealCostDraftString(overlay, skeleton.mealCost),
     miscCost:
       Array.isArray(overlay.toolLines) && overlay.toolLines.length > 0
         ? ''
@@ -943,6 +969,65 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
     }
   }
   return out
+}
+
+/**
+ * 依工作日誌「整日餐費」寫回薪月表：該日各案場餐列僅保留一筆為 `mealTotal`（其餘案場該日餐欄歸 0），與全日單一餐費欄一致。
+ */
+export function syncPayrollBookMealTotalFromWorkLogDay(
+  book: SalaryBook,
+  iso: string,
+  mealTotal: number,
+  preferredSiteName?: string,
+): SalaryBook {
+  const sheet = findMonthSheetContainingDate(book, iso)
+  if (!sheet) return book
+  const j = dayIndexInSheet(sheet, iso)
+  if (j < 0) return book
+  const len = sheet.dates.length
+  const target = Number.isFinite(mealTotal) ? Math.round(mealTotal) : 0
+  const snap = buildPayrollDaySnapshot(book, iso)
+  const bi = pickPayrollBlockIndexForDayMeal(sheet, snap, j, preferredSiteName)
+  const blocks = sheet.blocks.map((b, blockIdx) => {
+    const mealRow = [...padArray(b.meal, len)]
+    mealRow[j] = blockIdx === bi ? target : 0
+    return { ...b, meal: mealRow }
+  })
+  const mi = book.months.findIndex((m) => m.id === sheet.id)
+  if (mi < 0) return book
+  return {
+    ...book,
+    months: book.months.map((m, i) => (i === mi ? { ...m, blocks } : m)),
+  }
+}
+
+function pickPayrollBlockIndexForDayMeal(
+  sheet: MonthSheetData,
+  snap: PayrollDaySnapshot | null,
+  dayIdx: number,
+  preferredSite?: string,
+): number {
+  const len = sheet.dates.length
+  const p = preferredSite?.trim()
+  if (p) {
+    const i = sheet.blocks.findIndex((b) => b.siteName.trim() === p)
+    if (i >= 0) return i
+  }
+  if (snap) {
+    for (const sb of snap.blocks) {
+      if (sb.workers.length === 0 && (sb.mealAmount ?? 0) === 0) continue
+      const i = sheet.blocks.findIndex((b) => b.siteName.trim() === sb.siteName.trim())
+      if (i >= 0) return i
+    }
+  }
+  for (let i = 0; i < sheet.blocks.length; i++) {
+    const b = sheet.blocks[i]!
+    for (const arr of Object.values(b.grid)) {
+      if ((padArray(arr, len)[dayIdx] ?? 0) !== 0) return i
+    }
+    if ((padArray(b.meal, len)[dayIdx] ?? 0) !== 0) return i
+  }
+  return 0
 }
 
 /**

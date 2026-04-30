@@ -28,6 +28,7 @@ import {
   addOrEnsureWorkerInMonth,
   removeWorkerFromBook,
   reconcileSalaryBookPeriodColumns,
+  type SiteRenameEditedRef,
   renameSiteAcrossBook,
   payrollSummaryTooltipFooterTotals,
   pickActiveMonthIdForToday,
@@ -55,7 +56,16 @@ type Props = {
   /** 遞增時重掛快速登記區塊（登入／雲端首載完成後與最新資料同步；登記成功後清空表單） */
   fieldworkQuickResetKey?: number
   onFieldworkQuickApplySuccess?: () => void
-  /** 全書案場更名成功後：同步收帳案名、放樣估價案名、工作日誌案場（與月表 `siteName` 完全或 trim 相等者） */
+  /**
+   * 案場名稱 blur 完成時：一次同步月表、日誌、估價、收帳（優先使用；與 {@link onSiteNameRenamed} 二擇一即可）。
+   * 失敗時請還原該輸入框為 `oldExact`。
+   */
+  commitSiteRenameAcrossApp?: (args: {
+    oldExact: string
+    newTrimmed: string
+    edited: SiteRenameEditedRef
+  }) => { ok: boolean; message: string }
+  /** @deprecated 請改用 {@link commitSiteRenameAcrossApp}，由父層單一 setState 寫入全書 */
   onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
 }
 
@@ -157,6 +167,7 @@ export function PayrollPanel({
   setWorkLog,
   fieldworkQuickResetKey = 0,
   onFieldworkQuickApplySuccess,
+  commitSiteRenameAcrossApp,
   onSiteNameRenamed,
 }: Props) {
   /** 案場名 blur 時全書連動更名：依區塊 id 記錄焦點當下之舊字串（避免切至他案場輸入框時單一 ref 被覆寫而略過更名／收帳同步） */
@@ -658,6 +669,23 @@ export function PayrollPanel({
                     siteRenameBlurMetaByBlockIdRef.current.delete(block.id)
                     if (!meta || meta.monthId !== month.id || meta.bi !== bi) return
                     const newT = e.target.value.trim()
+                    if (commitSiteRenameAcrossApp) {
+                      const res = commitSiteRenameAcrossApp({
+                        oldExact: meta.oldExact,
+                        newTrimmed: newT,
+                        edited: { monthId: meta.monthId, blockIndex: bi },
+                      })
+                      if (!res.ok) {
+                        queueMicrotask(() => alert(res.message))
+                        patchMonth(meta.monthId, (m) => ({
+                          ...m,
+                          blocks: m.blocks.map((b, j) =>
+                            j === meta.bi ? { ...b, siteName: meta.oldExact } : b,
+                          ),
+                        }))
+                      }
+                      return
+                    }
                     setSalaryBook((prev) => {
                       const r = renameSiteAcrossBook(prev, meta.oldExact, newT, {
                         monthId: month.id,
@@ -767,7 +795,7 @@ export function PayrollPanel({
                 區塊合計(P)：{Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
                 ；數值大於 0 的出工／餐費格與該日欄標頭以紅字標示。
                 全月出工天數合計為 0 者，不顯示人員列；可從「快速登記」寫入格線後即出現。
-                案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步全書各月所有同名區塊，並更新<strong>收帳、放樣估價案名、工作日誌</strong>內相同案場字串。
+                案場名稱請編輯後按 Tab 或點他處完成輸入，會依<strong>您開始編輯時的案名</strong>同步<strong>全書各月</strong>同名區塊，並一併更新<strong>放樣估價主案名、收帳案名、工作日誌（含整日文件）</strong>。
               </p>
               <div className="tableScroll tableScrollSticky">
                 <table className="data tight">

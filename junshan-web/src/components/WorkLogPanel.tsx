@@ -30,6 +30,7 @@ import {
 import {
   buildLinkedDayDraftFromState,
   linkedDayDraftToDayDocument,
+  syncPayrollBookMealTotalFromWorkLogDay,
   type LinkedDayBlockDraft,
   type LinkedDayDraft,
   type LinkedDayStaffLineDraft,
@@ -52,6 +53,8 @@ type Props = {
   quoteRows: readonly QuoteRow[]
   staffOptions: readonly string[]
   salaryBook: SalaryBook
+  /** 儲存整日日誌時，將「餐費」寫回薪水月表該日餐列（與月表連動） */
+  setSalaryBook?: (fn: (prev: SalaryBook) => SalaryBook) => void
 }
 
 type StaffLineDraft = LinkedDayStaffLineDraft
@@ -240,6 +243,7 @@ export function WorkLogPanel({
   quoteRows,
   staffOptions,
   salaryBook,
+  setSalaryBook,
 }: Props) {
   const today = todayYmdLocal()
   const [viewYear, setViewYear] = useState(() => {
@@ -528,15 +532,38 @@ export function WorkLogPanel({
     }
     const existing = getDayDocument(workLog, dayDraft.logDate)
     const doc = linkedDayDraftToDayDocument(dayDraft, existing)
+    const mealTotal = Math.round(
+      Number.isFinite(parseFloat(String(dayDraft.mealCost).trim()))
+        ? parseFloat(String(dayDraft.mealCost).trim())
+        : 0,
+    )
+    const primarySite =
+      dayDraft.blocks.find((b) => b.staffLines.some((ln) => ln.name.trim()))?.siteName?.trim() ?? ''
     setWorkLog((w) => {
       const next = replaceDayDocument(w, doc)
-      queueMicrotask(() =>
-        setDayDraft(buildLinkedDayDraftFromState(doc.logDate, next, salaryBook, staffOptions)),
-      )
+      queueMicrotask(() => {
+        const bookForDraft =
+          setSalaryBook && payrollSnapshotForWorkLogDay
+            ? syncPayrollBookMealTotalFromWorkLogDay(
+                salaryBook,
+                doc.logDate,
+                mealTotal,
+                primarySite,
+              )
+            : salaryBook
+        setDayDraft(
+          buildLinkedDayDraftFromState(doc.logDate, next, bookForDraft, staffOptions),
+        )
+        if (setSalaryBook && payrollSnapshotForWorkLogDay) {
+          setSalaryBook((book) =>
+            syncPayrollBookMealTotalFromWorkLogDay(book, doc.logDate, mealTotal, primarySite),
+          )
+        }
+      })
       return next
     })
     setFormUnlocked(false)
-  }, [dayDraft, formUnlocked, setWorkLog, workLog])
+  }, [dayDraft, formUnlocked, payrollSnapshotForWorkLogDay, setSalaryBook, setWorkLog, workLog, salaryBook, staffOptions])
 
   const addCustomWorkItemForBlock = useCallback(
     (blockIdx: number, lineIdx: number) => {
