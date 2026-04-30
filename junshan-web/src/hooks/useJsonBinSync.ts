@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppState } from '../domain/appState'
-import { stringifyAppBackupFingerprint } from '../domain/appStateBackup'
+import { downloadAppBackup, stringifyAppBackupFingerprint } from '../domain/appStateBackup'
 import {
   downloadAppStateFromJsonBin,
   getJsonBinKeyErrorMessage,
@@ -53,6 +53,8 @@ function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppS
  * 以備份指紋（不含 exportedAt）之 SHA-256 比對上次成功上傳：相同則略過 PUT，減少 JSONBin 請求。
  *
  * 首載合併：**收帳**（同 id 本機優先，且**同指紋不同 id 只留一筆並優先本機**）、**工作日誌**（`entries` 同指紋去重；`dayDocuments` 仍依日期）、**薪水月表**（同月月內**同案名區塊**合併、格線／餐列逐日取 max）與本機做「穩定鍵聯集、同鍵本機優先」；其餘欄位仍依整包邏輯。
+ *
+ * **從雲端還原**：使用者明確觸發時，先下載本機備份再將 JSONBin 資料**完整取代**本機（語意等同「匯入雲端備份」），不經首載合併。
  */
 export function useJsonBinSync(
   state: AppState,
@@ -74,6 +76,10 @@ export function useJsonBinSync(
   /** 可安全執行恢復／自動上傳（金鑰有效、已就緒、且允許寫入） */
   resumeCloudUploadAllowed: boolean
   resumeCloudUpload: () => void
+  /** 可執行「從雲端還原」（已就緒、金鑰有效、且允許寫入本機） */
+  canRestoreFromCloud: boolean
+  restoringFromCloud: boolean
+  restoreFromCloud: () => Promise<void>
 } {
   const envIntent = hasJsonBinEnvIntent()
   const keyErr = getJsonBinKeyErrorMessage()
@@ -90,6 +96,7 @@ export function useJsonBinSync(
   )
   const [uploadBlockMessage, setUploadBlockMessage] = useState<string | null>(null)
   const [cloudUploadSuspended, setCloudUploadSuspended] = useState(false)
+  const [restoringFromCloud, setRestoringFromCloud] = useState(false)
   const skipNextUpload = useRef(false)
   /** 瀏覽器 setTimeout 回傳 number；與 NodeJS.Timeout 分開，避免 tsc 在雲端建置失敗 */
   const saveTimer = useRef<number | null>(null)
@@ -148,6 +155,45 @@ export function useJsonBinSync(
         /* 錯誤已在 performUpload 內處理 */
       })
   }, [allowCloudWrite, keyErr, canUse, ready, cloudUploadSuspended, performUpload])
+
+  const restoreFromCloud = useCallback(async () => {
+    if (!allowCloudWrite) return
+    if (keyErr || !canUse || !ready || restoringFromCloud) return
+
+    const msg1 =
+      '【從雲端還原】將先下載「目前本機」備份 JSON（請留意瀏覽器是否阻擋多檔下載），接著以 JSONBin 上的資料「完整取代」本頁與本機儲存內容（語意與「匯入備份」相同）。\n\n除非您保留剛下載的本機備份檔，否則無法復原。確定繼續？'
+    if (!window.confirm(msg1)) return
+
+    downloadAppBackup(latestStateRef.current)
+
+    const msg2 =
+      '已觸發本機備份下載。\n\n下一步將自 JSONBin 讀取雲端並覆寫。請確認下載未被阻擋。確定以雲端覆寫本機？'
+    if (!window.confirm(msg2)) return
+
+    setRestoringFromCloud(true)
+    setLine({ text: '正在從 JSONBin 還原…', isError: false })
+    try {
+      const dl = await downloadAppStateFromJsonBin()
+      if (!dl) {
+        setLine({ text: 'JSONBin 尚無有效資料或無法解析，未變更本機。', isError: true })
+        return
+      }
+      skipNextUpload.current = true
+      setState(dl.state)
+      setLine({
+        text: '已完成「以雲端為準」還原：全站資料已與 JSONBin 一致並寫入本機。',
+        isError: false,
+      })
+      window.setTimeout(() => setLine(null), 4500)
+    } catch (e) {
+      setLine({
+        text: e instanceof Error ? e.message : String(e),
+        isError: true,
+      })
+    } finally {
+      setRestoringFromCloud(false)
+    }
+  }, [allowCloudWrite, keyErr, canUse, ready, restoringFromCloud, setState])
 
   useEffect(() => {
     if (keyErr) {
@@ -270,6 +316,7 @@ export function useJsonBinSync(
   const cloudBootstrapPending = Boolean(envIntent && canUse && !keyErr && !ready)
   const cloudUploadBlocked = uploadBlockMessage !== null
   const resumeCloudUploadAllowed = Boolean(allowCloudWrite && !keyErr && canUse && ready)
+  const canRestoreFromCloud = Boolean(allowCloudWrite && envIntent && canUse && !keyErr && ready)
 
   return {
     active: envIntent,
@@ -283,5 +330,8 @@ export function useJsonBinSync(
     cloudUploadSuspended,
     resumeCloudUploadAllowed,
     resumeCloudUpload,
+    canRestoreFromCloud,
+    restoringFromCloud,
+    restoreFromCloud,
   }
 }

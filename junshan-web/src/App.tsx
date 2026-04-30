@@ -303,6 +303,9 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           cloudUploadSuspended={jsonBin.cloudUploadSuspended}
           canResumeCloudUpload={jsonBin.resumeCloudUploadAllowed}
           onResumeCloudUpload={() => jsonBin.resumeCloudUpload()}
+          canRestoreFromCloud={canEdit && jsonBin.canRestoreFromCloud}
+          restoringFromCloud={jsonBin.restoringFromCloud}
+          onRestoreFromCloud={() => void jsonBin.restoreFromCloud()}
         />
       </header>
 

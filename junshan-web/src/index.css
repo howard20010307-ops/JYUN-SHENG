@@ -342,6 +342,25 @@ html {
   font-size: var(--ui-fs-md);
 }
 
+.jsonbinSyncBar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2) var(--ui-space-3);
+  margin: var(--ui-space-2) 0 0;
+}
+
+.jsonbinSyncBar__restoreBtn {
+  flex: 0 0 auto;
+}
+
+.jsonbinSyncBar__restoreHint {
+  flex: 1 1 14rem;
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: var(--ui-lh-body);
+}
+
 .jsonbinSyncBar__msg {
   color: var(--accent);
   font-size: var(--ui-fs-sm);

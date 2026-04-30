@@ -8,6 +8,9 @@ type Props = {
   cloudUploadSuspended: boolean
   canResumeCloudUpload: boolean
   onResumeCloudUpload: () => void
+  canRestoreFromCloud: boolean
+  restoringFromCloud: boolean
+  onRestoreFromCloud: () => void
 }
 
 /**
@@ -21,6 +24,9 @@ export function JsonBinSyncBar({
   cloudUploadSuspended,
   canResumeCloudUpload,
   onResumeCloudUpload,
+  canRestoreFromCloud,
+  restoringFromCloud,
+  onRestoreFromCloud,
 }: Props) {
   if (!active) {
     return null
@@ -40,6 +46,22 @@ export function JsonBinSyncBar({
           <span className="jsonbinSyncBar__ok">變更會自動同步至雲端（約 1 秒防抖）。</span>
         )}
       </div>
+      {ready ? (
+        <div className="jsonbinSyncBar__actions">
+          <button
+            type="button"
+            className="btn secondary jsonbinSyncBar__restoreBtn"
+            disabled={!canRestoreFromCloud || restoringFromCloud}
+            title="先下載本機備份，再以 JSONBin 快照完整取代本機（與匯入備份相同語意）"
+            onClick={() => onRestoreFromCloud()}
+          >
+            {restoringFromCloud ? '還原中…' : '從雲端還原（覆寫本機）'}
+          </button>
+          <span className="jsonbinSyncBar__restoreHint muted">
+            僅在您按此鈕並確認後，才會以雲端為準；首載仍會與本機合併以保護手輸。
+          </span>
+        </div>
+      ) : null}
       {ready && cloudUploadSuspended && canResumeCloudUpload ? (
         <div className="jsonbinSyncBar__resume">
           <p className="jsonbinSyncBar__resumeText muted">
