@@ -353,6 +353,26 @@ export function defaultLedger(): MonthLine[] {
   }))
 }
 
+/**
+ * 載入／合併備份列時，缺欄位之預設底稿：**全為 0**。
+ * 不可使用 {@link defaultLedger} 當 `normalizeStoredMonthLine` 的 base，否則 5～12 月內建示範老闆薪會灌進「欄位缺漏」的舊列，造成與雲端／手輸記憶不一致。
+ */
+export function neutralMonthLine(month: MonthKey): MonthLine {
+  return {
+    month,
+    salary: 0,
+    overtimePay: 0,
+    meals: 0,
+    tools: 0,
+    bossSalary: 0,
+    accountingFee: 0,
+    registeredAddressRent: 0,
+    instrument: 0,
+    revenueNet: 0,
+    tax: 0,
+  }
+}
+
 /** 舊版僅 2～12 月、陣列順序即曆月時，用此對照還原 `month` 缺漏之列。 */
 const LEGACY_MONTH_ORDER_FEB_TO_DEC: MonthKey[] = [
   '2',
@@ -370,12 +390,13 @@ const LEGACY_MONTH_ORDER_FEB_TO_DEC: MonthKey[] = [
 
 /**
  * 合併備份中的公司損益月列與目前預設列（1～12 月）：依 `month` 欄對位；無 `month` 且恰 11 筆時依舊版順序視為 2～12 月。
+ * 列內缺欄以 {@link neutralMonthLine} 補；**未出現在備份陣列內之曆月**亦保持中性列（全 0），**不**沿用 {@link defaultLedger} 之 5～12 月示範老闆薪，否則手填損益會像「憑空多一筆」。
+ * 僅在 `rawRows` 完全無資料時回傳 {@link defaultLedger}（新站／空陣列語意）。
  */
 export function mergeStoredMonthLines(rawRows: unknown[] | undefined): MonthLine[] {
-  const defaults = defaultLedger()
+  if (!rawRows?.length) return defaultLedger()
   const map = new Map<MonthKey, MonthLine>()
-  for (const row of defaults) map.set(row.month, { ...row })
-  if (!rawRows?.length) return MONTH_ORDER.map((k) => map.get(k)!)
+  for (const m of MONTH_ORDER) map.set(m, neutralMonthLine(m))
   rawRows.forEach((raw, idx) => {
     let guess: MonthKey | undefined
     if (raw && typeof raw === 'object') {
@@ -387,11 +408,11 @@ export function mergeStoredMonthLines(rawRows: unknown[] | undefined): MonthLine
     if (!guess && rawRows.length === 11 && idx < LEGACY_MONTH_ORDER_FEB_TO_DEC.length) {
       guess = LEGACY_MONTH_ORDER_FEB_TO_DEC[idx]
     }
-    const base =
+    const monthKeyForNormalize: MonthKey =
       guess !== undefined
-        ? (defaults.find((t) => t.month === guess) ?? defaults[0]!)
-        : defaults[Math.min(idx, defaults.length - 1)]!
-    const line = normalizeStoredMonthLine(raw, base)
+        ? guess
+        : MONTH_ORDER[Math.min(idx, MONTH_ORDER.length - 1)]!
+    const line = normalizeStoredMonthLine(raw, neutralMonthLine(monthKeyForNormalize))
     map.set(line.month, line)
   })
   return MONTH_ORDER.map((k) => map.get(k)!)
@@ -405,7 +426,6 @@ export function mergeLedgerMonthLinesPreferLocal(
   localRows: readonly MonthLine[] | undefined,
   remoteRows: readonly MonthLine[] | undefined,
 ): MonthLine[] {
-  const defaults = defaultLedger()
   const local = mergeStoredMonthLines((localRows ?? []) as unknown[])
   const remote = mergeStoredMonthLines((remoteRows ?? []) as unknown[])
   const byMonth = new Map<MonthKey, MonthLine>()
@@ -414,5 +434,5 @@ export function mergeLedgerMonthLinesPreferLocal(
     const prev = byMonth.get(row.month)
     byMonth.set(row.month, prev ? { ...prev, ...row } : { ...row })
   }
-  return MONTH_ORDER.map((m, idx) => byMonth.get(m) ?? { ...defaults[idx]! })
+  return MONTH_ORDER.map((m) => byMonth.get(m) ?? neutralMonthLine(m))
 }
