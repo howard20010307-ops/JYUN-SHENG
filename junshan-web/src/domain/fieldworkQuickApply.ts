@@ -31,9 +31,9 @@ export type FieldworkQuickPayload = {
   siteName: string
   workers: string[]
   dayValue: number
-  /** 公司帳「餐費」加帳（可正負）；0 表示不加 */
+  /** 公司損益表「餐費」加帳（可正負）；0 表示不加 */
   mealLedgerAmount: number
-  /** 公司帳「工具」加帳（可正負）；0 表示不加；工作日誌雜項支出與此連動 */
+  /** 公司損益表「工具」加帳（可正負）；0 表示不加；工作日誌雜項支出與此連動 */
   miscLedgerAmount?: number
   /**
    * 加班費：每人加班時數；與月表一致：時薪＝日薪／8，再乘時數。
@@ -210,7 +210,7 @@ export function applyFieldworkQuick(
 
   if (li < 0) {
     if (wantsMeal || wantsMisc || wantsOtAuto || wantsOtManual) {
-      msg += ` 公司帳：找不到「${monthKey} 月」列，略過餐費／工具（雜項）／加班費加帳。`
+      msg += ` 公司損益表：找不到「${monthKey} 月」列，略過餐費／工具（雜項）／加班費加帳。`
     }
   } else {
     const parts: string[] = []
@@ -253,7 +253,7 @@ export function applyFieldworkQuick(
 
     if (parts.length > 0) {
       newLedger = ledger
-      msg += ` 公司帳：${parts.join('；')}（${monthKey} 月）。`
+      msg += ` 公司損益表：${parts.join('；')}（${monthKey} 月）。`
     }
   }
 

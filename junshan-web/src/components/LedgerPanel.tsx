@@ -80,14 +80,14 @@ export function LedgerPanel({
 
   return (
     <div className="panel ledgerPanel">
-      <h2>公司帳（總成本／損益）</h2>
+      <h2>公司損益表</h2>
       <div className="btnRow" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 12 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>檢視年度</span>
           <select
             value={ledgerYear}
             onChange={(e) => setLedgerYear(Number.parseInt(e.target.value, 10))}
-            title="切換後，鈞泩薪水／加班費（鈞泩）／餐費／工具（日誌雜項）／工程款／稅金會依該西元年重算帶入"
+            title="切換後，月表與收帳、日誌帶入之數字會依該西元年重算"
           >
             {yearOptions.map((y) => (
               <option key={y} value={y}>
@@ -98,104 +98,105 @@ export function LedgerPanel({
         </label>
       </div>
       <p className="hint">
-        結餘（本期）＝（工程款未稅＋稅金）−
-        總成本；總成本＝<strong>鈞泩薪水(未扣預支)</strong>＋加班費＋餐費＋工具＋老闆薪水＋儀器損耗（
-        <strong>鈞泩薪水、鈞泩加班費、餐費</strong>由薪水月表依上列年度與曆月自動加總；<strong>工具</strong>為工作日誌該月雜項加總；<strong>工程款、稅金</strong>由收帳依入帳日加總至該年同曆月；皆無需手填）。最右欄為累計盈虧。
+        <strong>營業收入</strong>以<strong>未稅</strong>為準；<strong>稅金</strong>為業主吸收、稅外加之<strong>記錄</strong>，不列入收入與營業利益。
+        <strong>鈞泩薪水(含加班)</strong>＝格線薪＋鈞泩加班費（損益表單列口徑）。
+        <strong>銷貨成本</strong>＝鈞泩薪水(含加班)＋餐費＋工具＋儀器；<strong>毛利</strong>＝營業收入−銷貨成本；<strong>營業費用</strong>＝老闆薪；<strong>營業利益</strong>＝毛利−營業費用。
+        除老闆薪、儀器外，其餘由月表／收帳／日誌自動帶入。
       </p>
       <fieldset className="tabFieldset" disabled={!canEdit}>
         <div className="tableScroll">
           <table className="data tight ledgerCompanyTable">
             <thead>
               <tr>
-                <th>月</th>
-                <th scope="col" title="與總表「鈞泩薪水(未扣預支)」同義：格線×日薪加總，不含調工、未扣預支">
-                  鈞泩薪水(未扣預支)
+                <th rowSpan={2}>月</th>
+                <th colSpan={2} scope="colgroup">
+                  收入
                 </th>
-                <th scope="col" title="月表鈞泩加班時數×鈞泩日薪÷8 加總（不含蔡董加班）">
-                  加班費
+                <th colSpan={5} scope="colgroup">
+                  銷貨成本
                 </th>
-                <th scope="col" title="月表各案場餐列金額加總">
-                  餐費
+                <th rowSpan={2} scope="col" title="營業收入(未稅)−銷貨成本">
+                  毛利
                 </th>
-                <th scope="col" title="工作日誌該月雜項支出加總">
-                  工具
+                <th rowSpan={2} scope="col" title="現為老闆薪">
+                  營業費用
                 </th>
-                <th>老闆薪</th>
-                <th>儀器</th>
-                <th scope="col" title="收帳該月入帳未稅加總">
-                  工程款
+                <th rowSpan={2} scope="col" title="毛利−營業費用">
+                  營業利益
                 </th>
-                <th scope="col" title="收帳該月入帳稅金加總">
-                  稅金
+                <th rowSpan={2} scope="col">
+                  累計營業利益
                 </th>
-                <th>總成本</th>
-                <th>本期結餘</th>
-                <th>累計盈虧</th>
+              </tr>
+              <tr>
+                <th scope="col" title="收帳入帳未稅">
+                  營業收入(未稅)
+                </th>
+                <th scope="col" title="外加稅金，僅記錄">
+                  稅金(記錄)
+                </th>
+                <th scope="col" title="格線薪＋鈞泩加班費">
+                  鈞泩薪水(含加班)
+                </th>
+                <th scope="col">餐費</th>
+                <th scope="col">工具</th>
+                <th scope="col">儀器</th>
+                <th scope="col" title="上列銷貨成本加總">
+                  小計
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.month}>
                   <td>{r.month} 月</td>
-                  <td
-                    className="num"
-                    title={`依薪水月表 ${ledgerYear} 年該曆月自動加總（與總表「鈞泩薪水(未扣預支)」同義）`}
-                  >
-                    {Math.round(r.salary).toLocaleString()}
+                  <td className="num" title={`收帳 ${ledgerYear} 年該月未稅`}>
+                    {Math.round(r.revenueNet).toLocaleString()}
+                  </td>
+                  <td className="num" title="業主吸收、稅外加；不列入營業利益">
+                    {Math.round(r.tax).toLocaleString()}
                   </td>
                   <td
                     className="num"
-                    title={`月表鈞泩加班費加總（${ledgerYear} 年該月；不含蔡董）`}
+                    title={`格線薪＋鈞泩加班（${ledgerYear} 年該月）`}
                   >
-                    {Math.round(r.overtimePay).toLocaleString()}
+                    {Math.round(r.junLaborWithOt).toLocaleString()}
                   </td>
-                  <td
-                    className="num"
-                    title={`月表餐列金額加總（${ledgerYear} 年該月）`}
-                  >
+                  <td className="num" title={`月表餐列（${ledgerYear} 年該月）`}>
                     {Math.round(r.meals).toLocaleString()}
                   </td>
-                  <td
-                    className="num"
-                    title={`工作日誌雜項加總（${ledgerYear} 年該月）`}
-                  >
+                  <td className="num" title="工作日誌雜項">
                     {Math.round(r.tools).toLocaleString()}
-                  </td>
-                  <td>
-                    <PayrollNumberInput
-                      className="narrow"
-                      value={r.bossSalary}
-                      onCommit={(nv) => patch(i, { bossSalary: nv })}
-                    />
                   </td>
                   <td>
                     <PayrollNumberInput
                       className="narrow"
                       value={r.instrument}
                       onCommit={(nv) => patch(i, { instrument: nv })}
+                      aria-label={`${r.month} 月儀器使用成本`}
                     />
                   </td>
-                  <td
-                    className="num"
-                    title={`依收帳 ${ledgerYear} 年該月入帳未稅加總`}
-                  >
-                    {Math.round(r.revenueNet).toLocaleString()}
+                  <td className="num" title="銷貨成本合計">
+                    {Math.round(r.costOfGoodsSold).toLocaleString()}
                   </td>
-                  <td className="num" title={`依收帳 ${ledgerYear} 年該月入帳稅金加總`}>
-                    {Math.round(r.tax).toLocaleString()}
+                  <td className="num">{Math.round(r.grossProfit).toLocaleString()}</td>
+                  <td>
+                    <PayrollNumberInput
+                      className="narrow"
+                      value={r.bossSalary}
+                      onCommit={(nv) => patch(i, { bossSalary: nv })}
+                      aria-label={`${r.month} 月營業費用（老闆薪）`}
+                    />
                   </td>
-                  <td className="num">{Math.round(r.totalCost).toLocaleString()}</td>
-                  <td className="num">{Math.round(r.surplus).toLocaleString()}</td>
+                  <td className="num">{Math.round(r.operatingIncome).toLocaleString()}</td>
                   <td className="num">{Math.round(run[i] ?? 0).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={9}>全年累計盈虧</th>
-                <th className="num" colSpan={3}>
-                  {Math.round(total).toLocaleString()}
-                </th>
+                <th colSpan={11}>全年累計營業利益</th>
+                <th className="num">{Math.round(total).toLocaleString()}</th>
               </tr>
             </tfoot>
           </table>

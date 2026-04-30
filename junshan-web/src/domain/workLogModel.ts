@@ -33,7 +33,7 @@ export type WorkLogEntry = {
   equipment: string
   /** 餐費（元；與登記金額一致之紀錄） */
   mealCost: number
-  /** 雜項支出（元；可與公司帳工具欄加帳連動） */
+  /** 雜項支出（元；可與公司損益表「工具」欄加帳連動） */
   miscCost: number
   /** 備註（詳述） */
   remark: string
@@ -580,7 +580,7 @@ export function datesWithAnyLogInMonth(state: WorkLogState, year: number, month1
 }
 
 /**
- * 公司帳「工具」帶入：該曆月工作日誌雜項加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
+ * 公司損益表「工具」帶入：該曆月工作日誌雜項加總（整日文件同日僅計一次；有整日文件之日不計 `entries`）。
  */
 export function sumWorkLogMiscCostInCalendarMonth(
   workLog: WorkLogState,

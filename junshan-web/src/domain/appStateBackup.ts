@@ -116,7 +116,7 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
     throw new Error('上傳中止：quoteRowsSchemaVersion 必須為有限數字。')
   }
   if (!Array.isArray(data.months)) {
-    throw new Error('上傳中止：公司帳 months 必須為陣列。')
+    throw new Error('上傳中止：公司損益表 months 必須為陣列。')
   }
   const ly = data.ledgerYear
   if (typeof ly !== 'number' || !Number.isFinite(ly)) {

@@ -154,7 +154,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   const next = migrateAppState(raw)
                   if (
                     !window.confirm(
-                      '確定用此備份「完整取代」目前網頁內所有資料？\n（薪水、估價、收帳、公司帳、工作日誌皆會變成備份檔內容，且會寫入本機瀏覽器。）',
+                      '確定用此備份「完整取代」目前網頁內所有資料？\n（薪水、估價、收帳、公司損益表、工作日誌皆會變成備份檔內容，且會寫入本機瀏覽器。）',
                     )
                   ) {
                     return
@@ -215,7 +215,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             ['payroll', '薪水統計'],
             ['quote', '放樣估價'],
             ['receivables', '收帳'],
-            ['ledger', '公司帳'],
+            ['ledger', '公司損益表'],
             ['worklog', '工作日誌'],
           ] as const
         ).map(([id, label]) => (

@@ -283,7 +283,7 @@ export function sumEntriesNetTaxGross(entries: ReceivableEntry[]): {
   return { net: netSum, tax: taxSum, gross: netSum + taxSum }
 }
 
-/** 依入帳日年月（YYYY-MM）加總，供日後帶入公司帳 */
+/** 依入帳日年月（YYYY-MM）加總，供公司損益表帶入 */
 export function sumEntriesInMonth(
   entries: ReceivableEntry[],
   yearMonth: string,

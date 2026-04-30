@@ -222,9 +222,9 @@ export function FieldworkQuickSection({
 
   return (
     <section className="card">
-      <h3>快速登記（出工＋公司帳＋工作日誌）</h3>
+      <h3>快速登記（出工＋公司損益表＋工作日誌）</h3>
       <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司帳</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容會併入本次登記）。
+        送出後會更新<strong>月表出工／調工支援／加班</strong>與<strong>公司損益表</strong>，並依月表<strong>同步「整日工作日誌」</strong>（案場／人員以月表為準，工作內容會併入本次登記）。
       </p>
       <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -366,7 +366,7 @@ export function FieldworkQuickSection({
           </label>
         </div>
       </div>
-      <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司帳（選填）</h4>
+      <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司損益表（選填）</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <fieldset style={fieldsetStyle}>
           <legend>餐費</legend>
@@ -384,7 +384,7 @@ export function FieldworkQuickSection({
         </fieldset>
 
         <fieldset style={fieldsetStyle}>
-          <legend>雜項（入公司帳「工具」）</legend>
+          <legend>雜項（入公司損益表「工具」）</legend>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
             <span>金額</span>
             <input
@@ -450,7 +450,7 @@ export function FieldworkQuickSection({
 
       <div className="btnRow" style={{ marginTop: 16 }}>
         <button type="button" className="btn" onClick={submit}>
-          登記到月表、公司帳與工作日誌
+          登記到月表、公司損益表與工作日誌
         </button>
       </div>
     </section>

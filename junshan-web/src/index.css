@@ -2449,7 +2449,7 @@ code {
   margin-top: 0.2rem;
 }
 
-/** 公司帳：欄位多，橫向捲動；字級／欄寬與輸入格一致，避免過窄或與全域 input.narrow(88px) 衝突 */
+/** 公司損益表：欄位多、雙列表頭，橫向捲動；數字欄 tabular-nums */
 .ledgerPanel > h2 {
   font-size: var(--ui-fs-xl);
   line-height: var(--ui-lh-tight);
@@ -2457,11 +2457,11 @@ code {
 .ledgerPanel > .hint {
   font-size: var(--ui-fs-sm);
   line-height: 1.55;
-  max-width: 48rem;
+  max-width: 52rem;
 }
 
 table.data.ledgerCompanyTable {
-  min-width: 1080px;
+  min-width: 1280px;
   width: max-content;
   font-size: var(--ui-fs-sm);
   border-collapse: collapse;
@@ -2473,6 +2473,7 @@ table.data.ledgerCompanyTable thead th {
   white-space: nowrap;
   color: var(--muted);
   letter-spacing: 0.02em;
+  vertical-align: middle;
 }
 table.data.ledgerCompanyTable thead th:first-child {
   width: 3.35rem;
@@ -2490,23 +2491,21 @@ table.data.ledgerCompanyTable tbody td:first-child {
   color: var(--head);
   text-align: center;
 }
-/** 可編輯金額欄（第 2–9 欄：薪水～稅金） */
-table.data.ledgerCompanyTable thead th:nth-child(n + 2):nth-child(-n + 9),
-table.data.ledgerCompanyTable tbody td:nth-child(n + 2):nth-child(-n + 9) {
-  width: 5.85rem;
-  min-width: 5.85rem;
-}
-/** 總成本、本期結餘、累計盈虧 */
-table.data.ledgerCompanyTable thead th:nth-child(n + 10),
-table.data.ledgerCompanyTable tbody td.num:nth-child(n + 10) {
-  min-width: 6.25rem;
-  font-size: var(--ui-fs-sm);
+/** 第 2 欄起（數字與輸入） */
+table.data.ledgerCompanyTable thead th:nth-child(n + 2),
+table.data.ledgerCompanyTable tbody td:nth-child(n + 2) {
+  width: 5.35rem;
+  min-width: 5rem;
   font-variant-numeric: tabular-nums;
+}
+table.data.ledgerCompanyTable tbody td.num {
+  font-size: var(--ui-fs-sm);
+  text-align: right;
 }
 table.data.ledgerCompanyTable input.narrow {
   box-sizing: border-box;
   width: 100%;
-  min-width: 5.25rem;
+  min-width: 5rem;
   max-width: none;
   padding: 6px 8px;
   font-size: var(--ui-fs-sm);
@@ -2784,9 +2783,9 @@ table.data.ledgerCompanyTable tfoot th.num {
     line-height: 1.5;
   }
 
-  /** 公司帳：輸入格在手機拉寬、易點；表略加寬減少欄位擠壓感 */
+  /** 公司損益表：輸入格在手機拉寬、易點 */
   table.data.ledgerCompanyTable {
-    min-width: 1040px;
+    min-width: 1180px;
     font-size: 0.9rem;
   }
 
@@ -2799,15 +2798,13 @@ table.data.ledgerCompanyTable tfoot th.num {
     font-size: 0.9rem;
   }
 
-  table.data.ledgerCompanyTable thead th:nth-child(n + 2):nth-child(-n + 9),
-  table.data.ledgerCompanyTable tbody td:nth-child(n + 2):nth-child(-n + 9) {
-    min-width: 5.5rem;
+  table.data.ledgerCompanyTable thead th:nth-child(n + 2),
+  table.data.ledgerCompanyTable tbody td:nth-child(n + 2) {
+    min-width: 5.25rem;
   }
 
-  table.data.ledgerCompanyTable thead th:nth-child(n + 10),
-  table.data.ledgerCompanyTable tbody td.num:nth-child(n + 10) {
+  table.data.ledgerCompanyTable tbody td.num {
     font-size: 0.9rem;
-    min-width: 6rem;
   }
 
   table.data.ledgerCompanyTable input.narrow {

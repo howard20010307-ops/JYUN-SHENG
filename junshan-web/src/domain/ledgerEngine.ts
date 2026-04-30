@@ -1,4 +1,4 @@
-/** 公司帳：對應《總成本》《收帳》之月度結餘與累計盈虧 */
+/** 公司損益表：月度營業收入（未稅）、銷貨成本、毛利、營業費用、營業利益；稅金另列記錄 */
 
 import type { MonthSheetData, SalaryBook } from './salaryExcelModel'
 import {
@@ -33,8 +33,8 @@ export type MonthKey =
 export type MonthLine = {
   month: MonthKey
   /**
-   * 與薪水總表「鈞泩薪水(未扣預支)」同義：由月表自動寫入公司帳，**不含**調工、**未扣**預支。
-   * 數值來自 {@link withAutoLedgerDerived}／{@link withAutoLedgerJunSalary}（依公司帳選定年度之月表，加總該曆月所有人員格線×日薪）。
+   * 與薪水總表「鈞泩薪水(未扣預支)」同義：由月表自動寫入，**不含**調工、**未扣**預支。
+   * 數值來自 {@link withAutoLedgerDerived}／{@link withAutoLedgerJunSalary}（依檢視年度之月表，加總該曆月所有人員格線×日薪）。
    */
   salary: number
   /** 加班費：鈞泩加班費加總（時數×鈞泩日薪÷8），由月表自動帶入；不含蔡董加班。 */
@@ -43,40 +43,65 @@ export type MonthLine = {
   meals: number
   /** 工具（雜項）：工作日誌該曆月雜項支出加總，自動帶入。 */
   tools: number
+  /** 營業費用：老闆薪（手填）。 */
   bossSalary: number
+  /** 儀器使用成本（手填）；損益表列於銷貨成本。 */
   instrument: number
   /**
-   * 工程款（未稅）：由收帳依入帳日加總至對應曆月（年為公司帳選定之年分 `ledgerYear`）。
+   * 營業收入（未稅）：工程款，由收帳依入帳日加總（年為 `ledgerYear`）。
    */
   revenueNet: number
-  /** 稅金：同月收帳列稅金加總（與未稅一併自動帶入）。 */
+  /**
+   * 加計稅金（記錄用）：業主吸收、稅外加；**不**列入營業收入與營業利益計算。
+   */
   tax: number
 }
 
 export type MonthComputed = MonthLine & {
+  /** 鈞泩格線薪＋鈞泩加班費（損益表「鈞泩薪水(含加班)」列） */
+  junLaborWithOt: number
+  /** 銷貨成本 */
+  costOfGoodsSold: number
+  /** 毛利＝營業收入(未稅)−銷貨成本 */
+  grossProfit: number
+  /** 營業費用（現為老闆薪） */
+  operatingExpenses: number
+  /** 營業利益＝毛利−營業費用 */
+  operatingIncome: number
+  /** 銷貨成本＋營業費用（便於與舊版「總成本」對照） */
   totalCost: number
+  /**
+   * 與 {@link MonthLine.revenueNet} 同值：營業收入（未稅）。
+   * 舊欄位名保留供序列化／相容；不含加計稅。
+   */
   revenueGross: number
+  /** 營業利益（與 {@link MonthComputed.operatingIncome} 同值） */
   surplus: number
 }
 
 export function computeMonth(m: MonthLine): MonthComputed {
-  /** 總成本：第一項為鈞泩薪水(未扣預支)，與 {@link MonthLine.salary} 語意一致 */
-  const totalCost =
-    m.salary +
-    (m.overtimePay ?? 0) +
-    m.meals +
-    m.tools +
-    m.bossSalary +
-    m.instrument
-  const revenueGross = m.revenueNet + m.tax
-  const surplus = revenueGross - totalCost
-  return { ...m, totalCost, revenueGross, surplus }
+  const junLaborWithOt = m.salary + (m.overtimePay ?? 0)
+  const costOfGoodsSold = junLaborWithOt + m.meals + m.tools + m.instrument
+  const grossProfit = m.revenueNet - costOfGoodsSold
+  const operatingExpenses = m.bossSalary
+  const operatingIncome = grossProfit - operatingExpenses
+  return {
+    ...m,
+    junLaborWithOt,
+    costOfGoodsSold,
+    grossProfit,
+    operatingExpenses,
+    operatingIncome,
+    totalCost: costOfGoodsSold + operatingExpenses,
+    revenueGross: m.revenueNet,
+    surplus: operatingIncome,
+  }
 }
 
 export function cumulativeProfit(months: MonthLine[]): number {
   let acc = 0
   for (const m of months) {
-    acc += computeMonth(m).surplus
+    acc += computeMonth(m).operatingIncome
   }
   return acc
 }
@@ -85,7 +110,7 @@ export function runningCumulative(months: MonthLine[]): number[] {
   const out: number[] = []
   let acc = 0
   for (const m of months) {
-    acc += computeMonth(m).surplus
+    acc += computeMonth(m).operatingIncome
     out.push(acc)
   }
   return out
@@ -149,7 +174,7 @@ function junOtPayTotalForMonthSheet(book: SalaryBook, m: MonthSheetData): number
   return s
 }
 
-/** 公司帳某一曆月列：`ledgerYear` 年該月，各月表鈞泩加班費加總。 */
+/** 損益表某一曆月列：`ledgerYear` 年該月，各月表鈞泩加班費加總。 */
 export function autoLedgerJunOtPayForMonthKeyInYear(
   book: SalaryBook,
   monthKey: MonthKey,
@@ -170,7 +195,7 @@ export function autoLedgerJunOtPayForMonthKeyInYear(
   return Math.round(sum)
 }
 
-/** 公司帳某一曆月列：月表餐列金額加總（`ledgerYear` 年該月）。 */
+/** 損益表某一曆月列：月表餐列金額加總（`ledgerYear` 年該月）。 */
 export function autoLedgerMealsForMonthKeyInYear(
   book: SalaryBook,
   monthKey: MonthKey,
@@ -191,7 +216,7 @@ export function autoLedgerMealsForMonthKeyInYear(
   return Math.round(sum)
 }
 
-/** 公司帳「工具」：工作日誌該年該曆月雜項支出加總。 */
+/** 損益表「工具」：工作日誌該年該曆月雜項支出加總。 */
 export function autoLedgerToolsForMonthKeyInYear(
   workLog: WorkLogState,
   monthKey: MonthKey,
@@ -205,7 +230,7 @@ export function autoLedgerToolsForMonthKeyInYear(
 }
 
 /**
- * 公司帳某一曆月列：加總該西元年、該曆月之月表鈞泩格線薪水（未扣預支、不含調工）。
+ * 損益表某一曆月列：加總該西元年、該曆月之月表鈞泩格線薪水（未扣預支、不含調工）。
  * 同年同曆月多張月表會一併加總。
  */
 export function autoLedgerJunSalaryForMonthKeyInYear(
@@ -243,7 +268,7 @@ export function withAutoLedgerJunSalary(months: MonthLine[], book: SalaryBook): 
 }
 
 /**
- * 公司帳某一列：收帳中入帳日為 `ledgerYear` 年該曆月之未稅、稅金加總。
+ * 損益表某一列：收帳中入帳日為 `ledgerYear` 年該曆月之未稅、稅金加總。
  */
 export function autoLedgerRevenueTaxForMonthKey(
   receivables: ReceivablesState,
@@ -258,7 +283,7 @@ export function autoLedgerRevenueTaxForMonthKey(
 }
 
 /**
- * 自動帶入公司帳：`salary`／`overtimePay`（僅鈞泩）／`meals` 依薪水月表；`tools` 依工作日誌雜項；
+ * 自動帶入公司損益表列：`salary`／`overtimePay`（僅鈞泩）／`meals` 依薪水月表；`tools` 依工作日誌雜項；
  * `revenueNet`／`tax` 依收帳；皆限 `ledgerYear` 該年之曆月。
  */
 export function withAutoLedgerDerived(
@@ -304,7 +329,7 @@ export function defaultLedger(): MonthLine[] {
   }))
 }
 
-/** 舊版公司帳僅 2～12 月、陣列順序即曆月時，用此對照還原 `month` 缺漏之列。 */
+/** 舊版僅 2～12 月、陣列順序即曆月時，用此對照還原 `month` 缺漏之列。 */
 const LEGACY_MONTH_ORDER_FEB_TO_DEC: MonthKey[] = [
   '2',
   '3',
@@ -320,7 +345,7 @@ const LEGACY_MONTH_ORDER_FEB_TO_DEC: MonthKey[] = [
 ]
 
 /**
- * 合併備份中的公司帳列與目前預設列（1～12 月）：依 `month` 欄對位；無 `month` 且恰 11 筆時依舊版順序視為 2～12 月。
+ * 合併備份中的公司損益月列與目前預設列（1～12 月）：依 `month` 欄對位；無 `month` 且恰 11 筆時依舊版順序視為 2～12 月。
  */
 export function mergeStoredMonthLines(rawRows: unknown[] | undefined): MonthLine[] {
   const defaults = defaultLedger()

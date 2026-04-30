@@ -48,7 +48,7 @@ export type AppState = {
   /** 估價列結構版本；低於目前常數時載入會依 site.layout 重建 quoteRows */
   quoteRowsSchemaVersion: number
   months: MonthLine[]
-  /** 公司帳：收帳／月表薪水自動帶入所依西元年（畫面上可切換） */
+  /** 公司損益表：月列資料；收帳／月表／日誌自動帶入所依西元年（畫面上可切換） */
   ledgerYear: number
   workLog: WorkLogState
   receivables: ReceivablesState
