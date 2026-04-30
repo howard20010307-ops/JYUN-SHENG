@@ -1,13 +1,25 @@
 /** 收帳：每列一筆實際入帳（案名、階段、未稅；預設 5% 稅，可改 0 稅） */
 
+import type { SalaryBook } from './salaryExcelModel'
+import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
+
 export type ReceivableEntryId = string
 
 export type ReceivableEntry = {
   id: ReceivableEntryId
   /** 入帳日 YYYY-MM-DD */
   bookedDate: string
-  /** 案名 */
+  /**
+   * 案名：與薪水「總案場整理」字串一致；全書更名時由 {@link renameReceivableProjectNames} 等更新（舊存檔可能仍帶月表區塊欄位，畫面上以案名為準）。
+   */
   projectName: string
+  /**
+   * 舊版／備援：月表區塊綁定。新選單以案名為準，選取後可不寫入（僅 `projectName`）。
+   * 綁定之月表 `MonthSheetData.id`；`''` 表示虛擬列（如調工支援鍵名）；缺欄為舊資料未綁定。
+   */
+  monthSheetId?: string
+  /** 綁定之 `SiteBlock.id`，或虛擬列時為 `蔡董調工`／`調工支援` 等鍵 */
+  siteBlockId?: string
   /** 棟別（可空；例：A棟） */
   buildingLabel: string
   /** 樓層／區位（可空；例：3F、B1；與估價案名一致時可由清單選） */
@@ -105,8 +117,82 @@ export function initialReceivablesState(): ReceivablesState {
   return { entries: [] }
 }
 
+function receivableHasPayrollSiteBinding(e: ReceivableEntry): boolean {
+  if (typeof e.siteBlockId !== 'string' || e.siteBlockId === '') return false
+  if (e.monthSheetId === '') return true
+  if (typeof e.monthSheetId === 'string' && e.monthSheetId !== '') return true
+  return false
+}
+
 /**
- * 與月表「全書案場更名」同步：除完全相等外，也涵蓋「舊名緊接括號註記」等常見變體（一律改為新名，不保留括號內文字）。
+ * 表單選取用字串（與總案場表一致）：`v:調工鍵`｜`p:`+encodeURIComponent(顯示案名)。
+ * 顯示案名取自 {@link resolvedReceivableProjectName}，以與月表現況一致。
+ */
+export function receivableSiteSelectValue(book: SalaryBook, e: ReceivableEntry): string {
+  if (e.monthSheetId === '' && typeof e.siteBlockId === 'string' && e.siteBlockId !== '') {
+    return `v:${e.siteBlockId}`
+  }
+  const display = resolvedReceivableProjectName(book, e).trim()
+  return `p:${encodeURIComponent(display)}`
+}
+
+export function parseReceivableSiteSelectValue(raw: string): Partial<ReceivableEntry> | null {
+  if (raw === '') {
+    return { monthSheetId: undefined, siteBlockId: undefined, projectName: '' }
+  }
+  if (raw.startsWith('b:')) {
+    const rest = raw.slice(2)
+    const ci = rest.indexOf(':')
+    if (ci < 0) return null
+    return {
+      monthSheetId: rest.slice(0, ci),
+      siteBlockId: rest.slice(ci + 1),
+      projectName: '',
+    }
+  }
+  if (raw.startsWith('v:')) {
+    const name = raw.slice(2)
+    return { monthSheetId: '', siteBlockId: name, projectName: name }
+  }
+  if (raw.startsWith('p:')) {
+    try {
+      return {
+        monthSheetId: undefined,
+        siteBlockId: undefined,
+        projectName: decodeURIComponent(raw.slice(2)),
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+/** 畫面與損益帶入：有綁定者以月表現名為準（與總案場表相同以 trim 後字串展示） */
+export function resolvedReceivableProjectName(book: SalaryBook, e: ReceivableEntry): string {
+  if (typeof e.monthSheetId === 'string' && e.monthSheetId !== '' && e.siteBlockId) {
+    const m = book.months.find((x) => x.id === e.monthSheetId)
+    const b = m?.blocks.find((x) => x.id === e.siteBlockId)
+    if (b) return b.siteName.trim()
+    return e.projectName.trim() || '（月表已無此案場，請重選）'
+  }
+  if (e.monthSheetId === '' && e.siteBlockId) {
+    if (e.siteBlockId === QUICK_SITE_TSAI_ADJUST || e.siteBlockId === QUICK_SITE_JUN_ADJUST) {
+      return e.siteBlockId
+    }
+  }
+  return typeof e.projectName === 'string' ? e.projectName.trim() : ''
+}
+
+/** 與案名選單一致：調工為 `v:`，其餘以儲存案名字串指認（雲端合併無 SalaryBook 時）。 */
+function payrollSiteKeyForMerge(e: ReceivableEntry): string {
+  if (e.monthSheetId === '' && e.siteBlockId) return `v:${e.siteBlockId}`
+  return `p:${e.projectName.trim()}`
+}
+
+/**
+ * 與月表「全書案場更名」同步：僅處理**未綁定**月表區塊之列；已綁定者案名隨月表解析，無需改存。
+ * 未綁定列：除完全相等外，亦涵蓋「舊名緊接括號註記」等變體。
  */
 export function renameReceivableProjectNames(
   state: ReceivablesState,
@@ -118,6 +204,7 @@ export function renameReceivableProjectNames(
   return {
     entries: sortReceivableEntriesByBookedDate(
       state.entries.map((e) => {
+        if (receivableHasPayrollSiteBinding(e)) return e
         const p = e.projectName
         const pt = p.trim()
         if (oldTrim === '') {
@@ -183,7 +270,7 @@ function pickBestReceivableSansProjectGroup(
   const score = (e: ReceivableEntry) => {
     let s = 0
     if (localIds.has(e.id)) s += 1000
-    if (!/舊資料/.test(e.projectName)) s += 100
+    if (receivableHasPayrollSiteBinding(e)) s += 200
     return s
   }
   return group.slice().sort((a, b) => {
@@ -194,8 +281,8 @@ function pickBestReceivableSansProjectGroup(
 }
 
 /**
- * 載入與 JSONBin 合併後：若入帳日、未稅、階段、棟、樓層、稅別、備註皆相同，僅案名不同（含一筆帶「舊資料」），收斂為一列。
- * 優先：本機 id → 案名不含「舊資料」→ 早／小 id。
+ * 載入與 JSONBin 合併後：若入帳日、未稅、階段、棟、樓層、稅別、備註皆相同，僅案名／綁定表示不同，收斂為一列。
+ * 優先：本機 id → 已綁定月表區塊者 → 早／小 id。
  * 若同一天同金額確為兩筆不同收款，請用備註區分。
  */
 function dedupeReceivablesSansProjectFingerprints(
@@ -247,7 +334,16 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
     const tz = r.taxZero
     const taxZero =
       tz === true ? true : tz === false ? false : storedTax === 0 && net > 0
-    out.push({
+    const ms = r.monthSheetId
+    const monthSheetId =
+      ms === ''
+        ? ''
+        : typeof ms === 'string' && ms !== ''
+          ? ms
+          : undefined
+    const sb = r.siteBlockId
+    const siteBlockId = typeof sb === 'string' && sb !== '' ? sb : undefined
+    const entry: ReceivableEntry = {
       id,
       bookedDate,
       projectName: str(r.projectName, ''),
@@ -258,7 +354,10 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
       taxZero,
       tax: 0,
       note: normalizeReceivableNote(str(r.note, '')),
-    })
+    }
+    if (monthSheetId !== undefined) entry.monthSheetId = monthSheetId
+    if (siteBlockId !== undefined) entry.siteBlockId = siteBlockId
+    out.push(entry)
   }
   return out
 }
@@ -410,7 +509,7 @@ function receivableCloudMergeFingerprint(e: ReceivableEntry): string {
   const net = safeNet(e.net)
   const parts = [
     e.bookedDate.trim(),
-    e.projectName.trim(),
+    payrollSiteKeyForMerge(e),
     String(net),
     receivableSingleLineField(e.phaseLabel).trim(),
     e.buildingLabel.trim(),
@@ -452,10 +551,10 @@ function dedupeReceivablesAfterIdMerge(
 /**
  * JSONBin 下載套用時合併收帳：
  * 1. 同 `id` 以**本機**為準，其餘 id 併入（雲端舊備份常不含收帳，避免整包覆寫後收帳消失）。
- * 2. **再依業務指紋去重**：入帳日、案名、未稅、階段、棟、樓層、是否零稅、備註皆相同則視為同一筆；
+ * 2. **再依業務指紋去重**：入帳日、案場（`v:`／`p:` 與選單一致之鍵）、未稅、階段、棟、樓層、是否零稅、備註皆相同則視為同一筆；
  *    僅保留一列，且**優先保留本機原列**（避免雲端／本機各登記一次變成兩筆不同 id 的重複）。
  *
- * 3. **不含案名**之第二層：同入帳日、未稅、階段、棟、樓、稅別、備註亦視為同一筆（可避免本機「新案名」與雲端「舊案名＋註記」兩列並存）；優先本機 id 與不含「舊資料」之案名。
+ * 3. **不含案名**之第二層：同入帳日、未稅、階段、棟、樓、稅別、備註亦視為同一筆（可避免本機「新案名」與雲端「舊案名＋註記」兩列並存）；優先本機 id 與已綁定月表區塊之列。
  *
  * 注意：若同一天同金額確實有兩筆，請在**備註**區分，否則合併後只會剩一筆。
  */

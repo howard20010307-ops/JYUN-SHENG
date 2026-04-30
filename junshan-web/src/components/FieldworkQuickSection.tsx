@@ -7,7 +7,12 @@ import {
   QUICK_SITE_TSAI_ADJUST,
 } from '../domain/fieldworkQuickApply'
 import type { MonthLine } from '../domain/ledgerEngine'
-import { isPlaceholderMonthBlockSiteName, type SalaryBook } from '../domain/salaryExcelModel'
+import { payrollSitesOverviewRows } from '../domain/jobSitesFromBook'
+import {
+  isPlaceholderMonthBlockSiteName,
+  type SalaryBook,
+  type SiteRenameEditedRef,
+} from '../domain/salaryExcelModel'
 import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
@@ -40,6 +45,15 @@ type Props = {
   setWorkLog: (fn: (prev: WorkLogState) => WorkLogState) => void
   /** 登記成功後呼叫（例如重掛表單以清空欄位） */
   onApplySuccess?: () => void
+  /**
+   * 與薪水頁月表區塊「離開欄位更名」相同：一次同步月表、工作日誌、放樣估價主案名、收帳（未綁定月表者）。
+   * 未傳入時「總案場整理」案名僅能閱覽。
+   */
+  commitSiteRenameAcrossApp?: (args: {
+    oldExact: string
+    newTrimmed: string
+    edited?: SiteRenameEditedRef
+  }) => { ok: boolean; message: string }
 }
 
 function todayIso(): string {
@@ -122,6 +136,7 @@ export function FieldworkQuickSection({
   workLog,
   setWorkLog,
   onApplySuccess,
+  commitSiteRenameAcrossApp,
 }: Props) {
   const pickerSig = staffPickerKeys.join('\u0001')
   const siteOptions = useMemo(() => {
@@ -134,6 +149,43 @@ export function FieldworkQuickSection({
     }
     return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant'))
   }, [salaryBook.months])
+
+  const sitesOverviewRows = useMemo(() => payrollSitesOverviewRows(salaryBook), [salaryBook])
+
+  /** 總案場表：焦點列的「舊案名」字元完全比對字串（與 {@link renameSiteAcrossBook} 一致） */
+  const siteOverviewRenameAnchorRef = useRef<string | null>(null)
+  const [siteOverviewDraft, setSiteOverviewDraft] = useState<Record<string, string>>({})
+
+  const finishOverviewSiteRename = useCallback(
+    (anchor: string, rawValue: string) => {
+      setSiteOverviewDraft((p) => {
+        if (!(anchor in p)) return p
+        const n = { ...p }
+        delete n[anchor]
+        return n
+      })
+      if (!commitSiteRenameAcrossApp) return
+      const newT = rawValue.trim()
+      if (newT === anchor) return
+      if (!newT) {
+        queueMicrotask(() => alert('案場名稱不可為空白。'))
+        return
+      }
+      const res = commitSiteRenameAcrossApp({ oldExact: anchor, newTrimmed: newT })
+      if (!res.ok) {
+        queueMicrotask(() => alert(res.message))
+        return
+      }
+      if (
+        res.message &&
+        res.message !== '名稱相同，無需變更。' &&
+        res.message !== '無需變更。'
+      ) {
+        queueMicrotask(() => alert(res.message))
+      }
+    },
+    [commitSiteRenameAcrossApp],
+  )
 
   const workItemOptions = useMemo(
     () => mergedWorkItemOptions(workItemPresetLabels, workLog.customWorkItemLabels ?? []),
@@ -754,6 +806,97 @@ export function FieldworkQuickSection({
         <button type="button" className="btn" onClick={submit}>
           登記到月表、公司損益表與工作日誌
         </button>
+      </div>
+
+      <div
+        style={{
+          marginTop: 22,
+          paddingTop: 18,
+          borderTop: '1px solid var(--border, #ddd)',
+        }}
+      >
+        <h4 style={{ margin: '0 0 6px', fontSize: '1.05rem' }}>總案場整理</h4>
+        <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
+          不分月份，列出目前薪水書內可當「地點」的案名與調工列。一般案場之「區塊數」為全書月表區塊中<strong>同名</strong>列數（跨越多個月時可能大於 1）。
+          {commitSiteRenameAcrossApp ? (
+            <>
+              {' '}
+              <strong>案場區塊</strong>之列可<strong>直接改案名</strong>：離開欄位或按 Enter 後，與薪水月表各區塊、工作日誌、放樣估價主案名、收帳（純文字列）一併同步，與上方月表標題編輯相同。
+            </>
+          ) : null}
+        </p>
+        <div className="tableScrollSticky" style={{ overflowX: 'auto' }}>
+          <table className="data" style={{ width: '100%', minWidth: 280 }}>
+            <thead>
+              <tr>
+                <th scope="col" style={{ width: '3.5rem' }}>
+                  #
+                </th>
+                <th scope="col">案名</th>
+                <th scope="col" className="num" style={{ whiteSpace: 'nowrap' }}>
+                  區塊數
+                </th>
+                <th scope="col" style={{ whiteSpace: 'nowrap' }}>
+                  類型
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sitesOverviewRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    尚無案場資料。
+                  </td>
+                </tr>
+              ) : (
+                sitesOverviewRows.map((row, i) => (
+                  <tr key={`${row.siteName}-${row.isVirtualAdjustment ? 'v' : 'b'}`}>
+                    <td className="muted">{i + 1}</td>
+                    <td>
+                      {row.isVirtualAdjustment || !commitSiteRenameAcrossApp ? (
+                        <span>{row.siteName}</span>
+                      ) : (
+                        <input
+                          type="text"
+                          className="titleInput"
+                          style={{ width: '100%', minWidth: 160, maxWidth: 420 }}
+                          aria-label={`總案場：${row.siteName}`}
+                          value={siteOverviewDraft[row.siteName] ?? row.siteName}
+                          onFocus={() => {
+                            siteOverviewRenameAnchorRef.current = row.siteName
+                            setSiteOverviewDraft((p) => ({
+                              ...p,
+                              [row.siteName]: p[row.siteName] ?? row.siteName,
+                            }))
+                          }}
+                          onChange={(e) =>
+                            setSiteOverviewDraft((p) => ({
+                              ...p,
+                              [row.siteName]: e.target.value,
+                            }))
+                          }
+                          onBlur={(e) => {
+                            const anchor = siteOverviewRenameAnchorRef.current
+                            siteOverviewRenameAnchorRef.current = null
+                            if (anchor === null) return
+                            finishOverviewSiteRename(anchor, e.currentTarget.value)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return
+                            e.preventDefault()
+                            ;(e.currentTarget as HTMLInputElement).blur()
+                          }}
+                        />
+                      )}
+                    </td>
+                    <td className="num">{row.isVirtualAdjustment ? '—' : row.blockCount}</td>
+                    <td>{row.isVirtualAdjustment ? '調工（月表專列，保留名稱）' : '案場區塊'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border, #ddd)' }}>

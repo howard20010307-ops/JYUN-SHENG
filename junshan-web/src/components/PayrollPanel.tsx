@@ -64,7 +64,7 @@ type Props = {
   commitSiteRenameAcrossApp?: (args: {
     oldExact: string
     newTrimmed: string
-    edited: SiteRenameEditedRef
+    edited?: SiteRenameEditedRef
   }) => { ok: boolean; message: string }
   /** @deprecated 請改用 {@link commitSiteRenameAcrossApp}，由父層單一 setState 寫入全書 */
   onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
@@ -569,6 +569,7 @@ export function PayrollPanel({
           workLog={workLog}
           setWorkLog={setWorkLog}
           onApplySuccess={onFieldworkQuickApplySuccess}
+          commitSiteRenameAcrossApp={commitSiteRenameAcrossApp}
         />
       )}
 

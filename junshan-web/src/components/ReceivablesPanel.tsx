@@ -6,6 +6,9 @@ import {
   migrateReceivablesState,
   newReceivableId,
   normalizeReceivableNote,
+  parseReceivableSiteSelectValue,
+  receivableSiteSelectValue,
+  resolvedReceivableProjectName,
   sortReceivableEntriesByBookedDate,
   sumEntriesInMonth,
   sumEntriesInYear,
@@ -20,10 +23,10 @@ import type { SalaryBook } from '../domain/salaryExcelModel'
 import type { QuoteSite } from '../domain/quoteEngine'
 import {
   addEmptySiteBlockToMonth,
-  isPlaceholderMonthBlockSiteName,
   pickActiveMonthIdForToday,
 } from '../domain/salaryExcelModel'
-import { jobSitesFromSalaryBook } from '../domain/jobSitesFromBook'
+import { receivableSiteSelectOptionsFromOverview } from '../domain/jobSitesFromBook'
+import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 import { PayrollNumberInput } from './PayrollNumberInput'
 
 type Props = {
@@ -138,8 +141,28 @@ export function ReceivablesPanel({
   canEdit,
 }: Props) {
   const data = useMemo(() => migrateReceivablesState(receivables), [receivables])
-  const siteOptions = useMemo(() => jobSitesFromSalaryBook(salaryBook), [salaryBook])
-  const siteNameSet = useMemo(() => new Set(siteOptions.map((o) => o.name)), [siteOptions])
+  const payrollSiteOptions = useMemo(() => {
+    const base = receivableSiteSelectOptionsFromOverview(salaryBook)
+    const byValue = new Map(base.map((o) => [o.value, o]))
+    for (const e of data.entries) {
+      const lab = resolvedReceivableProjectName(salaryBook, e).trim()
+      if (!lab) continue
+      const val = receivableSiteSelectValue(salaryBook, e)
+      if (!byValue.has(val)) byValue.set(val, { value: val, label: lab })
+    }
+    const vOrder = [`v:${QUICK_SITE_TSAI_ADJUST}`, `v:${QUICK_SITE_JUN_ADJUST}`]
+    const list = [...byValue.values()]
+    list.sort((a, b) => {
+      const ai = vOrder.indexOf(a.value)
+      const bi = vOrder.indexOf(b.value)
+      const av = ai >= 0 ? 0 : 1
+      const bv = bi >= 0 ? 0 : 1
+      if (av !== bv) return av - bv
+      if (ai >= 0 && bi >= 0) return ai - bi
+      return a.label.localeCompare(b.label, 'zh-Hant')
+    })
+    return list
+  }, [salaryBook, data.entries])
 
   const [addProjectOpen, setAddProjectOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
@@ -509,7 +532,10 @@ export function ReceivablesPanel({
                   </td>
                 </tr>
               ) : (
-                visibleRows.map((row) => (
+                visibleRows.map((row) => {
+                  const resolvedProject = resolvedReceivableProjectName(salaryBook, row)
+                  const siteSelectVal = receivableSiteSelectValue(salaryBook, row)
+                  return (
                   <tr key={row.id}>
                     <td className="receivablesTable__cellDate">
                       <input
@@ -523,28 +549,26 @@ export function ReceivablesPanel({
                     <td className="receivablesTable__cellProject">
                       <select
                         className="receivablesTable__select"
-                        value={
-                          siteNameSet.has(row.projectName)
-                            ? row.projectName
-                            : isPlaceholderMonthBlockSiteName(row.projectName)
-                              ? ''
-                              : row.projectName
-                        }
+                        value={siteSelectVal}
                         disabled={!canEdit}
-                        onChange={(e) => updateEntry(row.id, { projectName: e.target.value })}
+                        onChange={(e) => {
+                          const rawSel = e.target.value
+                          const parsed = parseReceivableSiteSelectValue(rawSel)
+                          if (!parsed) return
+                          const next: ReceivableEntry = { ...row, ...parsed }
+                          updateEntry(row.id, {
+                            ...parsed,
+                            projectName:
+                              (parsed.projectName ?? '').trim() ||
+                              resolvedReceivableProjectName(salaryBook, next),
+                          })
+                        }}
                         aria-label="案名"
                       >
                         <option value="">請選擇案名</option>
-                        {row.projectName &&
-                        !siteNameSet.has(row.projectName) &&
-                        !isPlaceholderMonthBlockSiteName(row.projectName) ? (
-                          <option value={row.projectName}>
-                            {row.projectName}（舊資料，建議改選月表案名）
-                          </option>
-                        ) : null}
-                        {siteOptions.map((o) => (
-                          <option key={o.id} value={o.name}>
-                            {o.name}
+                        {payrollSiteOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
                           </option>
                         ))}
                       </select>
@@ -561,8 +585,8 @@ export function ReceivablesPanel({
                       />
                     </td>
                     <td className="receivablesTable__cellFloor">
-                      {row.projectName.trim() !== '' &&
-                      row.projectName.trim() === quoteSite.name.trim() ? (
+                      {resolvedProject.trim() !== '' &&
+                      resolvedProject.trim() === quoteSite.name.trim() ? (
                         <>
                           <datalist id={`rcv-floor-${row.id}`}>
                             {quoteSite.floors.map((f, i) => (
@@ -672,7 +696,8 @@ export function ReceivablesPanel({
                       </label>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
             {visibleRows.length > 0 ? (
