@@ -321,8 +321,62 @@ export function newReceivableId(): string {
   return `rcv-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
 
+const FP_SEP = '\u001f'
+
 /**
- * JSONBin 下載套用時合併收帳：同 `id` 以**本機**為準，其餘 id 併入（雲端舊備份常不含收帳，避免整包覆寫後收帳消失）。
+ * 雲端／本機合併時辨識「同一筆入帳」用（非 id）。
+ * 欄位皆 trim／正規化後串接；若實際有兩筆完全相同的付款，可改備註區分以免被併成一筆。
+ */
+function receivableCloudMergeFingerprint(e: ReceivableEntry): string {
+  const net = safeNet(e.net)
+  const parts = [
+    e.bookedDate.trim(),
+    e.projectName.trim(),
+    String(net),
+    receivableSingleLineField(e.phaseLabel).trim(),
+    e.buildingLabel.trim(),
+    e.floorLabel.trim(),
+    e.taxZero ? '1' : '0',
+    normalizeReceivableNote(e.note).trim(),
+  ]
+  return parts.join(FP_SEP)
+}
+
+/** 指紋相同且 id 不同時只留一筆：優先保留原屬本機之列，否則保留 id 字順最小者 */
+function dedupeReceivablesAfterIdMerge(
+  entries: ReceivableEntry[],
+  localIds: Set<string>,
+): ReceivableEntry[] {
+  const byFp = new Map<string, ReceivableEntry[]>()
+  for (const e of entries) {
+    const fp = receivableCloudMergeFingerprint(e)
+    const arr = byFp.get(fp)
+    if (arr) arr.push(e)
+    else byFp.set(fp, [e])
+  }
+  const out: ReceivableEntry[] = []
+  for (const group of byFp.values()) {
+    if (group.length === 1) {
+      out.push(group[0])
+      continue
+    }
+    const fromLocal = group.filter((e) => localIds.has(e.id))
+    const pick =
+      fromLocal.length > 0
+        ? fromLocal.slice().sort(compareReceivableEntriesByBookedDate)[0]
+        : group.slice().sort((a, b) => a.id.localeCompare(b.id))[0]
+    out.push(pick)
+  }
+  return out
+}
+
+/**
+ * JSONBin 下載套用時合併收帳：
+ * 1. 同 `id` 以**本機**為準，其餘 id 併入（雲端舊備份常不含收帳，避免整包覆寫後收帳消失）。
+ * 2. **再依業務指紋去重**：入帳日、案名、未稅、階段、棟、樓層、是否零稅、備註皆相同則視為同一筆；
+ *    僅保留一列，且**優先保留本機原列**（避免雲端／本機各登記一次變成兩筆不同 id 的重複）。
+ *
+ * 注意：若同一天同案場同金額確實有兩筆，請在備註等方法區分，否則合併後只會剩一筆。
  */
 export function mergeReceivablesPreferLocal(
   local: ReceivablesState,
@@ -330,10 +384,12 @@ export function mergeReceivablesPreferLocal(
 ): ReceivablesState {
   const l = migrateReceivablesState(local)
   const r = migrateReceivablesState(remote)
+  const localIds = new Set(l.entries.map((e) => e.id))
   const byId = new Map<string, ReceivableEntry>()
   for (const e of r.entries) byId.set(e.id, e)
   for (const e of l.entries) byId.set(e.id, e)
+  const merged = dedupeReceivablesAfterIdMerge([...byId.values()], localIds)
   return {
-    entries: sortReceivableEntriesByBookedDate([...byId.values()]),
+    entries: sortReceivableEntriesByBookedDate(merged),
   }
 }

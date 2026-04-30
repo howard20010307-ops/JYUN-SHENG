@@ -61,6 +61,16 @@ export function isPlaceholderMonthBlockSiteName(raw: string): boolean {
   return raw.trim() === PLACEHOLDER_MONTH_BLOCK_SITE_NAME
 }
 
+/**
+ * 雲端／本機合併時案場區塊分組鍵：去頭尾空白；舊稱「鈞泩調工」與月表／快速登記一致視為「調工支援」。
+ * 不依賴 {@link fieldworkQuickApply}，避免循環依賴。
+ */
+export function normalizePayrollSiteBlockMergeKey(raw: string): string {
+  const t = (raw ?? '').trim()
+  if (t === '鈞泩調工') return '調工支援'
+  return t
+}
+
 /** 月表以外之摘要／明細：不露出保留案名「新案場」；空白案名仍為未命名。 */
 export function siteBlockLabelForSummary(siteNameRaw: string): string {
   if (isPlaceholderMonthBlockSiteName(siteNameRaw)) return '（草稿案場）'
@@ -2447,6 +2457,107 @@ function mergeSiteBlockPairPreferLocal(l: SiteBlock, r: SiteBlock, dateLen: numb
   }
 }
 
+/** 同日同格／餐列取 max，避免 id 不同但案名相同之雲端／本機重複區塊加總成兩倍 */
+function mergeTwoSiteBlocksCellwiseMax(a: SiteBlock, b: SiteBlock, dateLen: number): SiteBlock {
+  const grid: Record<string, number[]> = {}
+  const keys = new Set([...Object.keys(a.grid ?? {}), ...Object.keys(b.grid ?? {})])
+  for (const k of keys) {
+    const ra = padArray(a.grid?.[k], dateLen)
+    const rb = padArray(b.grid?.[k], dateLen)
+    const row: number[] = []
+    for (let i = 0; i < dateLen; i++) {
+      row.push(Math.max(ra[i] ?? 0, rb[i] ?? 0))
+    }
+    grid[k] = row
+  }
+  const ma = padArray(a.meal, dateLen)
+  const mb = padArray(b.meal, dateLen)
+  const meal: number[] = []
+  for (let i = 0; i < dateLen; i++) {
+    meal.push(Math.max(ma[i] ?? 0, mb[i] ?? 0))
+  }
+  const siteName =
+    typeof a.siteName === 'string' && a.siteName.trim() !== '' ? a.siteName : b.siteName
+  return {
+    ...a,
+    siteName,
+    grid,
+    meal,
+  }
+}
+
+function siteBlockCloudMergeGroupKey(b: SiteBlock): string {
+  const raw = typeof b.siteName === 'string' ? b.siteName : ''
+  if (isPlaceholderMonthBlockSiteName(raw)) {
+    return `\0ph\0${b.id}`
+  }
+  const k = normalizePayrollSiteBlockMergeKey(raw)
+  if (!k) {
+    return `\0em\0${b.id}`
+  }
+  return k
+}
+
+function mergeSiteBlocksGroupCellwiseMax(
+  group: SiteBlock[],
+  dateLen: number,
+  localBlockIds: Set<string>,
+): SiteBlock {
+  if (group.length === 1) {
+    return cloneSiteBlockPadded(group[0], dateLen)
+  }
+  const sorted = group.slice().sort((a, b) => a.id.localeCompare(b.id))
+  const fromLocal = sorted.filter((b) => localBlockIds.has(b.id))
+  const primary = fromLocal.length > 0 ? fromLocal[0] : sorted[0]
+  let acc = cloneSiteBlockPadded(primary, dateLen)
+  for (const b of sorted) {
+    if (b.id === primary.id) continue
+    acc = mergeTwoSiteBlocksCellwiseMax(acc, cloneSiteBlockPadded(b, dateLen), dateLen)
+  }
+  return {
+    ...acc,
+    id: primary.id,
+    siteName:
+      typeof primary.siteName === 'string' && primary.siteName.trim() !== ''
+        ? primary.siteName
+        : acc.siteName,
+  }
+}
+
+/**
+ * 同案名（正規化後）、不同 SiteBlock.id 之區塊併成一塊；格線／餐費逐日取 max。備選 id 以本機區塊為主。
+ */
+function dedupeSiteBlocksSameMergeGroupKey(
+  blocks: SiteBlock[],
+  dateLen: number,
+  localBlockIds: Set<string>,
+): SiteBlock[] {
+  const byKey = new Map<string, { group: SiteBlock[]; firstIdx: number }>()
+  for (let idx = 0; idx < blocks.length; idx++) {
+    const b = blocks[idx]
+    const gk = siteBlockCloudMergeGroupKey(b)
+    const cur = byKey.get(gk)
+    if (!cur) {
+      byKey.set(gk, { group: [b], firstIdx: idx })
+    } else {
+      cur.group.push(b)
+      cur.firstIdx = Math.min(cur.firstIdx, idx)
+    }
+  }
+  const pieces: { firstIdx: number; block: SiteBlock }[] = []
+  for (const { group, firstIdx } of byKey.values()) {
+    pieces.push({
+      firstIdx,
+      block:
+        group.length === 1
+          ? cloneSiteBlockPadded(group[0], dateLen)
+          : mergeSiteBlocksGroupCellwiseMax(group, dateLen, localBlockIds),
+    })
+  }
+  pieces.sort((a, b) => a.firstIdx - b.firstIdx)
+  return pieces.map((p) => p.block)
+}
+
 function mergeSiteBlocksPreferLocal(
   localBlocks: readonly SiteBlock[],
   remoteBlocks: readonly SiteBlock[],
@@ -2479,7 +2590,8 @@ function mergeSiteBlocksPreferLocal(
       seen.add(b.id)
     }
   }
-  return out
+  const localBlockIds = new Set(localBlocks.map((b) => b.id))
+  return dedupeSiteBlocksSameMergeGroupKey(out, dateLen, localBlockIds)
 }
 
 function mergeMonthSheetPairPreferLocal(l: MonthSheetData, r: MonthSheetData): MonthSheetData {
@@ -2579,6 +2691,7 @@ function mergePayrollPeriodColumnsPreferLocal(
 
 /**
  * 與收帳／工作日誌相同策略：月表以 `MonthSheetData.id`、案場區塊以 `SiteBlock.id` 聯集，同 id 本機優先；
+ * 同月月內**正規化後同案名**之區塊（不同 `SiteBlock.id`）會再併成一塊，格線與餐列逐日取 max，並**優先保留本機區塊之 id**。
  * 月內 `grid`／預支／調工／加班等 `Record<string, number[]>` 為列鍵聯集，同鍵本機列優先；餐列隨區塊本機優先。
  * 供 JSONBin 首載，避免整包雲端覆寫抹掉本機手輸月表。
  */

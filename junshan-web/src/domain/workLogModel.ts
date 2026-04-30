@@ -7,6 +7,7 @@ import {
 } from './salaryExcelModel'
 import {
   LEGACY_QUICK_SITE_JUN_ADJUST,
+  normalizeQuickSiteKey,
   QUICK_SITE_JUN_ADJUST,
 } from './fieldworkQuickApply'
 
@@ -452,8 +453,63 @@ function compareWorkLogEntryByDateId(a: WorkLogEntry, b: WorkLogEntry): number {
   return a.id.localeCompare(b.id)
 }
 
+const WL_MERGE_FP_SEP = '\u001f'
+
+/** JSONBin 合併後、同內容不同 id 之舊式 entries 去重指紋 */
+function workLogEntryCloudMergeFingerprint(e: WorkLogEntry): string {
+  const site = normalizeQuickSiteKey((e.siteName ?? '').trim())
+  const staffSorted = [...new Set((e.staffNames ?? []).map((s) => s.trim()).filter(Boolean))].sort()
+  const parts = [
+    (e.logDate ?? '').trim(),
+    site,
+    staffSorted.join(WL_MERGE_FP_SEP),
+    (e.timeStart ?? '').trim(),
+    (e.timeEnd ?? '').trim(),
+    (e.workItem ?? '').trim(),
+    (e.equipment ?? '').trim(),
+    String(typeof e.mealCost === 'number' && Number.isFinite(e.mealCost) ? e.mealCost : 0),
+    String(typeof e.miscCost === 'number' && Number.isFinite(e.miscCost) ? e.miscCost : 0),
+    String(
+      typeof e.instrumentCost === 'number' && Number.isFinite(e.instrumentCost)
+        ? e.instrumentCost
+        : 0,
+    ),
+    (e.remark ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim(),
+    (e.content ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim(),
+  ]
+  return parts.join(WL_MERGE_FP_SEP)
+}
+
+function dedupeWorkLogEntriesAfterIdMerge(
+  entries: WorkLogEntry[],
+  localIds: Set<string>,
+): WorkLogEntry[] {
+  const byFp = new Map<string, WorkLogEntry[]>()
+  for (const e of entries) {
+    const fp = workLogEntryCloudMergeFingerprint(e)
+    const arr = byFp.get(fp)
+    if (arr) arr.push(e)
+    else byFp.set(fp, [e])
+  }
+  const out: WorkLogEntry[] = []
+  for (const group of byFp.values()) {
+    if (group.length === 1) {
+      out.push(group[0])
+      continue
+    }
+    const fromLocal = group.filter((e) => localIds.has(e.id))
+    const pick =
+      fromLocal.length > 0
+        ? fromLocal.slice().sort(compareWorkLogEntryByDateId)[0]
+        : group.slice().sort((a, b) => a.id.localeCompare(b.id))[0]
+    out.push(pick)
+  }
+  return out.sort(compareWorkLogEntryByDateId)
+}
+
 /**
- * 與收帳 `mergeReceivablesPreferLocal` 同策略：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先。
+ * 與收帳 `mergeReceivablesPreferLocal` 同策略：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先；
+ * `entries` 再依**業務指紋**去重（同內容不同 id 只留一筆，優先本機 id）。
  * 供 JSONBin 首載等，避免整包覆寫抹掉本機手輸之日誌。
  */
 export function mergeWorkLogPreferLocal(
@@ -463,10 +519,12 @@ export function mergeWorkLogPreferLocal(
   const l = migrateWorkLogState(local)
   const r = migrateWorkLogState(remote)
 
+  const localEntryIds = new Set(l.entries.map((e) => e.id))
+
   const byEntryId = new Map<string, WorkLogEntry>()
   for (const e of r.entries) byEntryId.set(e.id, e)
   for (const e of l.entries) byEntryId.set(e.id, e)
-  const entries = [...byEntryId.values()].sort(compareWorkLogEntryByDateId)
+  const entries = dedupeWorkLogEntriesAfterIdMerge([...byEntryId.values()], localEntryIds)
 
   const byLogDate = new Map<string, WorkLogDayDocument>()
   for (const d of r.dayDocuments ?? []) byLogDate.set(d.logDate, d)
