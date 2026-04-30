@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppState } from '../domain/appState'
-import { downloadAppBackup, stringifyAppBackupFingerprint } from '../domain/appStateBackup'
+import { downloadAppBackup } from '../domain/appStateBackup'
 import {
   downloadAppStateFromJsonBin,
   getJsonBinKeyErrorMessage,
@@ -17,7 +17,7 @@ import {
 } from '../domain/salaryExcelModel'
 import { mergeWorkLogPreferLocal } from '../domain/workLogModel'
 import { mergeWorkItemPresetLabelsPreferLocal } from '../domain/workItemPresets'
-import { readJunshanLocalStorageSavedAtMs } from './usePersistentState'
+import { mergeLedgerMonthLinesPreferLocal } from '../domain/ledgerEngine'
 
 export type JsonBinLine = { text: string; isError: boolean } | null
 
@@ -52,7 +52,7 @@ function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppS
  * 上傳內容為完整 {@link AppState}（與「匯出備份」相同）；上傳前校驗備份線路 JSON。
  * 以備份指紋（不含 exportedAt）之 SHA-256 比對上次成功上傳：相同則略過 PUT，減少 JSONBin 請求。
  *
- * 首載合併：**收帳**（同 id 本機優先，且**同指紋不同 id 只留一筆並優先本機**）、**工作日誌**（`entries` 同指紋去重；`dayDocuments` 仍依日期）、**薪水月表**（同月月內**同案名區塊**合併、格線／餐列逐日取 max）與本機做「穩定鍵聯集、同鍵本機優先」；其餘欄位仍依整包邏輯。
+ * 首載合併：**收帳**（同 id 本機優先，且**同指紋不同 id 只留一筆並優先本機**）、**工作日誌**（`entries` 同指紋去重；`dayDocuments` 仍依日期）、**薪水月表**（同月月內**同案名區塊**合併、格線／餐列逐日取 max）、**公司損益月列**（`month` 對位本機優先）與本機做鍵級合併；**其餘頂層欄位以雲端為準**（禁止整包本機 `prev` 蓋回，以免舊裝置 localStorage 污染）。
  *
  * **從雲端還原**：使用者明確觸發時，先下載本機備份再將 JSONBin 資料**完整取代**本機（語意等同「匯入雲端備份」），不經首載合併。
  */
@@ -210,31 +210,19 @@ export function useJsonBinSync(
         const dl = await downloadAppStateFromJsonBin()
         if (dead) return
         if (dl) {
-          const { state: fromCloud, exportedAtMs: cloudExportedAtMs } = dl
-          const diskSavedAtMs = readJunshanLocalStorageSavedAtMs()
+          const { state: fromCloud } = dl
           skipNextUpload.current = true
           setState((prev) => {
-            /** 雲端無法解析 exportedAt（0）時不可做「本機較新」覆寫，否則 diskSavedAt>0 會恒成立而誤用空／舊本機蓋掉完整雲端。 */
-            const preferLocal =
-              cloudExportedAtMs > 0 &&
-              diskSavedAtMs > cloudExportedAtMs &&
-              stringifyAppBackupFingerprint(prev) !== stringifyAppBackupFingerprint(fromCloud)
+            /**
+             * 首載一律以雲端為「非合併欄位」之底稿；**禁止** `{ ...fromCloud, ...prev }` 整包本機蓋回，
+             * 否則舊手機／舊 localStorage 會把估價、損益表、分頁等全換成古早本機，看起來既非雲端又錯亂。
+             * 手輸保護僅發生在已實作鍵級合併之子域（薪水、收帳、工作日誌、預設項標籤）。
+             */
             const { salaryBook, receivables } = mergeSalaryBookAndReceivablesForJsonBin(prev, fromCloud)
-            if (preferLocal) {
-              return {
-                ...fromCloud,
-                ...prev,
-                receivables,
-                workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
-                salaryBook,
-                workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
-                  prev.workItemPresetLabels,
-                  fromCloud.workItemPresetLabels,
-                ),
-              }
-            }
+            const months = mergeLedgerMonthLinesPreferLocal(prev.months, fromCloud.months)
             return {
               ...fromCloud,
+              months,
               receivables,
               workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
               salaryBook,

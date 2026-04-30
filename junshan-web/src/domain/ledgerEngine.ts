@@ -396,3 +396,23 @@ export function mergeStoredMonthLines(rawRows: unknown[] | undefined): MonthLine
   })
   return MONTH_ORDER.map((k) => map.get(k)!)
 }
+
+/**
+ * JSONBin 首載合併：公司損益月列以 `month` 為穩定鍵做聯集；同月本機優先。
+ * 避免雲端整包覆寫抹掉本機手填（老闆薪、會計費、營登租金等）。
+ */
+export function mergeLedgerMonthLinesPreferLocal(
+  localRows: readonly MonthLine[] | undefined,
+  remoteRows: readonly MonthLine[] | undefined,
+): MonthLine[] {
+  const defaults = defaultLedger()
+  const local = mergeStoredMonthLines((localRows ?? []) as unknown[])
+  const remote = mergeStoredMonthLines((remoteRows ?? []) as unknown[])
+  const byMonth = new Map<MonthKey, MonthLine>()
+  for (const row of remote) byMonth.set(row.month, { ...row })
+  for (const row of local) {
+    const prev = byMonth.get(row.month)
+    byMonth.set(row.month, prev ? { ...prev, ...row } : { ...row })
+  }
+  return MONTH_ORDER.map((m, idx) => byMonth.get(m) ?? { ...defaults[idx]! })
+}
