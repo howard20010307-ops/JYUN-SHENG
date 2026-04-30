@@ -12,6 +12,10 @@ import { renameReceivableProjectNames } from './domain/receivablesModel'
 import { renameQuoteSiteIfProjectNameMatches } from './domain/quoteEngine'
 import { renameWorkLogSiteNames } from './domain/workLogModel'
 import { withAutoLedgerDerived } from './domain/ledgerEngine'
+import {
+  repairWorkLogDayDocumentsAgainstPayroll,
+  salaryBookNamedSitesFingerprint,
+} from './domain/workLogPayrollLink'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { AppLoginGate } from './components/AppLoginGate'
@@ -86,6 +90,20 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     () => (p: Partial<AppState>) => setState((s) => ({ ...s, ...p })),
     [setState],
   )
+
+  const namedSitesFingerprint = useMemo(
+    () => salaryBookNamedSitesFingerprint(state.salaryBook),
+    [state.salaryBook],
+  )
+
+  /** 月表案場名增刪／更名後：整日文件與骨架重併，去掉「新案名＋舊案名」重複區塊。 */
+  useEffect(() => {
+    setState((s) => {
+      const w = repairWorkLogDayDocumentsAgainstPayroll(s.workLog, s.salaryBook)
+      if (w === s.workLog) return s
+      return { ...s, workLog: w }
+    })
+  }, [namedSitesFingerprint, setState])
 
   useEffect(() => {
     setState((s) => {

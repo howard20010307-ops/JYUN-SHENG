@@ -3,6 +3,7 @@
  */
 
 import type { SalaryBook } from './salaryExcelModel'
+import { staffKeysAcrossBook } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 import {
   buildPayrollDaySnapshot,
@@ -166,6 +167,100 @@ export type LinkedDayDraft = {
 
 function siteKey(s: string): string {
   return s.trim()
+}
+
+/** 同日該區塊具名人員（排序後串接），供月表更名後與舊案名區塊對位。 */
+function staffSignatureFromLinkedStaffLines(
+  staffLines: readonly { name: string }[] | undefined,
+): string {
+  const names = (staffLines ?? [])
+    .map((l) => l.name.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+  return names.join('\u0001')
+}
+
+function staffSignatureFromSiteBlock(b: WorkLogSiteBlock): string {
+  return staffSignatureFromLinkedStaffLines(b.staffLines)
+}
+
+/** 合併多個候選日誌區塊時，選工作／備註／儀器等較完整者（避免「新案名空殼」蓋過舊案名有內容）。 */
+function siteBlockMergeRichness(b: WorkLogSiteBlock): number {
+  let n = 0
+  for (const wl of b.workLines ?? []) {
+    const t = (wl.label ?? '').trim()
+    if (t) n += 20 + Math.min(500, t.length)
+  }
+  const legacy = typeof b.workItem === 'string' ? b.workItem.trim() : ''
+  if (legacy) n += 25 + Math.min(500, legacy.length)
+  const rem = (b.remark ?? '').trim()
+  if (rem) n += 8 + Math.min(300, rem.length)
+  if ((b.equipment ?? '').trim()) n += 5
+  const iq = b.instrumentQty
+  if (iq && instrumentQtyAnyPositive(iq)) n += 15
+  for (const f of [b.dong, b.floorLevel, b.workPhase]) {
+    if (f && String(f).trim()) n += 2
+  }
+  return n
+}
+
+function pickRichestSiteBlock(candidates: WorkLogSiteBlock[]): WorkLogSiteBlock {
+  return candidates.reduce((best, cur) =>
+    siteBlockMergeRichness(cur) > siteBlockMergeRichness(best) ? cur : best,
+  candidates[0]!,
+  )
+}
+
+/** 月表所有具名案場（去重排序）指紋；案場更名或增刪區塊時變，格線數字不變則不變。 */
+export function salaryBookNamedSitesFingerprint(book: SalaryBook): string {
+  const s = new Set<string>()
+  for (const m of book.months) {
+    for (const b of m.blocks) {
+      const t = b.siteName.trim()
+      if (t) s.add(t)
+    }
+  }
+  return [...s].sort((a, b) => a.localeCompare(b, 'zh-Hant')).join('\u0001')
+}
+
+function dayDocumentPayrollRepairSignature(doc: WorkLogDayDocument): string {
+  const blocks = doc.blocks ?? []
+  return JSON.stringify(
+    blocks.map((b) => ({
+      site: b.siteName.trim(),
+      staff: staffSignatureFromSiteBlock(b),
+      wl: (b.workLines ?? []).map((w) => w.label.trim()).filter(Boolean).join('|'),
+      rem: (b.remark ?? '').trim().slice(0, 240),
+    })),
+  )
+}
+
+/**
+ * 依目前月表重算各日「整日文件」與月表骨架的合併結果並寫回（去重更名殘留區塊）。
+ * 僅在內容與合併前不同時才替換該日文件，避免無意義抖動。
+ */
+export function repairWorkLogDayDocumentsAgainstPayroll(
+  wl: WorkLogState,
+  book: SalaryBook,
+): WorkLogState {
+  const docs = wl.dayDocuments ?? []
+  if (docs.length === 0) return wl
+  const staffOrdered = staffKeysAcrossBook(book)
+  let changed = false
+  const nextDocs = docs.map((doc) => {
+    const snap = buildPayrollDaySnapshot(book, doc.logDate)
+    if (!snap) return doc
+    const skeleton = payrollSnapshotToSkeleton(snap, doc.logDate, staffOrdered)
+    const draft = mergePayrollSkeletonWithDayDocument(skeleton, doc)
+    const next = linkedDayDraftToDayDocument(draft, doc)
+    if (dayDocumentPayrollRepairSignature(next) === dayDocumentPayrollRepairSignature(doc)) {
+      return doc
+    }
+    changed = true
+    return next
+  })
+  if (!changed) return wl
+  return { ...wl, dayDocuments: nextDocs }
 }
 
 function orderStaffNamesForLinkedForm(
@@ -418,8 +513,22 @@ function mergePayrollSkeletonWithDayDocument(
   }
 
   const docBlocks = overlay.blocks?.length ? overlay.blocks : []
+  const skeletonSiteKeys = new Set(skeleton.blocks.map((b) => siteKey(b.siteName)))
+  const usedDocBlockIds = new Set<string>()
+
   const mergedBlocks = skeleton.blocks.map((sb) => {
-    const ob = docBlocks.find((b) => siteKey(b.siteName) === siteKey(sb.siteName))
+    const sigSb = staffSignatureFromLinkedStaffLines(sb.staffLines)
+    const unused = docBlocks.filter((b) => !usedDocBlockIds.has(b.id))
+    const candidates = unused.filter((b) => {
+      if (siteKey(b.siteName) === siteKey(sb.siteName)) return true
+      if (!sigSb) return false
+      if (skeletonSiteKeys.has(siteKey(b.siteName))) return false
+      return staffSignatureFromSiteBlock(b) === sigSb
+    })
+    let ob: WorkLogSiteBlock | undefined
+    if (candidates.length === 1) ob = candidates[0]
+    else if (candidates.length > 1) ob = pickRichestSiteBlock(candidates)
+    if (ob) usedDocBlockIds.add(ob.id)
     const id = ob?.id ?? sb.id
     const staffLines = sb.staffLines.map((sl) => {
       if (!sl.name.trim()) return sl
@@ -444,9 +553,9 @@ function mergePayrollSkeletonWithDayDocument(
   })
 
   /** 月表骨架當日未列案場，但已存日誌有該區塊時須保留（否則表單重載會憑空消失） */
-  const skeletonSiteKeys = new Set(skeleton.blocks.map((b) => siteKey(b.siteName)))
   const orphanBlocks: LinkedDayBlockDraft[] = []
   for (const ob of docBlocks) {
+    if (usedDocBlockIds.has(ob.id)) continue
     if (skeletonSiteKeys.has(siteKey(ob.siteName))) continue
     orphanBlocks.push(linkedDayBlockDraftFromSiteBlock(ob))
   }
