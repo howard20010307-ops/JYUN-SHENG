@@ -105,7 +105,9 @@ export function initialReceivablesState(): ReceivablesState {
   return { entries: [] }
 }
 
-/** 與月表「全書案場更名」同步：`projectName` 與 `oldExact` **字元完全相等**，或**去頭尾空白後相等**且舊名非純空白者更新為 `newNameTrimmed`（trim 後） */
+/**
+ * 與月表「全書案場更名」同步：除完全相等外，也涵蓋「舊名緊接括號註記」等常見變體（一律改為新名，不保留括號內文字）。
+ */
 export function renameReceivableProjectNames(
   state: ReceivablesState,
   oldExact: string,
@@ -117,9 +119,24 @@ export function renameReceivableProjectNames(
     entries: sortReceivableEntriesByBookedDate(
       state.entries.map((e) => {
         const p = e.projectName
-        const match =
-          p === oldExact || (oldTrim !== '' && p.trim() === oldTrim)
-        return match ? { ...e, projectName: newT } : e
+        const pt = p.trim()
+        if (oldTrim === '') {
+          return e
+        }
+        if (p === oldExact || pt === oldTrim) {
+          return { ...e, projectName: newT }
+        }
+        if (pt.startsWith(oldTrim)) {
+          const rest = pt.slice(oldTrim.length)
+          if (
+            rest === '' ||
+            /^\s*[\uFF08(]/.test(rest) ||
+            (rest.startsWith(' ') && /^\s+\(/.test(rest))
+          ) {
+            return { ...e, projectName: newT }
+          }
+        }
+        return e
       }),
     ),
   }
@@ -141,6 +158,66 @@ function receivableSingleLineField(s: string): string {
 /** 備註可含換行：僅正規化換行字元為 \n */
 export function normalizeReceivableNote(s: string): string {
   return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+const FP_SEP_SANS_PROJECT = '\u001f'
+
+/** 不含案名：雲端與本機「同筆款、不同案名字串」時收斂用 */
+function receivableMergeSansProjectFingerprint(e: ReceivableEntry): string {
+  const net = safeNet(e.net)
+  return [
+    e.bookedDate.trim(),
+    String(net),
+    receivableSingleLineField(e.phaseLabel).trim(),
+    e.buildingLabel.trim(),
+    e.floorLabel.trim(),
+    e.taxZero ? '1' : '0',
+    normalizeReceivableNote(e.note).trim(),
+  ].join(FP_SEP_SANS_PROJECT)
+}
+
+function pickBestReceivableSansProjectGroup(
+  group: ReceivableEntry[],
+  localIds: Set<string>,
+): ReceivableEntry {
+  const score = (e: ReceivableEntry) => {
+    let s = 0
+    if (localIds.has(e.id)) s += 1000
+    if (!/舊資料/.test(e.projectName)) s += 100
+    return s
+  }
+  return group.slice().sort((a, b) => {
+    const ds = score(b) - score(a)
+    if (ds !== 0) return ds
+    return compareReceivableEntriesByBookedDate(a, b)
+  })[0]
+}
+
+/**
+ * 載入與 JSONBin 合併後：若入帳日、未稅、階段、棟、樓層、稅別、備註皆相同，僅案名不同（含一筆帶「舊資料」），收斂為一列。
+ * 優先：本機 id → 案名不含「舊資料」→ 早／小 id。
+ * 若同一天同金額確為兩筆不同收款，請用備註區分。
+ */
+function dedupeReceivablesSansProjectFingerprints(
+  entries: ReceivableEntry[],
+  localIds: Set<string>,
+): ReceivableEntry[] {
+  const byFp = new Map<string, ReceivableEntry[]>()
+  for (const e of entries) {
+    const fp = receivableMergeSansProjectFingerprint(e)
+    const arr = byFp.get(fp)
+    if (arr) arr.push(e)
+    else byFp.set(fp, [e])
+  }
+  const out: ReceivableEntry[] = []
+  for (const group of byFp.values()) {
+    if (group.length === 1) {
+      out.push(group[0])
+    } else {
+      out.push(pickBestReceivableSansProjectGroup(group, localIds))
+    }
+  }
+  return sortReceivableEntriesByBookedDate(out)
 }
 
 /** 舊 JSON 可能將 id 存成數字；略過會導致整批收帳消失 */
@@ -250,18 +327,20 @@ export function migrateReceivablesState(loaded: unknown): ReceivablesState {
   const o = loaded as Record<string, unknown>
 
   if (Array.isArray(o.entries)) {
+    const raw = sortReceivableEntriesByBookedDate(
+      syncEntriesTax(migrateEntriesArray(o.entries)),
+    )
     return {
-      entries: sortReceivableEntriesByBookedDate(
-        syncEntriesTax(migrateEntriesArray(o.entries)),
-      ),
+      entries: dedupeReceivablesSansProjectFingerprints(raw, new Set()),
     }
   }
 
   if (Array.isArray(o.receipts) && (o.receipts as unknown[]).length > 0) {
+    const raw = sortReceivableEntriesByBookedDate(
+      syncEntriesTax(migrateLegacyNested(o).entries),
+    )
     return {
-      entries: sortReceivableEntriesByBookedDate(
-        syncEntriesTax(migrateLegacyNested(o).entries),
-      ),
+      entries: dedupeReceivablesSansProjectFingerprints(raw, new Set()),
     }
   }
 
@@ -376,7 +455,9 @@ function dedupeReceivablesAfterIdMerge(
  * 2. **再依業務指紋去重**：入帳日、案名、未稅、階段、棟、樓層、是否零稅、備註皆相同則視為同一筆；
  *    僅保留一列，且**優先保留本機原列**（避免雲端／本機各登記一次變成兩筆不同 id 的重複）。
  *
- * 注意：若同一天同案場同金額確實有兩筆，請在備註等方法區分，否則合併後只會剩一筆。
+ * 3. **不含案名**之第二層：同入帳日、未稅、階段、棟、樓、稅別、備註亦視為同一筆（可避免本機「新案名」與雲端「舊案名＋註記」兩列並存）；優先本機 id 與不含「舊資料」之案名。
+ *
+ * 注意：若同一天同金額確實有兩筆，請在**備註**區分，否則合併後只會剩一筆。
  */
 export function mergeReceivablesPreferLocal(
   local: ReceivablesState,
@@ -388,7 +469,10 @@ export function mergeReceivablesPreferLocal(
   const byId = new Map<string, ReceivableEntry>()
   for (const e of r.entries) byId.set(e.id, e)
   for (const e of l.entries) byId.set(e.id, e)
-  const merged = dedupeReceivablesAfterIdMerge([...byId.values()], localIds)
+  const merged = dedupeReceivablesSansProjectFingerprints(
+    dedupeReceivablesAfterIdMerge([...byId.values()], localIds),
+    localIds,
+  )
   return {
     entries: sortReceivableEntriesByBookedDate(merged),
   }
