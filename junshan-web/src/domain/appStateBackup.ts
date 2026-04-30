@@ -41,6 +41,18 @@ export function stringifyAppBackup(state: AppState): string {
   return JSON.stringify(payload, null, 2)
 }
 
+/**
+ * 供 JSONBin「與上次成功上傳是否同一資料」比對：**不含 `exportedAt`**，避免僅時間戳變動即觸發 PUT。
+ * `data` 與 {@link stringifyAppBackupCompact} 語意相同；鍵順序依 `JSON.stringify(state)`。
+ */
+export function stringifyAppBackupFingerprint(state: AppState): string {
+  return JSON.stringify({
+    app: BACKUP_APP_ID,
+    version: 1,
+    data: state,
+  })
+}
+
 /** 不換行、供 JSONBin 上傳（減小體積） */
 export function stringifyAppBackupCompact(state: AppState): string {
   const payload: BackupFileV1 = {

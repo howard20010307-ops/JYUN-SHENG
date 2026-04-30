@@ -7,7 +7,6 @@ import {
   isJsonBinConfigured,
   readLastJsonBinUploadMeta,
   uploadAppStateToJsonBin,
-  writeLastJsonBinUploadMeta,
   type JsonBinLastUploadMeta,
 } from '../services/jsonbin'
 import { mergeReceivablesPreferLocal } from '../domain/receivablesModel'
@@ -20,7 +19,8 @@ const SAVE_MS = 700
  * 已設定 VITE_JSONBIN_* 時：開啟時自 JSONBin 拉下有效資料則覆寫 state；
  * 之後 state 變更會 debounce 自動上傳。金鑰在瀏覽器內可見，僅適合個人／內部使用。
  *
- * 上傳內容為完整 {@link AppState}（與「匯出備份」相同）；上傳前會校驗備份線路 JSON 含全站欄位，且 **Gzip 解回字串須與原始字串逐字相同**（壓縮層零損耗）。
+ * 上傳內容為完整 {@link AppState}（與「匯出備份」相同）；上傳前校驗備份線路 JSON。
+ * 以備份指紋（不含 exportedAt）之 SHA-256 比對上次成功上傳：相同則略過 PUT，減少 JSONBin 請求。
  */
 export function useJsonBinSync(
   state: AppState,
@@ -54,7 +54,7 @@ export function useJsonBinSync(
     keyErr ? { text: keyErr, isError: true } : null,
   )
   const [uploadMeta, setUploadMeta] = useState<JsonBinLastUploadMeta>(() =>
-    envIntent ? readLastJsonBinUploadMeta() : { at: null, receivablesCount: null },
+    envIntent ? readLastJsonBinUploadMeta() : { at: null, receivablesCount: null, wireSha256Hex: null },
   )
   const [uploadBlockMessage, setUploadBlockMessage] = useState<string | null>(null)
   const [cloudUploadSuspended, setCloudUploadSuspended] = useState(false)
@@ -67,11 +67,11 @@ export function useJsonBinSync(
 
   const performUpload = useCallback((s: AppState) => {
     return uploadAppStateToJsonBin(s)
-      .then(() => {
-        const d = new Date()
-        const rc = s.receivables?.entries?.length ?? 0
-        writeLastJsonBinUploadMeta(d, rc)
-        setUploadMeta({ at: d, receivablesCount: rc })
+      .then((r) => {
+        if (!r.skippedDuplicate) {
+          setUploadMeta(readLastJsonBinUploadMeta())
+        }
+        return r
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e)
@@ -96,9 +96,11 @@ export function useJsonBinSync(
     if (!cloudUploadSuspended) return
     setCloudUploadSuspended(false)
     void performUpload(latestStateRef.current)
-      .then(() => {
+      .then((r) => {
         setLine({
-          text: '已恢復雲端同步，並已上傳目前資料至 JSONBin。',
+          text: r.skippedDuplicate
+            ? '已恢復雲端同步；目前資料與上次成功上傳相同，已略過重複寫入。'
+            : '已恢復雲端同步，並已上傳目前資料至 JSONBin。',
           isError: false,
         })
         window.setTimeout(() => setLine(null), 3200)

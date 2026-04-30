@@ -1,5 +1,5 @@
 import { migrateAppState, type AppState } from '../domain/appState'
-import { assertJsonBinBackupWireStringComplete, stringifyAppBackupCompact } from '../domain/appStateBackup'
+import { assertJsonBinBackupWireStringComplete, stringifyAppBackupCompact, stringifyAppBackupFingerprint } from '../domain/appStateBackup'
 
 const BASE = 'https://api.jsonbin.io/v3/b'
 
@@ -14,27 +14,45 @@ const LOCALSTORAGE_LAST_UPLOAD_META = 'junshan.jsonBin.lastUploadMeta'
 export type JsonBinLastUploadMeta = {
   at: Date | null
   receivablesCount: number | null
+  /**
+   * 與 {@link stringifyAppBackupFingerprint} 產生字串（UTF-8）之 SHA-256 hex；
+   * 與當前相同時略過 PUT（`exportedAt` 不納入指紋）。
+   */
+  wireSha256Hex: string | null
+}
+
+function parseWireSha256Hex(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim().toLowerCase()
+  return /^[0-9a-f]{64}$/.test(s) ? s : null
 }
 
 export function readLastJsonBinUploadMeta(): JsonBinLastUploadMeta {
-  if (typeof localStorage === 'undefined') return { at: null, receivablesCount: null }
+  if (typeof localStorage === 'undefined') {
+    return { at: null, receivablesCount: null, wireSha256Hex: null }
+  }
   try {
     const raw = localStorage.getItem(LOCALSTORAGE_LAST_UPLOAD_META)
     if (raw != null && raw.trim() !== '') {
-      const o = JSON.parse(raw) as { at?: string; receivablesCount?: number }
+      const o = JSON.parse(raw) as {
+        at?: string
+        receivablesCount?: number
+        wireSha256Hex?: unknown
+      }
       const d = typeof o.at === 'string' ? new Date(o.at) : null
       const at = d && !Number.isNaN(d.getTime()) ? d : null
       const receivablesCount =
         typeof o.receivablesCount === 'number' && Number.isFinite(o.receivablesCount)
           ? Math.max(0, Math.floor(o.receivablesCount))
           : null
-      if (at) return { at, receivablesCount }
+      const wireSha256Hex = parseWireSha256Hex(o.wireSha256Hex)
+      if (at) return { at, receivablesCount, wireSha256Hex }
     }
   } catch {
     /* ignore */
   }
   const legacy = readLastJsonBinUploadSuccessAtLegacy()
-  return { at: legacy, receivablesCount: null }
+  return { at: legacy, receivablesCount: null, wireSha256Hex: null }
 }
 
 function readLastJsonBinUploadSuccessAtLegacy(): Date | null {
@@ -53,13 +71,19 @@ export function readLastJsonBinUploadSuccessAt(): Date | null {
   return readLastJsonBinUploadMeta().at
 }
 
-export function writeLastJsonBinUploadMeta(d: Date, receivablesCount: number): void {
+export function writeLastJsonBinUploadMeta(
+  d: Date,
+  receivablesCount: number,
+  wireSha256Hex: string | null = null,
+): void {
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(
-      LOCALSTORAGE_LAST_UPLOAD_META,
-      JSON.stringify({ at: d.toISOString(), receivablesCount }),
-    )
+    const payload: Record<string, unknown> = {
+      at: d.toISOString(),
+      receivablesCount,
+    }
+    if (wireSha256Hex) payload.wireSha256Hex = wireSha256Hex
+    localStorage.setItem(LOCALSTORAGE_LAST_UPLOAD_META, JSON.stringify(payload))
     localStorage.setItem(LOCALSTORAGE_LAST_UPLOAD_OK_AT, d.toISOString())
   } catch {
     /* 配額／隱私模式等 */
@@ -68,7 +92,17 @@ export function writeLastJsonBinUploadMeta(d: Date, receivablesCount: number): v
 
 /** @deprecated 請用 {@link writeLastJsonBinUploadMeta} */
 export function writeLastJsonBinUploadSuccessAt(d: Date): void {
-  writeLastJsonBinUploadMeta(d, 0)
+  writeLastJsonBinUploadMeta(d, 0, null)
+}
+
+/** 備份線路字串 UTF-8 之 SHA-256 hex；無 Web Crypto 時回傳 null（略過重複偵測、仍允許上傳）。 */
+export async function sha256HexUtf8(text: string): Promise<string | null> {
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle) return null
+  const buf = await subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 const JUNSHAN_GZIP = 1 as const
@@ -248,12 +282,28 @@ export async function downloadAppStateFromJsonBin(): Promise<AppState | null> {
  * - **上傳**：`stringifyAppBackupCompact` → 結構校驗 → Gzip → Base64 → `PUT`；若 Gzip 解回字串與原始 JSON **逐字元相同**，則線上數值／文字在壓縮層**零損耗**。
  * - **下載**：`GET` → 解 gzip → 解析與上傳相同之 JSON → `migrateAppState` 正規化各子域（薪水／估價／收帳／日誌等）。
  */
-export async function uploadAppStateToJsonBin(state: AppState): Promise<void> {
-  if (!isJsonBinConfigured()) return
+export type JsonBinUploadResult = {
+  /** 與上次成功上傳之備份字串指紋相同，已略過 PUT */
+  skippedDuplicate: boolean
+}
+
+/**
+ * 上傳完整狀態至 JSONBin。
+ * 若與 {@link readLastJsonBinUploadMeta} 所存之 `wireSha256Hex` 相同（{@link stringifyAppBackupFingerprint} 一致），則略過 PUT。
+ * 成功寫入後才更新 {@link writeLastJsonBinUploadMeta} 之時間、收帳筆數與指紋。
+ */
+export async function uploadAppStateToJsonBin(state: AppState): Promise<JsonBinUploadResult> {
+  if (!isJsonBinConfigured()) return { skippedDuplicate: false }
   const id = binId()
   const key = masterKey()
   const raw = stringifyAppBackupCompact(state)
   assertJsonBinBackupWireStringComplete(raw)
+  const fpRaw = stringifyAppBackupFingerprint(state)
+  const fp = await sha256HexUtf8(fpRaw)
+  const prev = readLastJsonBinUploadMeta()
+  if (fp != null && prev.wireSha256Hex != null && prev.wireSha256Hex === fp) {
+    return { skippedDuplicate: true }
+  }
   const g = await gzipTextToB64(raw)
   const roundTrip = await gunzipB64ToText(g)
   if (roundTrip !== raw) {
@@ -280,4 +330,8 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<void> {
     const t = await res.text()
     throw new Error(t || `JSONBin 寫入失敗：${res.status}`)
   }
+  const d = new Date()
+  const rc = state.receivables?.entries?.length ?? 0
+  writeLastJsonBinUploadMeta(d, rc, fp)
+  return { skippedDuplicate: false }
 }
