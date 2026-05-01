@@ -28,11 +28,14 @@ export function payrollSitesOverviewRows(book: SalaryBook): PayrollSiteOverviewR
     { siteName: QUICK_SITE_TSAI_ADJUST, blockCount: 0, isVirtualAdjustment: true },
     { siteName: QUICK_SITE_JUN_ADJUST, blockCount: 0, isVirtualAdjustment: true },
   ]
+  const virtualNames = new Set(virtual.map((v) => v.siteName))
   const byName = new Map<string, number>()
   for (const m of book.months) {
     for (const b of m.blocks) {
       const n = b.siteName.trim()
       if (!n || isPlaceholderMonthBlockSiteName(n)) continue
+      // 調工虛擬列固定由 virtual 輸出，避免在一般案場區再重複一份同名選項。
+      if (virtualNames.has(n)) continue
       byName.set(n, (byName.get(n) ?? 0) + 1)
     }
   }

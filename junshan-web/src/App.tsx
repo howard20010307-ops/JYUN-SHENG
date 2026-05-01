@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QuotePanel } from './components/QuotePanel'
 import { PayrollPanel } from './components/PayrollPanel'
-import { LedgerPanel } from './components/LedgerPanel'
+import { CompanyAccountPanel } from './components/CompanyAccountPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
@@ -315,7 +315,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             ['payroll', '薪水統計'],
             ['quote', '放樣估價'],
             ['receivables', '收帳'],
-            ['ledger', '公司損益表'],
+            ['ledger', '公司帳'],
             ['worklog', '工作日誌'],
           ] as const
         ).map(([id, label]) => (
@@ -437,7 +437,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           />
         )}
         {state.tab === 'ledger' && (
-          <LedgerPanel
+          <CompanyAccountPanel
             months={state.months}
             setMonths={(months) => patch({ months })}
             ledgerYear={state.ledgerYear}

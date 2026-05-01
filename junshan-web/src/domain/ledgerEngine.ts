@@ -68,7 +68,7 @@ export type MonthComputed = MonthLine & {
   costOfGoodsSold: number
   /** 毛利＝營業收入(未稅)−銷貨成本 */
   grossProfit: number
-  /** 營業費用：老闆薪＋會計費＋營登租金 */
+  /** 營業費用：老闆薪＋會計費＋營登租金＋儀器 */
   operatingExpenses: number
   /** 營業利益＝毛利−營業費用 */
   operatingIncome: number
@@ -85,11 +85,11 @@ export type MonthComputed = MonthLine & {
 
 export function computeMonth(m: MonthLine): MonthComputed {
   const junLaborWithOt = m.salary + (m.overtimePay ?? 0)
-  const costOfGoodsSold = junLaborWithOt + m.meals + m.tools + m.instrument
+  const costOfGoodsSold = junLaborWithOt + m.meals + m.tools
   const grossProfit = m.revenueNet - costOfGoodsSold
   const accountingFee = m.accountingFee ?? 0
   const registeredAddressRent = m.registeredAddressRent ?? 0
-  const operatingExpenses = m.bossSalary + accountingFee + registeredAddressRent
+  const operatingExpenses = m.bossSalary + accountingFee + registeredAddressRent + m.instrument
   const operatingIncome = grossProfit - operatingExpenses
   return {
     ...m,

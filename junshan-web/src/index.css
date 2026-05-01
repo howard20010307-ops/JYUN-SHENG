@@ -614,6 +614,63 @@ table.data.tight td.num.num--mealValue {
   box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28);
 }
 
+/* 公司損益表：六個核心 KPI 欄（毛利三欄＋淨利三欄）醒目 */
+table.data.tight.ledgerCompanyTable th.ledgerKpiGrossHead,
+table.data.tight.ledgerCompanyTable td.ledgerKpiGrossCell {
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.2), rgba(61, 156, 245, 0.12));
+  border-left: 1px solid rgba(90, 212, 168, 0.45);
+  border-right: 1px solid rgba(90, 212, 168, 0.28);
+  color: #d7fff2;
+  font-weight: 700;
+}
+
+table.data.tight.ledgerCompanyTable th.ledgerKpiNetHead,
+table.data.tight.ledgerCompanyTable td.ledgerKpiNetCell {
+  background: linear-gradient(180deg, rgba(255, 166, 87, 0.2), rgba(255, 108, 76, 0.13));
+  border-left: 1px solid rgba(255, 166, 87, 0.45);
+  border-right: 1px solid rgba(255, 166, 87, 0.28);
+  color: #ffe9d7;
+  font-weight: 700;
+}
+
+table.data.tight.ledgerCompanyTable th.ledgerKpiGrossHead,
+table.data.tight.ledgerCompanyTable th.ledgerKpiNetHead {
+  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* 公司損益表：指定 6 欄做「整欄」醒目（含 tfoot 未來新增列） */
+table.data.tight.ledgerCompanyTable tbody td:nth-child(8),
+table.data.tight.ledgerCompanyTable tbody td:nth-child(9),
+table.data.tight.ledgerCompanyTable tbody td:nth-child(10),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(8),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(9),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(10),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(8),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(9),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(10) {
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.2), rgba(61, 156, 245, 0.12));
+  border-left: 1px solid rgba(90, 212, 168, 0.45);
+  border-right: 1px solid rgba(90, 212, 168, 0.28);
+  color: #d7fff2;
+  font-weight: 700;
+}
+
+table.data.tight.ledgerCompanyTable tbody td:nth-child(16),
+table.data.tight.ledgerCompanyTable tbody td:nth-child(17),
+table.data.tight.ledgerCompanyTable tbody td:nth-child(18),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(16),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(17),
+table.data.tight.ledgerCompanyTable tfoot th:nth-child(18),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(16),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(17),
+table.data.tight.ledgerCompanyTable tfoot td:nth-child(18) {
+  background: linear-gradient(180deg, rgba(255, 166, 87, 0.2), rgba(255, 108, 76, 0.13));
+  border-left: 1px solid rgba(255, 166, 87, 0.45);
+  border-right: 1px solid rgba(255, 166, 87, 0.28);
+  color: #ffe9d7;
+  font-weight: 700;
+}
+
 /** 月表／分期表：總計列、合計欄醒目（與 Excel 總列對齊） */
 table.data.tight tr.payrollGrandRow th,
 table.data.tight tr.payrollGrandRow td {

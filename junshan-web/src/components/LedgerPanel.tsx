@@ -1,7 +1,6 @@
 import { useMemo } from 'react'
 import {
   computeMonth,
-  cumulativeProfit,
   runningCumulative,
   type MonthLine,
 } from '../domain/ledgerEngine'
@@ -36,8 +35,72 @@ export function LedgerPanel({
   canEdit,
 }: Props) {
   const rows = useMemo(() => months.map((m) => computeMonth(m)), [months])
+  const runningGross = useMemo(() => {
+    const out: number[] = []
+    let acc = 0
+    for (const r of rows) {
+      acc += r.grossProfit
+      out.push(acc)
+    }
+    return out
+  }, [rows])
   const run = useMemo(() => runningCumulative(months), [months])
-  const total = useMemo(() => cumulativeProfit(months), [months])
+  const averages = useMemo(() => {
+    const divisor = 12
+    const grossSum = rows.reduce((sum, r) => sum + r.grossProfit, 0)
+    const grossRunningSum = runningGross.reduce((sum, v) => sum + v, 0)
+    const grossMarginSum = rows.reduce(
+      (sum, r) => sum + (r.revenueNet !== 0 ? r.grossProfit / r.revenueNet : 0),
+      0,
+    )
+    const netSum = rows.reduce((sum, r) => sum + r.operatingIncome, 0)
+    const netRunningSum = run.reduce((sum, v) => sum + v, 0)
+    const netMarginSum = rows.reduce(
+      (sum, r) => sum + (r.revenueNet !== 0 ? r.operatingIncome / r.revenueNet : 0),
+      0,
+    )
+    return {
+      gross: grossSum / divisor,
+      grossRunning: grossRunningSum / divisor,
+      grossMargin: grossMarginSum / divisor,
+      net: netSum / divisor,
+      netRunning: netRunningSum / divisor,
+      netMargin: netMarginSum / divisor,
+    }
+  }, [rows, run, runningGross])
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, r) => {
+          acc.revenueNet += r.revenueNet
+          acc.tax += r.tax
+          acc.junLaborWithOt += r.junLaborWithOt
+          acc.meals += r.meals
+          acc.tools += r.tools
+          acc.costOfGoodsSold += r.costOfGoodsSold
+          acc.bossSalary += r.bossSalary
+          acc.accountingFee += r.accountingFee
+          acc.registeredAddressRent += r.registeredAddressRent
+          acc.instrument += r.instrument
+          acc.operatingExpenses += r.operatingExpenses
+          return acc
+        },
+        {
+          revenueNet: 0,
+          tax: 0,
+          junLaborWithOt: 0,
+          meals: 0,
+          tools: 0,
+          costOfGoodsSold: 0,
+          bossSalary: 0,
+          accountingFee: 0,
+          registeredAddressRent: 0,
+          instrument: 0,
+          operatingExpenses: 0,
+        },
+      ),
+    [rows],
+  )
 
   const yearOptions = useMemo(() => {
     const s = new Set<number>()
@@ -100,8 +163,8 @@ export function LedgerPanel({
       <p className="hint">
         <strong>營業收入</strong>以<strong>未稅</strong>為準；<strong>稅金</strong>為業主吸收、稅外加之<strong>記錄</strong>，不列入收入與<strong>淨利</strong>。
         <strong>鈞泩薪水(含加班)</strong>＝格線薪＋鈞泩加班費（損益表單列口徑）。
-        <strong>銷貨成本</strong>＝鈞泩薪水(含加班)＋餐費＋工具＋儀器；<strong>毛利</strong>＝營業收入−銷貨成本；<strong>營業費用</strong>＝老闆薪＋會計費＋營登租金；<strong>淨利</strong>＝毛利−營業費用（即營業利益）。
-        除老闆薪、會計費、營登租金外，其餘由月表／收帳／工作日誌自動帶入（工具＝日誌工具支出加總、儀器＝日誌儀器支出）。
+        <strong>銷貨成本</strong>＝鈞泩薪水(含加班)＋餐費＋工具；<strong>毛利</strong>＝營業收入−銷貨成本；<strong>營業費用</strong>＝老闆薪＋會計費＋營登租金＋儀器；<strong>淨利</strong>＝毛利−營業費用（即營業利益）。
+        除老闆薪、會計費、營登租金外，其餘由月表／收帳／工作日誌自動帶入（工具＝日誌工具支出加總、儀器＝日誌儀器支出；本表口徑列入營業費用）。
       </p>
       <fieldset className="tabFieldset" disabled={!canEdit}>
         <div className="tableScroll">
@@ -112,20 +175,59 @@ export function LedgerPanel({
                 <th colSpan={2} scope="colgroup">
                   收入
                 </th>
-                <th colSpan={5} scope="colgroup">
+                <th colSpan={4} scope="colgroup">
                   銷貨成本
                 </th>
-                <th rowSpan={2} scope="col" title="營業收入(未稅)−銷貨成本">
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiGrossHead"
+                  title="營業收入(未稅)−銷貨成本"
+                >
                   毛利
                 </th>
-                <th colSpan={4} scope="colgroup" title="老闆薪＋會計費＋營登租金">
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiGrossHead"
+                  title="各月毛利之累計"
+                >
+                  毛利累積
+                </th>
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiGrossHead"
+                  title="毛利率＝毛利／營業收入(未稅)"
+                >
+                  毛利率
+                </th>
+                <th colSpan={5} scope="colgroup" title="老闆薪＋會計費＋營登租金＋儀器">
                   營業費用
                 </th>
-                <th rowSpan={2} scope="col" title="毛利−營業費用（即營業利益）">
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiNetHead"
+                  title="毛利−營業費用（即營業利益）"
+                >
                   淨利
                 </th>
-                <th rowSpan={2} scope="col" title="各月淨利之累計">
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiNetHead"
+                  title="各月淨利之累計"
+                >
                   累計淨利
+                </th>
+                <th
+                  rowSpan={2}
+                  scope="col"
+                  className="ledgerKpiNetHead"
+                  title="淨利率＝淨利／營業收入(未稅)"
+                >
+                  淨利率
                 </th>
               </tr>
               <tr>
@@ -140,7 +242,6 @@ export function LedgerPanel({
                 </th>
                 <th scope="col">餐費</th>
                 <th scope="col">工具</th>
-                <th scope="col">儀器</th>
                 <th scope="col" title="上列銷貨成本加總">
                   小計
                 </th>
@@ -149,7 +250,10 @@ export function LedgerPanel({
                 <th scope="col" title="營業登記地址租金">
                   營登租金
                 </th>
-                <th scope="col" title="老闆薪＋會計費＋營登租金">
+                <th scope="col" title="工作日誌儀器支出加總（列入營業費用）">
+                  儀器
+                </th>
+                <th scope="col" title="老闆薪＋會計費＋營登租金＋儀器">
                   小計
                 </th>
               </tr>
@@ -176,13 +280,16 @@ export function LedgerPanel({
                   <td className="num" title="工作日誌工具支出加總">
                     {Math.round(r.tools).toLocaleString()}
                   </td>
-                  <td className="num" title="工作日誌儀器支出加總">
-                    {Math.round(r.instrument).toLocaleString()}
-                  </td>
                   <td className="num" title="銷貨成本合計">
                     {Math.round(r.costOfGoodsSold).toLocaleString()}
                   </td>
-                  <td className="num">{Math.round(r.grossProfit).toLocaleString()}</td>
+                  <td className="num ledgerKpiGrossCell">{Math.round(r.grossProfit).toLocaleString()}</td>
+                  <td className="num ledgerKpiGrossCell" title="截至該月之毛利累計">
+                    {Math.round(runningGross[i] ?? 0).toLocaleString()}
+                  </td>
+                  <td className="num ledgerKpiGrossCell" title="毛利率＝毛利／營業收入(未稅)">
+                    {r.revenueNet !== 0 ? `${((r.grossProfit / r.revenueNet) * 100).toFixed(1)}%` : '0.0%'}
+                  </td>
                   <td>
                     <PayrollNumberInput
                       className="narrow"
@@ -207,22 +314,64 @@ export function LedgerPanel({
                       aria-label={`${r.month} 月營登租金`}
                     />
                   </td>
+                  <td className="num" title="工作日誌儀器支出加總（列入營業費用）">
+                    {Math.round(r.instrument).toLocaleString()}
+                  </td>
                   <td className="num" title="營業費用合計">
                     {Math.round(r.operatingExpenses).toLocaleString()}
                   </td>
-                  <td className="num" title="毛利−營業費用（營業利益）">
+                  <td className="num ledgerKpiNetCell" title="毛利−營業費用（營業利益）">
                     {Math.round(r.operatingIncome).toLocaleString()}
                   </td>
-                  <td className="num" title="截至該月之淨利累計">
+                  <td className="num ledgerKpiNetCell" title="截至該月之淨利累計">
                     {Math.round(run[i] ?? 0).toLocaleString()}
+                  </td>
+                  <td className="num ledgerKpiNetCell" title="淨利率＝淨利／營業收入(未稅)">
+                    {r.revenueNet !== 0 ? `${((r.operatingIncome / r.revenueNet) * 100).toFixed(1)}%` : '0.0%'}
                   </td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={14}>全年累計淨利</th>
-                <th className="num">{Math.round(total).toLocaleString()}</th>
+                <th title="所有項目年度總結">總計項目</th>
+                <th className="num">{Math.round(totals.revenueNet).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.tax).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.junLaborWithOt).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.meals).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.tools).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.costOfGoodsSold).toLocaleString()}</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">{Math.round(totals.bossSalary).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.accountingFee).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.registeredAddressRent).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.instrument).toLocaleString()}</th>
+                <th className="num">{Math.round(totals.operatingExpenses).toLocaleString()}</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+              </tr>
+              <tr>
+                <th title="年度平均（固定除以 12 個月份）">平均（12月）</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num ledgerKpiGrossCell">{Math.round(averages.gross).toLocaleString()}</th>
+                <th className="num ledgerKpiGrossCell">—</th>
+                <th className="num ledgerKpiGrossCell">{(averages.grossMargin * 100).toFixed(1)}%</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num">—</th>
+                <th className="num ledgerKpiNetCell">{Math.round(averages.net).toLocaleString()}</th>
+                <th className="num ledgerKpiNetCell">—</th>
+                <th className="num ledgerKpiNetCell">{(averages.netMargin * 100).toFixed(1)}%</th>
               </tr>
             </tfoot>
           </table>

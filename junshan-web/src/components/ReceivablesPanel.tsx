@@ -162,7 +162,23 @@ export function ReceivablesPanel({
       if (ai >= 0 && bi >= 0) return ai - bi
       return a.label.localeCompare(b.label, 'zh-Hant')
     })
-    return list
+
+    // 同名案場僅保留一筆（優先保留虛擬調工 v: 選項，再保留先出現者）
+    const labelKey = (s: string) => s.replace(/\u3000/g, ' ').replace(/\s+/g, ' ').trim()
+    const byLabel = new Map<string, (typeof list)[number]>()
+    for (const o of list) {
+      const k = labelKey(o.label)
+      if (!k) continue
+      const prev = byLabel.get(k)
+      if (!prev) {
+        byLabel.set(k, o)
+        continue
+      }
+      const prevIsVirtual = prev.value.startsWith('v:')
+      const curIsVirtual = o.value.startsWith('v:')
+      if (!prevIsVirtual && curIsVirtual) byLabel.set(k, o)
+    }
+    return [...byLabel.values()]
   }, [salaryBook, data.entries])
 
   const [addProjectOpen, setAddProjectOpen] = useState(false)

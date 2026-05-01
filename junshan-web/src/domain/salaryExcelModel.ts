@@ -2767,6 +2767,33 @@ function mergeSiteBlocksPreferLocal(
   return dedupeSiteBlocksSameMergeGroupKey(out, dateLen, localBlockIds)
 }
 
+function siteBlockHasAnyWorkCell(block: SiteBlock): boolean {
+  for (const row of Object.values(block.grid ?? {})) {
+    for (const v of row ?? []) {
+      if (Number.isFinite(v) && v > 0) return true
+    }
+  }
+  return false
+}
+
+/**
+ * 安全版 placeholder 規則：
+ * - 同月 `新案場` 最多保留 1 個；
+ * - 若該月任一「正式案場」已有出工格線（>0），則 `新案場` 全部移除。
+ */
+function sanitizePlaceholderBlocks(book: SalaryBook): SalaryBook {
+  const months = book.months.map((m) => {
+    const placeholders = m.blocks.filter((b) => isPlaceholderMonthBlockSiteName(b.siteName))
+    if (placeholders.length === 0) return m
+    const named = m.blocks.filter((b) => !isPlaceholderMonthBlockSiteName(b.siteName))
+    const namedHasWork = named.some(siteBlockHasAnyWorkCell)
+    const nextBlocks = namedHasWork ? named : [...named, placeholders[0]!]
+    if (nextBlocks.length === m.blocks.length) return m
+    return { ...m, blocks: nextBlocks }
+  })
+  return { ...book, months }
+}
+
 function mergeMonthSheetPairPreferLocal(l: MonthSheetData, r: MonthSheetData): MonthSheetData {
   const dates = l.dates.length > 0 ? [...l.dates] : [...r.dates]
   const len = dates.length
@@ -2857,7 +2884,8 @@ export function finalizeSalaryBookPayroll(book: SalaryBook): {
 } {
   const normalized = normalizeSalaryBook(book)
   const collapsed = collapseMonthSheetsWithIdenticalDateColumns(normalized)
-  const stabilized = stabilizeSalaryBookPayrollIds(collapsed.book)
+  const sanitized = sanitizePlaceholderBlocks(collapsed.book)
+  const stabilized = stabilizeSalaryBookPayrollIds(sanitized)
   const monthByOldId = composePayrollMonthIdRemaps(
     collapsed.monthByOldId,
     stabilized.remap.monthByOldId,
