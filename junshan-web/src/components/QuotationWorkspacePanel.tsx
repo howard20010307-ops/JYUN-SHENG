@@ -2,8 +2,19 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { buildQuotationPdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
 import {
+  addCalendarDays,
+  diffCalendarDays,
+  formatQuotationCalendarDate,
+  parseDayCount,
+  parseQuotationCalendarDate,
+  quotationIsoInputToMetaDate,
+  quotationMetaDateToIsoInput,
+} from '../domain/quotationQuoteDates'
+import {
+  createPaymentTermLine,
   createQuotationClauseLine,
   createQuotationLine,
+  initialQuotationWorkspace,
   quotationGrandTotals,
   quotationLineMoney,
   quotationVatRate,
@@ -25,6 +36,7 @@ function moneyFmt(n: number): string {
 export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
   const { bindDecimal } = useLooseNumericDrafts()
   const pdfRef = useRef<HTMLDivElement>(null)
+  const quoteDateInputRef = useRef<HTMLInputElement>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
 
@@ -42,6 +54,51 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
 
   function patchMeta<K extends keyof QuotationWorkspaceState['meta']>(k: K, v: string) {
     setWorkspace((w) => ({ ...w, meta: { ...w.meta, [k]: v } }))
+  }
+
+  function onQuoteDateChange(v: string) {
+    setWorkspace((w) => {
+      const m = { ...w.meta, quoteDate: v }
+      const q = parseQuotationCalendarDate(m.quoteDate)
+      const n = parseDayCount(m.validDays)
+      if (q && n != null) {
+        m.deadline = formatQuotationCalendarDate(addCalendarDays(q, n))
+      } else if (q) {
+        const d = parseQuotationCalendarDate(m.deadline)
+        if (d) m.validDays = String(Math.max(0, diffCalendarDays(q, d)))
+      }
+      return { ...w, meta: m }
+    })
+  }
+
+  function onValidDaysChange(v: string) {
+    setWorkspace((w) => {
+      const m = { ...w.meta, validDays: v }
+      const q = parseQuotationCalendarDate(m.quoteDate)
+      const n = parseDayCount(m.validDays)
+      if (q && n != null) m.deadline = formatQuotationCalendarDate(addCalendarDays(q, n))
+      return { ...w, meta: m }
+    })
+  }
+
+  function onDeadlineChange(v: string) {
+    setWorkspace((w) => {
+      const m = { ...w.meta, deadline: v }
+      const q = parseQuotationCalendarDate(m.quoteDate)
+      const d = parseQuotationCalendarDate(m.deadline)
+      if (q && d) m.validDays = String(Math.max(0, diffCalendarDays(q, d)))
+      return { ...w, meta: m }
+    })
+  }
+
+  function openQuoteDatePicker() {
+    const el = quoteDateInputRef.current
+    if (!el) return
+    try {
+      el.showPicker?.()
+    } catch {
+      el.focus()
+    }
   }
 
   function patchSupplier<K extends keyof QuotationWorkspaceState['supplier']>(k: K, v: string) {
@@ -83,24 +140,83 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
     }))
   }
 
+  function setPaymentTermLine(id: string, text: string) {
+    setWorkspace((w) => ({
+      ...w,
+      paymentTermsLines: w.paymentTermsLines.map((c) => (c.id === id ? { ...c, text } : c)),
+    }))
+  }
+
+  function addPaymentTermLine() {
+    setWorkspace((w) => {
+      const s = w.quoteTitle.trim() !== '' ? w.quoteTitle : '報價單'
+      return {
+        ...w,
+        paymentTermsLines: [...w.paymentTermsLines, createPaymentTermLine(s, w.paymentTermsLines)],
+      }
+    })
+  }
+
+  function removePaymentTermLine(id: string) {
+    setWorkspace((w) => ({
+      ...w,
+      paymentTermsLines: w.paymentTermsLines.filter((c) => c.id !== id),
+    }))
+  }
+
+  function confirmClearQuotation() {
+    if (
+      !window.confirm(
+        '確定要一鍵清除「報價單」？\n將還原為空白案名、預設報價資訊與供應商、空白明細與付款人，付款條件與條款恢復預設。',
+      )
+    ) {
+      return
+    }
+    setPreviewOpen(false)
+    setWorkspace(initialQuotationWorkspace())
+  }
+
   return (
     <div className="quotationWorkspace">
       <section className="card">
-        <h3>報價單</h3>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            marginBottom: 8,
+          }}
+        >
+          <h3 style={{ margin: 0 }}>報價單</h3>
+          <button type="button" className="btn danger" onClick={confirmClearQuotation}>
+            一鍵清除
+          </button>
+        </div>
         <p className="hint">
-          本區為<strong>獨立報價單</strong>，與「放樣估價」案場無連動；可自填報價資訊、供應商／付款人、明細與備註條款，並預覽或匯出 PDF。
+          位於「對外文件」：本區為<strong>獨立報價單</strong>，與「放樣估價」案場無連動；可自填報價資訊、供應商／付款人、明細、<strong>付款條件</strong>與備註條款，並預覽或匯出 PDF。
         </p>
 
-        <div style={{ marginBottom: 16, maxWidth: 560 }}>
-          <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>
-            報價主旨（檔名與 PDF 抬頭）
+        <div
+          style={{
+            marginBottom: 16,
+            maxWidth: 560,
+            padding: '12px 14px',
+            borderRadius: 'var(--ui-radius-sm)',
+            border: '2px solid rgba(180, 83, 9, 0.55)',
+            background: 'linear-gradient(135deg, rgba(255, 247, 237, 0.35) 0%, rgba(254, 243, 199, 0.2) 100%)',
+          }}
+        >
+          <label style={{ display: 'block', marginBottom: 6, fontWeight: 800, color: 'var(--head)', letterSpacing: '0.06em' }}>
+            案名（檔名與 PDF 抬頭）
             <input
               type="text"
               className="quoteStickyItemText"
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%', marginTop: 6 }}
               value={workspace.quoteTitle}
               onChange={(e) => setWorkspace((w) => ({ ...w, quoteTitle: e.target.value }))}
-              placeholder="例如：○○案場放樣與製圖"
+              placeholder="○○案場放樣與製圖"
               autoComplete="off"
             />
           </label>
@@ -108,6 +224,9 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
 
         <fieldset className="ownerClientFieldset">
           <legend>報價資訊</legend>
+          <p className="muted ownerClientFieldset__hint" style={{ marginTop: 0, marginBottom: 10 }}>
+            報價有效期限（天）與報價期限綁定：當<strong>報價日期</strong>為有效西元年月日時，修改任一方會自動換算另一方。
+          </p>
           <div className="ownerClientFieldset__grid">
             <label className="ownerClientFieldset__label">
               報價編號
@@ -119,21 +238,49 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
               />
             </label>
             <label className="ownerClientFieldset__label">
+              報價日期
+              <div className="ownerClientFieldDateRow">
+                <input
+                  ref={quoteDateInputRef}
+                  className="ownerClientField ownerClientField--date"
+                  type="date"
+                  value={quotationMetaDateToIsoInput(workspace.meta.quoteDate)}
+                  onChange={(e) => onQuoteDateChange(quotationIsoInputToMetaDate(e.target.value))}
+                />
+                <button
+                  type="button"
+                  className="ownerClientDatePickerBtn"
+                  aria-label="開啟日曆選擇報價日期"
+                  title="開啟日曆"
+                  onClick={openQuoteDatePicker}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.25"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                </button>
+              </div>
+            </label>
+            <label className="ownerClientFieldset__label">
               報價有效期限（天）
               <input
                 className="ownerClientField"
                 type="text"
+                inputMode="numeric"
                 value={workspace.meta.validDays}
-                onChange={(e) => patchMeta('validDays', e.target.value)}
-              />
-            </label>
-            <label className="ownerClientFieldset__label">
-              報價日期
-              <input
-                className="ownerClientField"
-                type="text"
-                value={workspace.meta.quoteDate}
-                onChange={(e) => patchMeta('quoteDate', e.target.value)}
+                onChange={(e) => onValidDaysChange(e.target.value)}
+                placeholder="與下方期限連動"
               />
             </label>
             <label className="ownerClientFieldset__label">
@@ -142,7 +289,8 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
                 className="ownerClientField"
                 type="text"
                 value={workspace.meta.deadline}
-                onChange={(e) => patchMeta('deadline', e.target.value)}
+                onChange={(e) => onDeadlineChange(e.target.value)}
+                placeholder="2026/05/16"
               />
             </label>
           </div>
@@ -408,14 +556,52 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
                   <td className="num" style={{ fontWeight: 700 }}>
                     {moneyFmt(grand.totalInc)}
                   </td>
-                  <td colSpan={2} className="muted" style={{ fontSize: 12 }}>
-                    未稅＋稅
-                  </td>
+                  <td colSpan={2} />
                 </tr>
               </tfoot>
             ) : null}
           </table>
         </div>
+
+        <fieldset className="ownerClientFieldset" style={{ marginTop: 16 }}>
+          <legend>付款條件（PDF）</legend>
+          <p className="muted ownerClientFieldset__hint">
+            預設為依合約完工後一次繳納；可改寫、增刪條列。完全空白的條列印時會略過。
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {workspace.paymentTermsLines.map((line, i) => (
+              <div
+                key={line.id}
+                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}
+              >
+                <span className="muted" style={{ minWidth: 28, paddingTop: 8 }}>
+                  {i + 1}.
+                </span>
+                <textarea
+                  className="quoteStickyItemText"
+                  style={{ flex: '1 1 280px', minHeight: 52, resize: 'vertical' }}
+                  rows={2}
+                  value={line.text}
+                  onChange={(e) => setPaymentTermLine(line.id, e.target.value)}
+                  aria-label={`付款條件第 ${i + 1} 條`}
+                />
+                <button
+                  type="button"
+                  className="btn secondary receivablesTable__miniBtn"
+                  style={{ marginTop: 4 }}
+                  onClick={() => removePaymentTermLine(line.id)}
+                >
+                  刪除
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="btnRow" style={{ marginTop: 12 }}>
+            <button type="button" className="btn secondary" onClick={addPaymentTermLine}>
+              新增一條
+            </button>
+          </div>
+        </fieldset>
 
         <fieldset className="ownerClientFieldset" style={{ marginTop: 16 }}>
           <legend>備註與條款（PDF）</legend>
@@ -482,6 +668,7 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
                   payer={workspace.payer}
                   lines={workspace.lines}
                   vatPercent={workspace.vatPercent}
+                  paymentTermsLines={workspace.paymentTermsLines}
                   clauseLines={workspace.clauseLines}
                 />
               </div>

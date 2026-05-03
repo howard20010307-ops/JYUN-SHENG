@@ -1,11 +1,11 @@
 /**
- * 工數說明：獨立工作區（與放樣估價案場／成本列無連動），供臨時場次自填細項與甲方資料。
+ * 工作明細：獨立工作區（對外文件之一；與放樣估價案場／成本列無連動），供自填品項與甲方、條款後輸出 PDF。
  */
 import { allocateWithSuffix, stableHash16 } from './stableIds'
 import { migrateCustomLaborReportLines, type CustomLaborReportLine } from './quoteCustomLaborReport'
 import { migrateQuoteOwnerClient, type QuoteOwnerClient } from './quoteEngine'
 
-/** PDF「備註與條款」預設文字（工數說明工作區） */
+/** PDF「備註與條款」預設文字（工作明細工作區） */
 export function defaultCustomLaborClauseTexts(): readonly string[] {
   return [
     '本附件僅就表列項目為釋疑說明，不作為契約價金之唯一依據。',

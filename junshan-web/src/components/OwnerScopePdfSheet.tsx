@@ -18,7 +18,7 @@ export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
 /** `public/company-invoice-stamp.png`：統一發票專用章（RGBA，黑底已去背；替換檔案時建議同為透明底 PNG） */
 const COMPANY_INVOICE_STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
 
-/** 由估價列產生之業主工作內容，或「工數說明」自填列（後者不附製圖試算） */
+/** 由估價列產生之業主工作內容，或「工作明細」自填列（後者不附製圖試算） */
 export type OwnerScopePdfSheetProps =
   | {
       variant?: 'fromQuote'
@@ -65,13 +65,13 @@ function formatPdfQuantity(n: number): string {
   return Number.isInteger(x) ? String(x) : x.toFixed(2)
 }
 
-/** 供 html2pdf 擷取之離屏版面（橘色系／雙欄聯絡人／主表／簽章），樣式以 inline 為主以利截圖一致 */
+/** 供 PDF 匯出截圖用之離屏版面（橘色系／雙欄聯絡人／主表／簽章），樣式以 inline 為主以利截圖一致 */
 export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
   const isCustom = props.variant === 'customExplain'
   const docDateLabel = props.docDateLabel
   const sections = isCustom ? [] : props.sections
   const customLines = isCustom ? props.customLines : []
-  const modeLabel = isCustom ? '工數說明（自填項目）' : props.modeLabel
+  const modeLabel = isCustom ? '工作明細（自填項目）' : props.modeLabel
   const laborKind = isCustom ? ('pricing' as const) : props.laborKind
 
   const oc = isCustom ? props.ownerClient : props.site.ownerClient
@@ -98,7 +98,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
       ? '本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算（含風險係數後，與「總結」之計價工數加總語意一致）；另列製圖成本試算（元）。'
       : '本文件為承攬工作內容供述明細（非報價單）；基礎工數係內部試算（與「總結」之基礎總工數加總語意一致）；另列製圖成本試算（元）。'
   const emptyTableHint = isCustom
-    ? '（尚無自填列；請在此工作區按「新增一列」）'
+    ? '（尚無自填列；請按「新增一列」）'
     : laborKind === 'pricing'
       ? '（無計價工數大於 0 之細項）'
       : '（無基礎工數大於 0 之細項）'
@@ -161,7 +161,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
       style={{
         width: '190mm',
         maxWidth: '100%',
-        margin: 0,
+        margin: '0 auto',
         padding: '10mm 12mm 12mm',
         boxSizing: 'border-box',
         fontFamily: '"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif',
@@ -171,6 +171,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
         background: '#fff',
       }}
     >
+      <div data-pdf-workspace="head">
       <div style={{ ...orangeBar, padding: '10px 12px', textAlign: 'center', marginBottom: 10 }}>
         <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '0.12em' }}>{OWNER_SCOPE_DOC_TITLE}</div>
       </div>
@@ -306,8 +307,10 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
           </div>
         </div>
       </div>
+      </div>
 
       <table
+        data-pdf-workspace="lines"
         style={{
           width: '100%',
           borderCollapse: 'collapse',
@@ -539,6 +542,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
 
       {!isCustom ? (
         <div
+          data-pdf-workspace="drawing"
           style={{
             marginTop: 10,
             ...boxBorder,
@@ -557,7 +561,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
       ) : null}
 
       <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <div style={{ flex: 1.1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
+        <div data-pdf-workspace="clauses" style={{ flex: 1.1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>備註與條款</div>
           {isCustom ? (
             <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
@@ -586,13 +590,16 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
             </ol>
           )}
         </div>
-        <div style={{ flex: 1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
+        <div data-pdf-workspace="sign" style={{ flex: 1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>確認簽章</div>
           <div style={{ marginTop: 28, borderTop: '1px dashed #999', paddingTop: 6 }}>
             <span style={{ color: '#555' }}>承攬方簽章：</span>
           </div>
           <div style={{ marginTop: 20, borderTop: '1px dashed #999', paddingTop: 6 }}>
-            <span style={{ color: '#555' }}>業主簽章：</span>
+            <span style={{ color: '#555' }}>{isCustom ? '客戶簽章：' : '業主簽章：'}</span>
+          </div>
+          <div style={{ marginTop: 16, borderTop: '1px dashed #999', paddingTop: 6 }}>
+            <span style={{ color: '#555' }}>簽章日期：</span>
           </div>
         </div>
       </div>

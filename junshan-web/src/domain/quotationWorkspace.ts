@@ -49,7 +49,7 @@ function defaultSupplier(): QuotationSupplier {
 function defaultClauseTexts(): readonly string[] {
   return [
     '本報價單僅供參考，實際成交條件以雙方書面約定為準。',
-    '報價有效期限、付款條件等未載明事項，以雙方另行約定為準。',
+    '報價有效期限等未於上方載明之事項，以雙方另行約定為準。',
     '表列金額之稅額依適用稅率試算，實際以開立憑證為準。',
   ]
 }
@@ -63,6 +63,64 @@ function clauseDefaults(): QuotationClauseLine[] {
     seen.add(id)
     return { id, text }
   })
+}
+
+function paymentTermsDefaults(): QuotationClauseLine[] {
+  const text = '依合約內容，工程完成後，一次性繳納。'
+  const seen = new Set<string>()
+  const base = `qws-paytrm--${stableHash16(`default\0${text}`)}`
+  const id = allocateWithSuffix(base, seen)
+  seen.add(id)
+  return [{ id, text }]
+}
+
+function migratePaymentTermsLines(raw: unknown): QuotationClauseLine[] {
+  if (raw === undefined || raw === null) return paymentTermsDefaults()
+  if (!Array.isArray(raw)) return paymentTermsDefaults()
+  if (raw.length === 0) return []
+  const first = raw[0]
+  if (typeof first === 'string') {
+    const seen = new Set<string>()
+    return (raw as unknown[]).map((x, i) => {
+      const text = typeof x === 'string' ? x : ''
+      const base = `qws-paytrm--${stableHash16(`migrateStr\0${i}\0${text}`)}`
+      const id = allocateWithSuffix(base, seen)
+      seen.add(id)
+      return { id, text }
+    })
+  }
+  const tmp: QuotationClauseLine[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const e = raw[i]
+    if (!e || typeof e !== 'object') continue
+    const o = e as Record<string, unknown>
+    const text = typeof o.text === 'string' ? o.text : ''
+    const id =
+      typeof o.id === 'string' && o.id.trim() !== ''
+        ? o.id
+        : `qws-paytrm--${stableHash16(`migrateObj\0${i}\0${text}`)}`
+    tmp.push({ id, text })
+  }
+  const seen = new Set<string>()
+  return tmp.map((l, i) => {
+    if (!seen.has(l.id)) {
+      seen.add(l.id)
+      return l
+    }
+    const base = `qws-paytrm--${stableHash16(`dedupe\0${i}\0${l.id}\0${l.text}`)}`
+    const id = allocateWithSuffix(base, seen)
+    seen.add(id)
+    return { ...l, id }
+  })
+}
+
+export function createPaymentTermLine(
+  seedTitle: string,
+  existing: readonly QuotationClauseLine[],
+): QuotationClauseLine {
+  const base = `qws-paytrm--${stableHash16(`new\0${seedTitle}\0${existing.map((c) => c.id).join('\n')}`)}`
+  const id = allocateWithSuffix(base, new Set(existing.map((c) => c.id)))
+  return { id, text: '' }
 }
 
 function migrateSupplier(raw: unknown): QuotationSupplier {
@@ -241,7 +299,7 @@ export function quotationGrandTotals(
 }
 
 export type QuotationWorkspaceState = {
-  /** 檔名與抬頭用（例如專案名） */
+  /** 案名；檔名與 PDF 抬頭用 */
   quoteTitle: string
   meta: QuotationMeta
   supplier: QuotationSupplier
@@ -250,6 +308,8 @@ export type QuotationWorkspaceState = {
   lines: QuotationLine[]
   /** 營業稅率百分比，例如 5 表示 5% */
   vatPercent: number
+  /** 付款條件（PDF 逐條；空白條略過） */
+  paymentTermsLines: QuotationClauseLine[]
   clauseLines: QuotationClauseLine[]
 }
 
@@ -271,6 +331,7 @@ export function initialQuotationWorkspace(): QuotationWorkspaceState {
     payer: migrateQuoteOwnerClient(undefined),
     lines: [],
     vatPercent: 5,
+    paymentTermsLines: paymentTermsDefaults(),
     clauseLines: clauseDefaults(),
   }
 }
@@ -292,6 +353,7 @@ export function migrateQuotationWorkspace(raw: unknown): QuotationWorkspaceState
     payer: migrateQuoteOwnerClient(o.payer),
     lines: migrateQuotationLines(o.lines),
     vatPercent,
+    paymentTermsLines: migratePaymentTermsLines(o.paymentTermsLines),
     clauseLines: migrateQuotationClauseLines(o.clauseLines),
   }
 }

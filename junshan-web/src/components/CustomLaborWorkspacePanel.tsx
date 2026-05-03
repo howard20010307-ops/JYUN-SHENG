@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { buildCustomLaborExplainPdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
+import { buildWorkDetailPdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
 import { createCustomLaborReportLine, type CustomLaborReportLine } from '../domain/quoteCustomLaborReport'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
 import {
   createCustomLaborClauseLine,
+  initialCustomLaborWorkspace,
   type CustomLaborWorkspaceState,
 } from '../domain/customLaborWorkspace'
 import { OwnerScopePdfSheet } from './OwnerScopePdfSheet'
@@ -52,7 +53,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
     }))
   }
 
-  const caseSeed = workspace.caseTitle.trim() !== '' ? workspace.caseTitle : '工數說明'
+  const caseSeed = workspace.caseTitle.trim() !== '' ? workspace.caseTitle : '工作明細'
 
   function setClauseLine(id: string, text: string) {
     setWorkspace((w) => ({
@@ -63,7 +64,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
 
   function addClauseLine() {
     setWorkspace((w) => {
-      const seed = w.caseTitle.trim() !== '' ? w.caseTitle : '工數說明'
+      const seed = w.caseTitle.trim() !== '' ? w.caseTitle : '工作明細'
       return {
         ...w,
         clauseLines: [...w.clauseLines, createCustomLaborClauseLine(seed, w.clauseLines)],
@@ -78,12 +79,38 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
     }))
   }
 
+  function confirmClearWorkspace() {
+    if (
+      !window.confirm(
+        '確定要一鍵清除「工作明細」？\n將還原為空白案名、空白甲方與明細，條款恢復為預設文字。',
+      )
+    ) {
+      return
+    }
+    setPreviewOpen(false)
+    setWorkspace(initialCustomLaborWorkspace())
+  }
+
   return (
     <div className="customLaborWorkspace">
       <section className="card">
-        <h3>工數說明</h3>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            marginBottom: 8,
+          }}
+        >
+          <h3 style={{ margin: 0 }}>工作明細</h3>
+          <button type="button" className="btn danger" onClick={confirmClearWorkspace}>
+            一鍵清除
+          </button>
+        </div>
         <p className="hint">
-          本區與「放樣估價」<strong>案場、成本列無連動</strong>，專供臨時新場自填工數細項；案名與下方甲方資訊僅用於本工作區之 PDF，不與估價案場共用。
+          位於「對外文件」：與「放樣估價」<strong>案場、成本列無連動</strong>，供自填品項、數量、甲方與條款後輸出 PDF；案名與甲方僅用於本表，不與估價案場共用。
         </p>
         <div style={{ marginBottom: 16, maxWidth: 520 }}>
           <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>
@@ -225,7 +252,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
             預覽 PDF
           </button>
           <span className="muted" style={{ fontSize: 12 }}>
-            下載檔名含「工數說明_自填」與案名、日期
+            下載檔名含「工作明細」與案名、日期
           </span>
         </div>
         <div className="tableScroll">
@@ -331,7 +358,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
         >
           <div className="quoteDialogPanel ownerScopePdfPreviewPanel" onClick={(e) => e.stopPropagation()}>
             <div className="ownerScopePdfPreviewHead">
-              <h2 id="customLaborWsPdfPreviewTitle">工數說明 PDF 預覽</h2>
+              <h2 id="customLaborWsPdfPreviewTitle">工作明細 PDF 預覽</h2>
               <p className="muted" style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.5 }}>
                 下方為與下載檔相同版面。按 Esc 或背景可關閉。
               </p>
@@ -363,7 +390,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
                   try {
                     await downloadOwnerScopePdf(
                       el,
-                      buildCustomLaborExplainPdfFilename(workspace.caseTitle),
+                      buildWorkDetailPdfFilename(workspace.caseTitle),
                     )
                   } catch (e) {
                     window.alert(e instanceof Error ? e.message : String(e))

@@ -24,7 +24,7 @@ import { useAppGateAuth } from './context/AppGateAuthContext'
 import { useJsonBinSync } from './hooks/useJsonBinSync'
 import { clearPersistentState, usePersistentStateWithUndo } from './hooks/usePersistentState'
 
-export type { AppState, Tab } from './domain/appState'
+export type { AppState, ClientDocsSheet, Tab } from './domain/appState'
 
 export default function App() {
   const gate = useAppGateAuth()
@@ -316,8 +316,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           [
             ['payroll', '薪水統計'],
             ['quote', '放樣估價'],
-            ['laborExplain', '工數說明'],
-            ['quotation', '報價單'],
+            ['clientDocs', '對外文件'],
             ['receivables', '收帳'],
             ['ledger', '公司帳'],
             ['worklog', '工作日誌'],
@@ -426,32 +425,51 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             />
           </fieldset>
         )}
-        {state.tab === 'laborExplain' && (
+        {state.tab === 'clientDocs' && (
           <fieldset className="tabFieldset" disabled={!canEdit}>
-            <CustomLaborWorkspacePanel
-              workspace={state.customLaborWorkspace}
-              setWorkspace={(fn) =>
-                setState((s) => ({
-                  ...s,
-                  customLaborWorkspace:
-                    typeof fn === 'function' ? fn(s.customLaborWorkspace) : fn,
-                }))
-              }
-            />
-          </fieldset>
-        )}
-        {state.tab === 'quotation' && (
-          <fieldset className="tabFieldset" disabled={!canEdit}>
-            <QuotationWorkspacePanel
-              workspace={state.quotationWorkspace}
-              setWorkspace={(fn) =>
-                setState((s) => ({
-                  ...s,
-                  quotationWorkspace:
-                    typeof fn === 'function' ? fn(s.quotationWorkspace) : fn,
-                }))
-              }
-            />
+            <div className="btnRow quoteSheetTabs" style={{ marginBottom: 12 }} role="tablist" aria-label="對外文件">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={state.clientDocsSheet === 'workDetail'}
+                className={`tab ${state.clientDocsSheet === 'workDetail' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'workDetail' }))}
+              >
+                工作明細
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={state.clientDocsSheet === 'quotation'}
+                className={`tab ${state.clientDocsSheet === 'quotation' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'quotation' }))}
+              >
+                報價單
+              </button>
+            </div>
+            {state.clientDocsSheet === 'workDetail' ? (
+              <CustomLaborWorkspacePanel
+                workspace={state.customLaborWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    customLaborWorkspace:
+                      typeof fn === 'function' ? fn(s.customLaborWorkspace) : fn,
+                  }))
+                }
+              />
+            ) : (
+              <QuotationWorkspacePanel
+                workspace={state.quotationWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    quotationWorkspace:
+                      typeof fn === 'function' ? fn(s.quotationWorkspace) : fn,
+                  }))
+                }
+              />
+            )}
           </fieldset>
         )}
         {state.tab === 'receivables' && (

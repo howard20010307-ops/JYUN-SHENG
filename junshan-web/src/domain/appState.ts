@@ -58,17 +58,15 @@ function isFlatQuoteLayout(l: QuoteLayout): boolean {
   )
 }
 
-export type Tab =
-  | 'quote'
-  | 'payroll'
-  | 'ledger'
-  | 'worklog'
-  | 'receivables'
-  | 'laborExplain'
-  | 'quotation'
+export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog' | 'receivables' | 'clientDocs'
+
+/** 「對外文件」內子畫面：工作明細（原自填明細）或報價單 */
+export type ClientDocsSheet = 'workDetail' | 'quotation'
 
 export type AppState = {
   tab: Tab
+  /** 僅當 tab === 'clientDocs' 時有效 */
+  clientDocsSheet: ClientDocsSheet
   salaryBook: SalaryBook
   site: QuoteSite
   quoteRows: QuoteRow[]
@@ -81,9 +79,9 @@ export type AppState = {
   workItemPresetLabels: string[]
   workLog: WorkLogState
   receivables: ReceivablesState
-  /** 工數說明：獨立於放樣估價案場 */
+  /** 工作明細：獨立於放樣估價案場（對外文件之一） */
   customLaborWorkspace: CustomLaborWorkspaceState
-  /** 獨立報價單（與放樣估價案場無連動） */
+  /** 報價單：獨立於放樣估價案場（對外文件之一） */
   quotationWorkspace: QuotationWorkspaceState
 }
 
@@ -91,6 +89,7 @@ export function initialAppState(): AppState {
   const salaryBook = defaultSalaryBook()
   return {
     tab: 'payroll',
+    clientDocsSheet: 'workDetail',
     salaryBook,
     site: migrateQuoteSite({}),
     quoteRows: [],
@@ -109,16 +108,31 @@ export function migrateAppState(loaded: unknown): AppState {
   const init = initialAppState()
   if (!loaded || typeof loaded !== 'object') return init
   const d = loaded as Partial<AppState>
-  const tab: Tab =
-    d.tab === 'quote' ||
-    d.tab === 'payroll' ||
-    d.tab === 'ledger' ||
-    d.tab === 'worklog' ||
-    d.tab === 'receivables' ||
-    d.tab === 'laborExplain' ||
-    d.tab === 'quotation'
-      ? d.tab
-      : 'payroll'
+  const tabRaw = (d as Record<string, unknown>).tab
+  const tabStr = typeof tabRaw === 'string' ? tabRaw : ''
+
+  let tab: Tab = 'payroll'
+  if (
+    tabStr === 'quote' ||
+    tabStr === 'payroll' ||
+    tabStr === 'ledger' ||
+    tabStr === 'worklog' ||
+    tabStr === 'receivables' ||
+    tabStr === 'clientDocs'
+  ) {
+    tab = tabStr as Tab
+  } else if (tabStr === 'laborExplain' || tabStr === 'quotation') {
+    tab = 'clientDocs'
+  }
+
+  let clientDocsSheet: ClientDocsSheet = init.clientDocsSheet
+  if (tab === 'clientDocs') {
+    if (tabStr === 'quotation') clientDocsSheet = 'quotation'
+    else if (tabStr === 'laborExplain') clientDocsSheet = 'workDetail'
+    else if (d.clientDocsSheet === 'quotation' || d.clientDocsSheet === 'workDetail') {
+      clientDocsSheet = d.clientDocsSheet
+    }
+  }
   const workLog =
     d.workLog && typeof d.workLog === 'object' && d.workLog !== null
       ? migrateWorkLogState(d.workLog)
@@ -185,6 +199,7 @@ export function migrateAppState(loaded: unknown): AppState {
     ...init,
     ...d,
     tab,
+    clientDocsSheet,
     workLog,
     salaryBook,
     site: siteOut,
