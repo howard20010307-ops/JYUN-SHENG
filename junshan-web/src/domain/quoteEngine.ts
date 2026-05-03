@@ -91,11 +91,47 @@ export type QuoteLayout = {
   rfCount: number
 }
 
+/** 業主／發包方（甲方）：承攬供述明細 PDF 用，與案場一併儲存 */
+export type QuoteOwnerClient = {
+  companyName: string
+  /** 選填；有填寫則 PDF 多一行「聯絡地址」 */
+  address: string
+  contactName: string
+  phoneEmail: string
+  taxId: string
+}
+
+export function defaultQuoteOwnerClient(): QuoteOwnerClient {
+  return {
+    companyName: '',
+    address: '',
+    contactName: '',
+    phoneEmail: '',
+    taxId: '',
+  }
+}
+
+function migrateQuoteOwnerClient(raw: unknown): QuoteOwnerClient {
+  const d = defaultQuoteOwnerClient()
+  if (!raw || typeof raw !== 'object') return d
+  const o = raw as Record<string, unknown>
+  const str = (key: keyof QuoteOwnerClient): string =>
+    typeof o[key] === 'string' ? (o[key] as string) : d[key]
+  return {
+    companyName: str('companyName'),
+    address: str('address'),
+    contactName: str('contactName'),
+    phoneEmail: str('phoneEmail'),
+    taxId: str('taxId'),
+  }
+}
+
 export type QuoteSite = {
   name: string
   floors: FloorArea[]
   fees: SiteFees
   layout: QuoteLayout
+  ownerClient: QuoteOwnerClient
 }
 
 /** 依專案樓層產生樓層面積表列名順序：基礎 → B1…Bn → 1F → 夾層（有則）→ nF… → R… */
@@ -202,7 +238,13 @@ function feeN(v: unknown, d: number): number {
 }
 
 export function migrateQuoteSite(raw: unknown): QuoteSite {
-  const init: QuoteSite = { name: '', floors: [], fees: defaultSiteFees(), layout: defaultQuoteLayout() }
+  const init: QuoteSite = {
+    name: '',
+    floors: [],
+    fees: defaultSiteFees(),
+    layout: defaultQuoteLayout(),
+    ownerClient: defaultQuoteOwnerClient(),
+  }
   if (!raw || typeof raw !== 'object') return init
   const s = raw as Record<string, unknown>
   const nameRaw = typeof s.name === 'string' ? s.name : init.name
@@ -230,11 +272,14 @@ export function migrateQuoteSite(raw: unknown): QuoteSite {
         .filter((x): x is FloorArea => x !== null)
     : init.floors
   const floors = syncFloorsWithLayout(floorsParsed, layout)
+  const ownerClient =
+    'ownerClient' in s ? migrateQuoteOwnerClient(s.ownerClient) : init.ownerClient
   return {
     name,
     floors,
     fees,
     layout,
+    ownerClient,
   }
 }
 
@@ -511,6 +556,7 @@ export function exampleSite(): QuoteSite {
     name: '範例案場',
     fees: f,
     layout: exampleQuoteLayout(),
+    ownerClient: defaultQuoteOwnerClient(),
     floors: [
       { name: '基礎工程', m2: 1899.29 },
       { name: 'B1', m2: 1899.29 },

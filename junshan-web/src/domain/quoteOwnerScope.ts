@@ -1,15 +1,25 @@
 /**
- * 業主版工作內容：由估價列產生「細項＋計價工數＋坪數」，不帶金額。
- * 工數為 0 之細項不列入。
+ * 業主版工作內容：由估價列產生「細項＋工數（基礎或計價擇一）＋坪數」，不帶金額。
+ * 所選工數為 0 之細項不列入。
  */
-import { computeRow, floorNameToQuoteZone, m2ToPing, type QuoteRow, type QuoteSite } from './quoteEngine'
+import {
+  computeRow,
+  floorNameToQuoteZone,
+  m2ToPing,
+  type QuoteRow,
+  type QuoteRowComputed,
+  type QuoteSite,
+} from './quoteEngine'
 
 export type OwnerWorkScopeMode = 'module' | 'perFloor'
 
+/** 業主表欲顯示之工數欄：基礎總工數（E）或計價工數（H，含風險係數） */
+export type OwnerWorkScopeLaborKind = 'base' | 'pricing'
+
 export type OwnerWorkScopeLine = {
   item: string
-  /** 計價工數（與成本表 H 欄累計邏輯一致；逐層版為該層攤額） */
-  pricingDays: number
+  /** 依 {@link OwnerWorkScopeLaborKind} 為基礎總工數或計價工數（逐層版為該層攤額） */
+  laborDays: number
   /** 坪（㎡ 換算） */
   ping: number
 }
@@ -22,8 +32,16 @@ export type OwnerWorkScopeSection = {
   lines: OwnerWorkScopeLine[]
 }
 
-function nonZeroPricingDays(n: number): boolean {
+export function ownerWorkScopeLaborColumnLabel(kind: OwnerWorkScopeLaborKind): string {
+  return kind === 'base' ? '基礎工數' : '計價工數'
+}
+
+function nonZeroLabor(n: number): boolean {
   return Number.isFinite(n) && n > 1e-9
+}
+
+function pickLabor(c: QuoteRowComputed, kind: OwnerWorkScopeLaborKind): number {
+  return kind === 'base' ? c.baseTotal : c.pricingTotal
 }
 
 function zonesInRowOrder(rows: readonly QuoteRow[]): string[] {
@@ -48,12 +66,14 @@ function moduleTotalPing(site: QuoteSite, zone: string): number {
 }
 
 /**
- * @param mode `module`：依估價模組合併；`perFloor`：依樓層面積表逐層攤計價工數。
+ * @param mode `module`：依估價模組合併；`perFloor`：依樓層面積表逐層攤工數。
+ * @param laborKind `base`：E 欄基礎總工數；`pricing`：H 欄計價工數（含風險係數）。
  */
 export function buildOwnerWorkScope(
   site: QuoteSite,
   rows: readonly QuoteRow[],
   mode: OwnerWorkScopeMode,
+  laborKind: OwnerWorkScopeLaborKind,
 ): OwnerWorkScopeSection[] {
   if (mode === 'module') {
     const out: OwnerWorkScopeSection[] = []
@@ -63,10 +83,11 @@ export function buildOwnerWorkScope(
       for (const r of rows) {
         if (r.zone !== zone) continue
         const c = computeRow(r, site.fees)
-        if (!nonZeroPricingDays(c.pricingTotal)) continue
+        const v = pickLabor(c, laborKind)
+        if (!nonZeroLabor(v)) continue
         lines.push({
           item: r.item,
-          pricingDays: c.pricingTotal,
+          laborDays: v,
           ping,
         })
       }
@@ -87,11 +108,12 @@ export function buildOwnerWorkScope(
         if (r.zone !== zone) continue
         const c = computeRow(r, site.fees)
         const floors = Math.max(1, Math.trunc(r.sameFloors) || 1)
-        const perFloor = c.pricingTotal / floors
-        if (!nonZeroPricingDays(perFloor)) continue
+        const total = pickLabor(c, laborKind)
+        const perFloor = total / floors
+        if (!nonZeroLabor(perFloor)) continue
         lines.push({
           item: r.item,
-          pricingDays: perFloor,
+          laborDays: perFloor,
           ping: floorPing,
         })
       }

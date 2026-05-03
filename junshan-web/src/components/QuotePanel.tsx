@@ -24,6 +24,8 @@ import {
 import { allocateWithSuffix, stableHash16 } from '../domain/stableIds'
 import {
   buildOwnerWorkScope,
+  ownerWorkScopeLaborColumnLabel,
+  type OwnerWorkScopeLaborKind,
   type OwnerWorkScopeMode,
 } from '../domain/quoteOwnerScope'
 import { buildOwnerScopePdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
@@ -226,10 +228,12 @@ export function QuotePanel({
   >('setup')
 
   const [ownerScopeMode, setOwnerScopeMode] = useState<OwnerWorkScopeMode>('module')
+  const [ownerScopeLaborKind, setOwnerScopeLaborKind] = useState<OwnerWorkScopeLaborKind>('pricing')
   const ownerWorkSections = useMemo(
-    () => buildOwnerWorkScope(site, rows, ownerScopeMode),
-    [site, rows, ownerScopeMode],
+    () => buildOwnerWorkScope(site, rows, ownerScopeMode, ownerScopeLaborKind),
+    [site, rows, ownerScopeMode, ownerScopeLaborKind],
   )
+  const ownerLaborColLabel = ownerWorkScopeLaborColumnLabel(ownerScopeLaborKind)
 
   const ownerScopePdfPreviewRef = useRef<HTMLDivElement>(null)
   const [ownerScopePreviewOpen, setOwnerScopePreviewOpen] = useState(false)
@@ -257,6 +261,13 @@ export function QuotePanel({
     setSite({
       ...site,
       fees: { ...site.fees, [k]: v },
+    })
+  }
+
+  function setOwnerClientField<K extends keyof QuoteSite['ownerClient']>(k: K, v: string) {
+    setSite({
+      ...site,
+      ownerClient: { ...site.ownerClient, [k]: v },
     })
   }
 
@@ -1079,10 +1090,69 @@ export function QuotePanel({
         <section className="card">
           <h3>業主工作內容</h3>
           <p className="hint">
-            依「成本估算列」計算：<strong>計價工數</strong>為該細項之工數（含風險係數後之 H
-            欄概念）；<strong>坪數</strong>為㎡換算。僅列出計價工數 &gt; 0 之細項。下方
-            <strong>製圖成本</strong>與「總結」相同，為總坪×作圖單價（總坪不含「基礎工程」列）。
+            依「成本估算列」計算：可選擇顯示<strong>基礎工數</strong>（E 欄，總結「基礎總工數加總」與之對應）或
+            <strong>計價工數</strong>（H 欄，含風險係數；總結「計價工數加總」與之對應）。<strong>坪數</strong>為
+            ㎡ 換算。僅列出所選工數 &gt; 0 之細項。下方<strong>製圖成本</strong>與「總結」相同，為總坪×作圖單價（總坪不含「基礎工程」列）。
           </p>
+          <fieldset className="ownerClientFieldset">
+            <legend>業主／發包方（甲方）</legend>
+            <p className="muted ownerClientFieldset__hint">
+              以下會印在承攬供述明細 PDF 的甲方區塊；未填欄位在 PDF 以底線占位。聯絡地址選填，有填才多一行。
+            </p>
+            <div className="ownerClientFieldset__grid">
+              <label className="ownerClientFieldset__label">
+                公司名稱
+                <input
+                  className="ownerClientField"
+                  type="text"
+                  value={site.ownerClient.companyName}
+                  onChange={(e) => setOwnerClientField('companyName', e.target.value)}
+                  autoComplete="organization"
+                />
+              </label>
+              <label className="ownerClientFieldset__label">
+                聯絡地址（選填）
+                <input
+                  className="ownerClientField"
+                  type="text"
+                  value={site.ownerClient.address}
+                  onChange={(e) => setOwnerClientField('address', e.target.value)}
+                  autoComplete="street-address"
+                />
+              </label>
+              <label className="ownerClientFieldset__label">
+                聯絡人
+                <input
+                  className="ownerClientField"
+                  type="text"
+                  value={site.ownerClient.contactName}
+                  onChange={(e) => setOwnerClientField('contactName', e.target.value)}
+                  autoComplete="name"
+                />
+              </label>
+              <label className="ownerClientFieldset__label">
+                電話／Email
+                <input
+                  className="ownerClientField"
+                  type="text"
+                  value={site.ownerClient.phoneEmail}
+                  onChange={(e) => setOwnerClientField('phoneEmail', e.target.value)}
+                  autoComplete="tel"
+                />
+              </label>
+              <label className="ownerClientFieldset__label">
+                統一編號
+                <input
+                  className="ownerClientField"
+                  type="text"
+                  inputMode="numeric"
+                  value={site.ownerClient.taxId}
+                  onChange={(e) => setOwnerClientField('taxId', e.target.value)}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+          </fieldset>
           <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
             <label className="rowCheck" style={{ cursor: 'pointer' }}>
               <input
@@ -1100,7 +1170,30 @@ export function QuotePanel({
                 checked={ownerScopeMode === 'perFloor'}
                 onChange={() => setOwnerScopeMode('perFloor')}
               />
-              逐層版（依樓層面積表；計價工數為該模組總工數 ÷ 該模組樓層數）
+              逐層版（依樓層面積表；所選工數為該模組總工數 ÷ 該模組樓層數）
+            </label>
+          </div>
+          <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <span className="muted" style={{ fontSize: 13, marginRight: 4 }}>
+              工數欄顯示：
+            </span>
+            <label className="rowCheck" style={{ cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="ownerScopeLaborKind"
+                checked={ownerScopeLaborKind === 'pricing'}
+                onChange={() => setOwnerScopeLaborKind('pricing')}
+              />
+              計價工數
+            </label>
+            <label className="rowCheck" style={{ cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="ownerScopeLaborKind"
+                checked={ownerScopeLaborKind === 'base'}
+                onChange={() => setOwnerScopeLaborKind('base')}
+              />
+              基礎工數
             </label>
           </div>
           <div className="btnRow" style={{ marginBottom: 12 }}>
@@ -1110,7 +1203,9 @@ export function QuotePanel({
               disabled={ownerWorkSections.length === 0}
               title={
                 ownerWorkSections.length === 0
-                  ? '請先有計價工數大於 0 之細項'
+                  ? ownerScopeLaborKind === 'pricing'
+                    ? '請先有計價工數大於 0 之細項'
+                    : '請先有基礎工數大於 0 之細項'
                   : '開啟預覽後可下載 PDF'
               }
               onClick={() => setOwnerScopePreviewOpen(true)}
@@ -1127,7 +1222,11 @@ export function QuotePanel({
             </p>
           ) : null}
           {ownerWorkSections.length === 0 ? (
-            <p className="muted">目前無計價工數大於 0 之細項（請先於「成本估算列」填寫工數）。</p>
+            <p className="muted">
+              {ownerScopeLaborKind === 'pricing'
+                ? '目前無計價工數大於 0 之細項（請先於「成本估算列」填寫工數）。'
+                : '目前無基礎工數大於 0 之細項（請先於「成本估算列」填寫工數）。'}
+            </p>
           ) : (
             ownerWorkSections.map((sec, si) => (
               <div key={`${si}-${sec.title}-${sec.moduleLabel ?? ''}`} style={{ marginBottom: 20 }}>
@@ -1142,7 +1241,7 @@ export function QuotePanel({
                     <thead>
                       <tr>
                         <th>細項</th>
-                        <th className="num">計價工數</th>
+                        <th className="num">{ownerLaborColLabel}</th>
                         <th className="num">坪數</th>
                       </tr>
                     </thead>
@@ -1150,7 +1249,7 @@ export function QuotePanel({
                       {sec.lines.map((ln, li) => (
                         <tr key={`${li}-${ln.item}`}>
                           <td>{ln.item}</td>
-                          <td className="num">{ln.pricingDays.toFixed(2)}</td>
+                          <td className="num">{ln.laborDays.toFixed(2)}</td>
                           <td className="num">{ln.ping.toFixed(4)}</td>
                         </tr>
                       ))}
@@ -1237,6 +1336,7 @@ export function QuotePanel({
                   site={site}
                   sections={ownerWorkSections}
                   modeLabel={ownerScopeMode === 'module' ? '模組版' : '逐層版'}
+                  laborKind={ownerScopeLaborKind}
                   docDateLabel={ownerScopeDocDateLabel}
                   drawingCost={result.drawingCost}
                   sumPing={result.ping}

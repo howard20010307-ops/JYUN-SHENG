@@ -1,15 +1,25 @@
-import type { OwnerWorkScopeSection } from '../domain/quoteOwnerScope'
+import { COMPANY_CONTRACTOR } from '../domain/companyContact'
+import type { OwnerWorkScopeLaborKind, OwnerWorkScopeSection } from '../domain/quoteOwnerScope'
+import { ownerWorkScopeLaborColumnLabel } from '../domain/quoteOwnerScope'
 import type { QuoteSite } from '../domain/quoteEngine'
 
-const CONTRACTOR_COMPANY = '鈞泩放樣工程行'
+function ownerFieldDisplay(v: string): string {
+  const t = v.trim()
+  return t !== '' ? t : '_________________________________'
+}
 
 export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
+
+/** `public/company-invoice-stamp.png`：統一發票專用章（RGBA，黑底已去背；替換檔案時建議同為透明底 PNG） */
+const COMPANY_INVOICE_STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
 
 export type OwnerScopePdfSheetProps = {
   site: QuoteSite
   sections: OwnerWorkScopeSection[]
   /** 例如：模組版、逐層版 */
   modeLabel: string
+  /** 表內工數欄：基礎工數或計價工數（與畫面選項一致） */
+  laborKind: OwnerWorkScopeLaborKind
   /** 產製日期顯示字串，例如 2026/05/03 */
   docDateLabel: string
   /** 與「總結」一致：總坪×作圖單價（總坪不含「基礎工程」列） */
@@ -18,11 +28,11 @@ export type OwnerScopePdfSheetProps = {
   drawingPerPing: number
 }
 
-function sumPricingDays(sections: readonly OwnerWorkScopeSection[]): number {
+function sumLaborDays(sections: readonly OwnerWorkScopeSection[]): number {
   let s = 0
   for (const sec of sections) {
     for (const ln of sec.lines) {
-      s += ln.pricingDays
+      s += ln.laborDays
     }
   }
   return s
@@ -33,11 +43,13 @@ export function OwnerScopePdfSheet({
   site,
   sections,
   modeLabel,
+  laborKind,
   docDateLabel,
   drawingCost,
   sumPing,
   drawingPerPing,
 }: OwnerScopePdfSheetProps) {
+  const oc = site.ownerClient
   const orangeBar = {
     background: 'linear-gradient(180deg, #ffe8c8 0%, #ffd49a 55%, #ffc978 100%)',
     border: '1px solid #e8b060',
@@ -50,7 +62,18 @@ export function OwnerScopePdfSheet({
     background: '#fffdf8',
   } as const
 
-  const totalLabor = sumPricingDays(sections)
+  const laborColLabel = ownerWorkScopeLaborColumnLabel(laborKind)
+  const totalLabor = sumLaborDays(sections)
+  const laborFootnote =
+    laborKind === 'pricing'
+      ? '本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算（含風險係數後，與「總結」之計價工數加總語意一致）；另列製圖成本試算（元）。'
+      : '本文件為承攬工作內容供述明細（非報價單）；基礎工數係內部試算（與「總結」之基礎總工數加總語意一致）；另列製圖成本試算（元）。'
+  const emptyTableHint =
+    laborKind === 'pricing' ? '（無計價工數大於 0 之細項）' : '（無基礎工數大於 0 之細項）'
+  const termsLaborLine =
+    laborKind === 'pricing'
+      ? '計價工數係依估價表邏輯試算（含風險係數後），與「總結」之計價工數加總一致。'
+      : '基礎工數係依估價表邏輯試算（E 欄概念），與「總結」之基礎總工數加總一致。'
 
   let itemNo = 0
   const bodyRows = sections.flatMap((sec) =>
@@ -65,7 +88,7 @@ export function OwnerScopePdfSheet({
           <td style={{ border: '1px solid #d4b896', padding: '5px 6px' }}>{ln.item}</td>
           <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 10 }}>{zoneLabel}</td>
           <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
-            {ln.pricingDays.toFixed(2)}
+            {ln.laborDays.toFixed(2)}
           </td>
           <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
             {ln.ping.toFixed(4)}
@@ -98,18 +121,31 @@ export function OwnerScopePdfSheet({
       <div style={{ display: 'flex', gap: 12, marginBottom: 10, alignItems: 'stretch' }}>
         <div
           style={{
-            width: 72,
-            minHeight: 72,
+            width: 88,
+            minHeight: 88,
             flexShrink: 0,
             ...boxBorder,
+            background: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 10,
-            color: '#888',
+            padding: 4,
+            boxSizing: 'border-box',
+            overflow: 'hidden',
           }}
         >
-          Logo
+          <img
+            src={COMPANY_INVOICE_STAMP_SRC}
+            alt={`${COMPANY_CONTRACTOR.name} 統一發票專用章`}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              width: 'auto',
+              height: 'auto',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          />
         </div>
         <div style={{ flex: 1, ...boxBorder, padding: '8px 10px', fontSize: 10.5 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -131,7 +167,7 @@ export function OwnerScopePdfSheet({
               <tr>
                 <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>備註</td>
                 <td style={{ padding: '2px 0', fontSize: 10 }}>
-                  本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算；另列製圖成本試算（元）。
+                  {laborFootnote}
                 </td>
               </tr>
             </tbody>
@@ -158,19 +194,19 @@ export function OwnerScopePdfSheet({
           <div style={{ fontSize: 10.5 }}>
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>公司名稱：</span>
-              {CONTRACTOR_COMPANY}
+              {COMPANY_CONTRACTOR.name}
             </div>
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>聯絡地址：</span>
-              _________________________________
+              {COMPANY_CONTRACTOR.address}
             </div>
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>電話／Email：</span>
-              _________________________________
+              {COMPANY_CONTRACTOR.phone}
             </div>
             <div>
               <span style={{ color: '#555' }}>統一編號：</span>
-              _________________________________
+              {COMPANY_CONTRACTOR.taxId}
             </div>
           </div>
         </div>
@@ -192,19 +228,25 @@ export function OwnerScopePdfSheet({
           <div style={{ fontSize: 10.5 }}>
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>公司名稱：</span>
-              _________________________________
+              {ownerFieldDisplay(oc.companyName)}
             </div>
+            {oc.address.trim() !== '' ? (
+              <div style={{ marginBottom: 4 }}>
+                <span style={{ color: '#555' }}>聯絡地址：</span>
+                {oc.address.trim()}
+              </div>
+            ) : null}
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>聯絡人：</span>
-              _________________________________
+              {ownerFieldDisplay(oc.contactName)}
             </div>
             <div style={{ marginBottom: 4 }}>
               <span style={{ color: '#555' }}>電話／Email：</span>
-              _________________________________
+              {ownerFieldDisplay(oc.phoneEmail)}
             </div>
             <div>
               <span style={{ color: '#555' }}>統一編號：</span>
-              _________________________________
+              {ownerFieldDisplay(oc.taxId)}
             </div>
           </div>
         </div>
@@ -259,7 +301,7 @@ export function OwnerScopePdfSheet({
                 textAlign: 'right',
               }}
             >
-              計價工數
+              {laborColLabel}
             </th>
             <th
               style={{
@@ -278,7 +320,7 @@ export function OwnerScopePdfSheet({
           {sections.length === 0 ? (
             <tr>
               <td colSpan={5} style={{ border: '1px solid #c9a227', padding: 12, textAlign: 'center' }}>
-                （無計價工數大於 0 之細項）
+                {emptyTableHint}
               </td>
             </tr>
           ) : (
@@ -292,7 +334,7 @@ export function OwnerScopePdfSheet({
                 colSpan={3}
                 style={{ border: '1px solid #c9a227', padding: '6px 8px', fontWeight: 700, textAlign: 'right' }}
               >
-                合計（計價工數）
+                合計（{laborColLabel}）
               </td>
               <td
                 style={{
@@ -335,9 +377,7 @@ export function OwnerScopePdfSheet({
           <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
             <li style={{ marginBottom: 4 }}>本明細僅供述工作內容與工數、坪數資訊，不作為契約價金之唯一依據。</li>
             <li style={{ marginBottom: 4 }}>實際施作範圍以雙方書面約定或現場簽認為準。</li>
-            <li style={{ marginBottom: 4 }}>
-              坪數為面積表㎡換算；計價工數係依估價表邏輯試算（含風險係數後）。
-            </li>
+            <li style={{ marginBottom: 4 }}>坪數為面積表㎡換算；{termsLaborLine}</li>
             <li>製圖成本為總坪×作圖單價之試算，實際以雙方約定為準。</li>
           </ol>
         </div>

@@ -2591,6 +2591,73 @@ code {
   margin-top: 0.2rem;
 }
 
+/**
+ * 業主工作內容：甲方欄位。
+ * 勿在淺色區塊上套全站深色 input（#0b0f14），否則對比過強像「整條黑塊」且不易辨識為可編輯欄位。
+ */
+.ownerClientFieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  background: var(--card);
+}
+.ownerClientFieldset legend {
+  padding: 0 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--head);
+}
+.ownerClientFieldset__hint {
+  margin: 0 0 12px;
+  font-size: var(--ui-fs-xs);
+  line-height: 1.55;
+}
+.ownerClientFieldset__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 520px;
+}
+.ownerClientFieldset__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--ui-label-fs);
+  color: var(--muted);
+}
+.ownerClientField {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #121820;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-input-pad-y) var(--ui-input-pad-x);
+  font-size: var(--ui-input-fs);
+  line-height: var(--ui-lh-snug);
+  min-height: var(--ui-input-min-h);
+  font: inherit;
+  color: var(--head);
+  -webkit-text-fill-color: var(--head);
+  caret-color: var(--head);
+}
+.ownerClientField:focus {
+  outline: 2px solid rgba(61, 156, 245, 0.45);
+  outline-offset: 1px;
+}
+.ownerClientField:-webkit-autofill,
+.ownerClientField:-webkit-autofill:hover,
+.ownerClientField:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #121820 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border);
+}
+
 /* 業主明細：PDF 預覽（大面板＋捲動白紙） */
 .ownerScopePdfPreviewOverlay {
   z-index: 8500;
@@ -3310,6 +3377,11 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   .quoteDialogField,
   .quoteDialogForm select {
+    min-height: 46px;
+    font-size: 1rem;
+  }
+
+  .ownerClientField {
     min-height: 46px;
     font-size: 1rem;
   }
