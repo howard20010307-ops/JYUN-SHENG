@@ -1,6 +1,7 @@
 /** 放樣估價：對應《鈞泩估價表》成本估算列的計算邏輯 */
 
 import { canonicalQuoteItemOrder, EXCEL_STAGE } from './quoteExcelCanonical'
+export type { CustomLaborReportLine } from './quoteCustomLaborReport'
 
 export type SiteFees = {
   laborPerDay: number
@@ -111,7 +112,7 @@ export function defaultQuoteOwnerClient(): QuoteOwnerClient {
   }
 }
 
-function migrateQuoteOwnerClient(raw: unknown): QuoteOwnerClient {
+export function migrateQuoteOwnerClient(raw: unknown): QuoteOwnerClient {
   const d = defaultQuoteOwnerClient()
   if (!raw || typeof raw !== 'object') return d
   const o = raw as Record<string, unknown>

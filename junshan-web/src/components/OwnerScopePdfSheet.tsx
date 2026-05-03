@@ -1,7 +1,12 @@
 import { COMPANY_CONTRACTOR } from '../domain/companyContact'
+import type { CustomLaborClauseLine } from '../domain/customLaborWorkspace'
+import type {
+  CustomLaborReportLine,
+  QuoteOwnerClient,
+  QuoteSite,
+} from '../domain/quoteEngine'
 import type { OwnerWorkScopeLaborKind, OwnerWorkScopeSection } from '../domain/quoteOwnerScope'
 import { ownerWorkScopeLaborColumnLabel } from '../domain/quoteOwnerScope'
-import type { QuoteSite } from '../domain/quoteEngine'
 
 function ownerFieldDisplay(v: string): string {
   const t = v.trim()
@@ -13,20 +18,28 @@ export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
 /** `public/company-invoice-stamp.png`：統一發票專用章（RGBA，黑底已去背；替換檔案時建議同為透明底 PNG） */
 const COMPANY_INVOICE_STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
 
-export type OwnerScopePdfSheetProps = {
-  site: QuoteSite
-  sections: OwnerWorkScopeSection[]
-  /** 例如：模組版、逐層版 */
-  modeLabel: string
-  /** 表內工數欄：基礎工數或計價工數（與畫面選項一致） */
-  laborKind: OwnerWorkScopeLaborKind
-  /** 產製日期顯示字串，例如 2026/05/03 */
-  docDateLabel: string
-  /** 與「總結」一致：總坪×作圖單價（總坪不含「基礎工程」列） */
-  drawingCost: number
-  sumPing: number
-  drawingPerPing: number
-}
+/** 由估價列產生之業主工作內容，或「工數說明」自填列（後者不附製圖試算） */
+export type OwnerScopePdfSheetProps =
+  | {
+      variant?: 'fromQuote'
+      site: QuoteSite
+      docDateLabel: string
+      sections: OwnerWorkScopeSection[]
+      modeLabel: string
+      laborKind: OwnerWorkScopeLaborKind
+      drawingCost: number
+      sumPing: number
+      drawingPerPing: number
+    }
+  | {
+      variant: 'customExplain'
+      caseTitle: string
+      ownerClient: QuoteOwnerClient
+      docDateLabel: string
+      customLines: CustomLaborReportLine[]
+      /** PDF「備註與條款」逐條文字 */
+      clauseLines: readonly CustomLaborClauseLine[]
+    }
 
 function sumLaborDays(sections: readonly OwnerWorkScopeSection[]): number {
   let s = 0
@@ -38,18 +51,33 @@ function sumLaborDays(sections: readonly OwnerWorkScopeSection[]): number {
   return s
 }
 
+function sumCustomQuantity(lines: readonly CustomLaborReportLine[]): number {
+  let s = 0
+  for (const ln of lines) {
+    if (Number.isFinite(ln.quantity)) s += ln.quantity
+  }
+  return s
+}
+
+function formatPdfQuantity(n: number): string {
+  if (!Number.isFinite(n)) return '0'
+  const x = Math.round(n * 100) / 100
+  return Number.isInteger(x) ? String(x) : x.toFixed(2)
+}
+
 /** 供 html2pdf 擷取之離屏版面（橘色系／雙欄聯絡人／主表／簽章），樣式以 inline 為主以利截圖一致 */
-export function OwnerScopePdfSheet({
-  site,
-  sections,
-  modeLabel,
-  laborKind,
-  docDateLabel,
-  drawingCost,
-  sumPing,
-  drawingPerPing,
-}: OwnerScopePdfSheetProps) {
-  const oc = site.ownerClient
+export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
+  const isCustom = props.variant === 'customExplain'
+  const docDateLabel = props.docDateLabel
+  const sections = isCustom ? [] : props.sections
+  const customLines = isCustom ? props.customLines : []
+  const modeLabel = isCustom ? '工數說明（自填項目）' : props.modeLabel
+  const laborKind = isCustom ? ('pricing' as const) : props.laborKind
+
+  const oc = isCustom ? props.ownerClient : props.site.ownerClient
+  const caseNameDisplay = isCustom
+    ? (props.caseTitle ?? '').trim() || '—'
+    : (props.site.name ?? '').trim() || '—'
   const orangeBar = {
     background: 'linear-gradient(180deg, #ffe8c8 0%, #ffd49a 55%, #ffc978 100%)',
     border: '1px solid #e8b060',
@@ -63,40 +91,69 @@ export function OwnerScopePdfSheet({
   } as const
 
   const laborColLabel = ownerWorkScopeLaborColumnLabel(laborKind)
-  const totalLabor = sumLaborDays(sections)
-  const laborFootnote =
-    laborKind === 'pricing'
+  const totalLabor = isCustom ? sumCustomQuantity(customLines) : sumLaborDays(sections)
+  const laborFootnote = isCustom
+    ? '本附件係就表列品項之數量與說明之書面摘要（非完整報價單）；與估價成本表無自動連動。'
+    : laborKind === 'pricing'
       ? '本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算（含風險係數後，與「總結」之計價工數加總語意一致）；另列製圖成本試算（元）。'
       : '本文件為承攬工作內容供述明細（非報價單）；基礎工數係內部試算（與「總結」之基礎總工數加總語意一致）；另列製圖成本試算（元）。'
-  const emptyTableHint =
-    laborKind === 'pricing' ? '（無計價工數大於 0 之細項）' : '（無基礎工數大於 0 之細項）'
-  const termsLaborLine =
+  const emptyTableHint = isCustom
+    ? '（尚無自填列；請在此工作區按「新增一列」）'
+    : laborKind === 'pricing'
+      ? '（無計價工數大於 0 之細項）'
+      : '（無基礎工數大於 0 之細項）'
+  const termsLaborLineFromQuote =
     laborKind === 'pricing'
       ? '計價工數係依估價表邏輯試算（含風險係數後），與「總結」之計價工數加總一致。'
       : '基礎工數係依估價表邏輯試算（E 欄概念），與「總結」之基礎總工數加總一致。'
 
+  const clauseLinesPdf = isCustom
+    ? props.clauseLines.map((c) => c.text.trim()).filter((t) => t !== '')
+    : []
+
   let itemNo = 0
-  const bodyRows = sections.flatMap((sec) =>
-    sec.lines.map((ln) => {
-      itemNo += 1
-      const no = itemNo
-      const zoneLabel =
-        sec.moduleLabel != null && sec.moduleLabel !== '' ? `${sec.title}（${sec.moduleLabel}）` : sec.title
-      return (
-        <tr key={`${no}-${sec.title}-${ln.item}`}>
-          <td style={{ border: '1px solid #d4b896', padding: '5px 4px', textAlign: 'center' }}>{no}</td>
-          <td style={{ border: '1px solid #d4b896', padding: '5px 6px' }}>{ln.item}</td>
-          <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 10 }}>{zoneLabel}</td>
-          <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
-            {ln.laborDays.toFixed(2)}
-          </td>
-          <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
-            {ln.ping.toFixed(4)}
-          </td>
-        </tr>
+  const bodyRows = isCustom
+    ? customLines.map((ln) => {
+        itemNo += 1
+        const no = itemNo
+        return (
+          <tr key={ln.id}>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 4px', textAlign: 'center' }}>{no}</td>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 6px' }}>{ln.item}</td>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 10 }}>{ln.category}</td>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
+              {formatPdfQuantity(ln.quantity)}
+            </td>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 10, textAlign: 'center' }}>
+              {ln.unit}
+            </td>
+            <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 9.5 }}>{ln.remarks}</td>
+          </tr>
+        )
+      })
+    : sections.flatMap((sec) =>
+        sec.lines.map((ln) => {
+          itemNo += 1
+          const no = itemNo
+          const zoneLabel =
+            sec.moduleLabel != null && sec.moduleLabel !== '' ? `${sec.title}（${sec.moduleLabel}）` : sec.title
+          return (
+            <tr key={`${no}-${sec.title}-${ln.item}`}>
+              <td style={{ border: '1px solid #d4b896', padding: '5px 4px', textAlign: 'center' }}>{no}</td>
+              <td style={{ border: '1px solid #d4b896', padding: '5px 6px' }}>{ln.item}</td>
+              <td style={{ border: '1px solid #d4b896', padding: '5px 6px', fontSize: 10 }}>{zoneLabel}</td>
+              <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
+                {ln.laborDays.toFixed(2)}
+              </td>
+              <td style={{ border: '1px solid #d4b896', padding: '5px 6px', textAlign: 'right' }}>
+                {ln.ping.toFixed(4)}
+              </td>
+            </tr>
+          )
+        }),
       )
-    }),
-  )
+
+  const tableNonEmpty = isCustom ? customLines.length > 0 : sections.length > 0
 
   return (
     <div
@@ -152,9 +209,7 @@ export function OwnerScopePdfSheet({
             <tbody>
               <tr>
                 <td style={{ padding: '2px 6px 2px 0', width: '28%', color: '#444' }}>案名</td>
-                <td style={{ padding: '2px 0', fontWeight: 600 }}>
-                  {(site.name ?? '').trim() || '—'}
-                </td>
+                <td style={{ padding: '2px 0', fontWeight: 600 }}>{caseNameDisplay}</td>
               </tr>
               <tr>
                 <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>呈現方式</td>
@@ -261,65 +316,135 @@ export function OwnerScopePdfSheet({
         }}
       >
         <thead>
-          <tr style={{ background: '#ffd49a' }}>
-            <th
-              style={{
-                border: '1px solid #c9a227',
-                padding: '6px 4px',
-                width: '8%',
-                fontWeight: 700,
-              }}
-            >
-              項次
-            </th>
-            <th
-              style={{
-                border: '1px solid #c9a227',
-                padding: '6px 6px',
-                width: '34%',
-                fontWeight: 700,
-              }}
-            >
-              細項名稱
-            </th>
-            <th
-              style={{
-                border: '1px solid #c9a227',
-                padding: '6px 4px',
-                width: '32%',
-                fontWeight: 700,
-              }}
-            >
-              區位／模組
-            </th>
-            <th
-              style={{
-                border: '1px solid #c9a227',
-                padding: '6px 4px',
-                width: '13%',
-                fontWeight: 700,
-                textAlign: 'right',
-              }}
-            >
-              {laborColLabel}
-            </th>
-            <th
-              style={{
-                border: '1px solid #c9a227',
-                padding: '6px 4px',
-                width: '13%',
-                fontWeight: 700,
-                textAlign: 'right',
-              }}
-            >
-              坪數
-            </th>
-          </tr>
+          {isCustom ? (
+            <tr style={{ background: '#ffd49a' }}>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '8%',
+                  fontWeight: 700,
+                }}
+              >
+                項次
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 6px',
+                  width: '22%',
+                  fontWeight: 700,
+                }}
+              >
+                品名
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '16%',
+                  fontWeight: 700,
+                }}
+              >
+                類別
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '12%',
+                  fontWeight: 700,
+                  textAlign: 'right',
+                }}
+              >
+                數量
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '10%',
+                  fontWeight: 700,
+                  textAlign: 'center',
+                }}
+              >
+                單位
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 6px',
+                  width: '32%',
+                  fontWeight: 700,
+                }}
+              >
+                備註
+              </th>
+            </tr>
+          ) : (
+            <tr style={{ background: '#ffd49a' }}>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '8%',
+                  fontWeight: 700,
+                }}
+              >
+                項次
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 6px',
+                  width: '34%',
+                  fontWeight: 700,
+                }}
+              >
+                細項名稱
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '32%',
+                  fontWeight: 700,
+                }}
+              >
+                區位／模組
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '13%',
+                  fontWeight: 700,
+                  textAlign: 'right',
+                }}
+              >
+                {laborColLabel}
+              </th>
+              <th
+                style={{
+                  border: '1px solid #c9a227',
+                  padding: '6px 4px',
+                  width: '13%',
+                  fontWeight: 700,
+                  textAlign: 'right',
+                }}
+              >
+                坪數
+              </th>
+            </tr>
+          )}
         </thead>
         <tbody>
-          {sections.length === 0 ? (
+          {!tableNonEmpty ? (
             <tr>
-              <td colSpan={5} style={{ border: '1px solid #c9a227', padding: 12, textAlign: 'center' }}>
+              <td
+                colSpan={isCustom ? 6 : 5}
+                style={{ border: '1px solid #c9a227', padding: 12, textAlign: 'center' }}
+              >
                 {emptyTableHint}
               </td>
             </tr>
@@ -327,59 +452,139 @@ export function OwnerScopePdfSheet({
             bodyRows
           )}
         </tbody>
-        {sections.length > 0 ? (
+        {tableNonEmpty ? (
           <tfoot>
-            <tr style={{ background: '#fff5e4' }}>
-              <td
-                colSpan={3}
-                style={{ border: '1px solid #c9a227', padding: '6px 8px', fontWeight: 700, textAlign: 'right' }}
-              >
-                合計（{laborColLabel}）
-              </td>
-              <td
-                style={{
-                  border: '1px solid #c9a227',
-                  padding: '6px 6px',
-                  textAlign: 'right',
-                  fontWeight: 700,
-                }}
-              >
-                {totalLabor.toFixed(2)}
-              </td>
-              <td style={{ border: '1px solid #c9a227', padding: '6px 6px', textAlign: 'center', color: '#666' }}>
-                —
-              </td>
-            </tr>
+            {isCustom ? (
+              <tr style={{ background: '#fff5e4' }}>
+                <td
+                  colSpan={3}
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 8px',
+                    fontWeight: 700,
+                    textAlign: 'right',
+                  }}
+                >
+                  合計（數量）
+                </td>
+                <td
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 6px',
+                    textAlign: 'right',
+                    fontWeight: 700,
+                  }}
+                >
+                  {formatPdfQuantity(totalLabor)}
+                </td>
+                <td
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 6px',
+                    textAlign: 'center',
+                    color: '#666',
+                  }}
+                >
+                  —
+                </td>
+                <td
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 6px',
+                    textAlign: 'center',
+                    color: '#666',
+                  }}
+                >
+                  —
+                </td>
+              </tr>
+            ) : (
+              <tr style={{ background: '#fff5e4' }}>
+                <td
+                  colSpan={3}
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 8px',
+                    fontWeight: 700,
+                    textAlign: 'right',
+                  }}
+                >
+                  合計（{laborColLabel}）
+                </td>
+                <td
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 6px',
+                    textAlign: 'right',
+                    fontWeight: 700,
+                  }}
+                >
+                  {totalLabor.toFixed(2)}
+                </td>
+                <td
+                  style={{
+                    border: '1px solid #c9a227',
+                    padding: '6px 6px',
+                    textAlign: 'center',
+                    color: '#666',
+                  }}
+                >
+                  —
+                </td>
+              </tr>
+            )}
           </tfoot>
         ) : null}
       </table>
 
-      <div
-        style={{
-          marginTop: 10,
-          ...boxBorder,
-          padding: '10px 12px',
-          background: '#fff9ef',
-        }}
-      >
-        <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 11 }}>製圖成本（試算）</div>
-        <div style={{ fontSize: 11 }}>
-          <strong>{Math.round(drawingCost).toLocaleString()}</strong> 元
+      {!isCustom ? (
+        <div
+          style={{
+            marginTop: 10,
+            ...boxBorder,
+            padding: '10px 12px',
+            background: '#fff9ef',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 11 }}>製圖成本（試算）</div>
+          <div style={{ fontSize: 11 }}>
+            <strong>{Math.round(props.drawingCost).toLocaleString()}</strong> 元
+          </div>
+          <div style={{ fontSize: 9.5, color: '#444', marginTop: 4, lineHeight: 1.5 }}>
+            總坪 {props.sumPing.toFixed(4)} 坪 × 作圖 {props.drawingPerPing.toLocaleString()} 元／坪（總坪不含「基礎工程」列，與估價總結一致）。
+          </div>
         </div>
-        <div style={{ fontSize: 9.5, color: '#444', marginTop: 4, lineHeight: 1.5 }}>
-          總坪 {sumPing.toFixed(4)} 坪 × 作圖 {drawingPerPing.toLocaleString()} 元／坪（總坪不含「基礎工程」列，與估價總結一致）。
-        </div>
-      </div>
+      ) : null}
 
       <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <div style={{ flex: 1.1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>備註與條款（示例）</div>
-          <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
-            <li style={{ marginBottom: 4 }}>本明細僅供述工作內容與工數、坪數資訊，不作為契約價金之唯一依據。</li>
-            <li style={{ marginBottom: 4 }}>實際施作範圍以雙方書面約定或現場簽認為準。</li>
-            <li style={{ marginBottom: 4 }}>坪數為面積表㎡換算；{termsLaborLine}</li>
-            <li>製圖成本為總坪×作圖單價之試算，實際以雙方約定為準。</li>
-          </ol>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>備註與條款</div>
+          {isCustom ? (
+            <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
+              {clauseLinesPdf.length > 0 ? (
+                clauseLinesPdf.map((text, i) => (
+                  <li key={`cl-${i}`} style={{ marginBottom: 4 }}>
+                    {text}
+                  </li>
+                ))
+              ) : (
+                <li style={{ marginBottom: 4, color: '#888' }}>（無條款文字）</li>
+              )}
+            </ol>
+          ) : (
+            <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
+              <li style={{ marginBottom: 4 }}>
+                本明細僅供述工作內容與工數、坪數資訊，不作為契約價金之唯一依據。
+              </li>
+              <li style={{ marginBottom: 4 }}>實際施作範圍以雙方書面約定或現場簽認為準。</li>
+              <li style={{ marginBottom: 4 }}>
+                <>
+                  坪數為面積表㎡換算；{termsLaborLineFromQuote}
+                </>
+              </li>
+              <li>製圖成本為總坪×作圖單價之試算，實際以雙方約定為準。</li>
+            </ol>
+          )}
         </div>
         <div style={{ flex: 1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>確認簽章</div>

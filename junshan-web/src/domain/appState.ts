@@ -30,6 +30,21 @@ import {
   initialSortedWorkItemPresetLabels,
   migrateWorkItemPresetLabels,
 } from './workItemPresets'
+import { migrateCustomLaborReportLines } from './quoteCustomLaborReport'
+import { migrateQuoteOwnerClient } from './quoteEngine'
+import {
+  initialCustomLaborWorkspace,
+  migrateCustomLaborWorkspace,
+  type CustomLaborWorkspaceState,
+} from './customLaborWorkspace'
+import {
+  initialQuotationWorkspace,
+  migrateQuotationWorkspace,
+  type QuotationWorkspaceState,
+} from './quotationWorkspace'
+
+export type { CustomLaborWorkspaceState } from './customLaborWorkspace'
+export type { QuotationWorkspaceState } from './quotationWorkspace'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -43,7 +58,14 @@ function isFlatQuoteLayout(l: QuoteLayout): boolean {
   )
 }
 
-export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog' | 'receivables'
+export type Tab =
+  | 'quote'
+  | 'payroll'
+  | 'ledger'
+  | 'worklog'
+  | 'receivables'
+  | 'laborExplain'
+  | 'quotation'
 
 export type AppState = {
   tab: Tab
@@ -59,6 +81,10 @@ export type AppState = {
   workItemPresetLabels: string[]
   workLog: WorkLogState
   receivables: ReceivablesState
+  /** 工數說明：獨立於放樣估價案場 */
+  customLaborWorkspace: CustomLaborWorkspaceState
+  /** 獨立報價單（與放樣估價案場無連動） */
+  quotationWorkspace: QuotationWorkspaceState
 }
 
 export function initialAppState(): AppState {
@@ -74,6 +100,8 @@ export function initialAppState(): AppState {
     workItemPresetLabels: initialSortedWorkItemPresetLabels(),
     workLog: initialWorkLogState(),
     receivables: initialReceivablesState(),
+    customLaborWorkspace: initialCustomLaborWorkspace(),
+    quotationWorkspace: initialQuotationWorkspace(),
   }
 }
 
@@ -86,7 +114,9 @@ export function migrateAppState(loaded: unknown): AppState {
     d.tab === 'payroll' ||
     d.tab === 'ledger' ||
     d.tab === 'worklog' ||
-    d.tab === 'receivables'
+    d.tab === 'receivables' ||
+    d.tab === 'laborExplain' ||
+    d.tab === 'quotation'
       ? d.tab
       : 'payroll'
   const workLog =
@@ -96,6 +126,23 @@ export function migrateAppState(loaded: unknown): AppState {
   const workItemPresetLabels = migrateWorkItemPresetLabels(d.workItemPresetLabels, workLog)
   let siteOut: QuoteSite =
     d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site
+
+  const rawSiteLegacy =
+    d.site && typeof d.site === 'object' ? (d.site as Record<string, unknown>) : null
+  const legacyCustomLaborFromQuoteSite =
+    rawSiteLegacy && Array.isArray(rawSiteLegacy.customLaborReportLines)
+      ? {
+          caseTitle: typeof rawSiteLegacy.name === 'string' ? rawSiteLegacy.name : '',
+          ownerClient: migrateQuoteOwnerClient(rawSiteLegacy.ownerClient),
+          lines: migrateCustomLaborReportLines(rawSiteLegacy.customLaborReportLines),
+        }
+      : undefined
+
+  const customLaborWorkspace = migrateCustomLaborWorkspace(
+    d.customLaborWorkspace,
+    legacyCustomLaborFromQuoteSite,
+  )
+  const quotationWorkspace = migrateQuotationWorkspace(d.quotationWorkspace)
   const storedSchema =
     typeof d.quoteRowsSchemaVersion === 'number' &&
     Number.isFinite(d.quoteRowsSchemaVersion)
@@ -145,6 +192,8 @@ export function migrateAppState(loaded: unknown): AppState {
     quoteRowsSchemaVersion,
     ledgerYear,
     workItemPresetLabels,
+    customLaborWorkspace,
+    quotationWorkspace,
     months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     receivables:
       d.receivables !== undefined && d.receivables !== null

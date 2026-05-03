@@ -3,6 +3,8 @@ import { QuotePanel } from './components/QuotePanel'
 import { PayrollPanel } from './components/PayrollPanel'
 import { CompanyAccountPanel } from './components/CompanyAccountPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
+import { CustomLaborWorkspacePanel } from './components/CustomLaborWorkspacePanel'
+import { QuotationWorkspacePanel } from './components/QuotationWorkspacePanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
@@ -314,6 +316,8 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
           [
             ['payroll', '薪水統計'],
             ['quote', '放樣估價'],
+            ['laborExplain', '工數說明'],
+            ['quotation', '報價單'],
             ['receivables', '收帳'],
             ['ledger', '公司帳'],
             ['worklog', '工作日誌'],
@@ -418,6 +422,34 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                       }
                     }
                   : undefined
+              }
+            />
+          </fieldset>
+        )}
+        {state.tab === 'laborExplain' && (
+          <fieldset className="tabFieldset" disabled={!canEdit}>
+            <CustomLaborWorkspacePanel
+              workspace={state.customLaborWorkspace}
+              setWorkspace={(fn) =>
+                setState((s) => ({
+                  ...s,
+                  customLaborWorkspace:
+                    typeof fn === 'function' ? fn(s.customLaborWorkspace) : fn,
+                }))
+              }
+            />
+          </fieldset>
+        )}
+        {state.tab === 'quotation' && (
+          <fieldset className="tabFieldset" disabled={!canEdit}>
+            <QuotationWorkspacePanel
+              workspace={state.quotationWorkspace}
+              setWorkspace={(fn) =>
+                setState((s) => ({
+                  ...s,
+                  quotationWorkspace:
+                    typeof fn === 'function' ? fn(s.quotationWorkspace) : fn,
+                }))
               }
             />
           </fieldset>

@@ -9,6 +9,26 @@ export function buildOwnerScopePdfFilename(siteName: string): string {
   return `放樣工程(內外業)承攬供述明細_${safe}_${y}${m}${day}.pdf`
 }
 
+/** 獨立報價單工作區 PDF 檔名 */
+export function buildQuotationPdfFilename(title: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名報價'
+  return `報價單_${safe}_${y}${m}${day}.pdf`
+}
+
+/** 工數說明（自填）PDF 檔名 */
+export function buildCustomLaborExplainPdfFilename(siteName: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = siteName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名案場'
+  return `放樣工程工數說明_自填_${safe}_${y}${m}${day}.pdf`
+}
+
 function waitNextPaint(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => {
