@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildQuoteRowsFromLayout,
   computeFloorPricingTable,
@@ -22,6 +22,12 @@ import {
   itemPricingBreakdown,
 } from '../domain/quotePricingTooltipBreakdown'
 import { allocateWithSuffix, stableHash16 } from '../domain/stableIds'
+import {
+  buildOwnerWorkScope,
+  type OwnerWorkScopeMode,
+} from '../domain/quoteOwnerScope'
+import { buildOwnerScopePdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
+import { OwnerScopePdfSheet } from './OwnerScopePdfSheet'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 
 function allocManualQuoteRowId(rows: readonly QuoteRow[], seed: string): string {
@@ -216,20 +222,36 @@ export function QuotePanel({
 
   /** 放樣估價內工作表（對齊薪水「月表」分頁用法） */
   const [quoteSheet, setQuoteSheet] = useState<
-    'setup' | 'cost' | 'floorPricing' | 'itemPricing' | 'summary'
+    'setup' | 'cost' | 'floorPricing' | 'itemPricing' | 'summary' | 'ownerScope'
   >('setup')
 
+  const [ownerScopeMode, setOwnerScopeMode] = useState<OwnerWorkScopeMode>('module')
+  const ownerWorkSections = useMemo(
+    () => buildOwnerWorkScope(site, rows, ownerScopeMode),
+    [site, rows, ownerScopeMode],
+  )
+
+  const ownerScopePdfPreviewRef = useRef<HTMLDivElement>(null)
+  const [ownerScopePreviewOpen, setOwnerScopePreviewOpen] = useState(false)
+  const [ownerPdfBusy, setOwnerPdfBusy] = useState(false)
+  const ownerScopeDocDateLabel = new Date().toLocaleDateString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
   useEffect(() => {
-    if (!quickAddOpen && !addModuleOpen) return
+    if (!quickAddOpen && !addModuleOpen && !ownerScopePreviewOpen) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setQuickAddOpen(false)
         setAddModuleOpen(false)
+        setOwnerScopePreviewOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [quickAddOpen, addModuleOpen])
+  }, [quickAddOpen, addModuleOpen, ownerScopePreviewOpen])
 
   function updateFee<K extends keyof QuoteSite['fees']>(k: K, v: number) {
     setSite({
@@ -432,6 +454,15 @@ export function QuotePanel({
           onClick={() => setQuoteSheet('summary')}
         >
           總結
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={quoteSheet === 'ownerScope'}
+          className={`tab ${quoteSheet === 'ownerScope' ? 'on' : ''}`}
+          onClick={() => setQuoteSheet('ownerScope')}
+        >
+          業主工作內容
         </button>
       </div>
 
@@ -1044,6 +1075,111 @@ export function QuotePanel({
         </section>
       )}
 
+      {quoteSheet === 'ownerScope' && (
+        <section className="card">
+          <h3>業主工作內容</h3>
+          <p className="hint">
+            依「成本估算列」計算：<strong>計價工數</strong>為該細項之工數（含風險係數後之 H
+            欄概念）；<strong>坪數</strong>為㎡換算。僅列出計價工數 &gt; 0 之細項。下方
+            <strong>製圖成本</strong>與「總結」相同，為總坪×作圖單價（總坪不含「基礎工程」列）。
+          </p>
+          <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <label className="rowCheck" style={{ cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="ownerScopeMode"
+                checked={ownerScopeMode === 'module'}
+                onChange={() => setOwnerScopeMode('module')}
+              />
+              模組版（依估價區塊合併；坪數為該模組內各樓層坪數加總）
+            </label>
+            <label className="rowCheck" style={{ cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="ownerScopeMode"
+                checked={ownerScopeMode === 'perFloor'}
+                onChange={() => setOwnerScopeMode('perFloor')}
+              />
+              逐層版（依樓層面積表；計價工數為該模組總工數 ÷ 該模組樓層數）
+            </label>
+          </div>
+          <div className="btnRow" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={ownerWorkSections.length === 0}
+              title={
+                ownerWorkSections.length === 0
+                  ? '請先有計價工數大於 0 之細項'
+                  : '開啟預覽後可下載 PDF'
+              }
+              onClick={() => setOwnerScopePreviewOpen(true)}
+            >
+              預覽 PDF
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              預覽版面與下載檔相同；檔名含「放樣工程(內外業)承攬供述明細」與案名、日期
+            </span>
+          </div>
+          {site.name.trim() !== '' ? (
+            <p style={{ marginBottom: 12 }}>
+              <strong>案名</strong>：{site.name.trim()}
+            </p>
+          ) : null}
+          {ownerWorkSections.length === 0 ? (
+            <p className="muted">目前無計價工數大於 0 之細項（請先於「成本估算列」填寫工數）。</p>
+          ) : (
+            ownerWorkSections.map((sec, si) => (
+              <div key={`${si}-${sec.title}-${sec.moduleLabel ?? ''}`} style={{ marginBottom: 20 }}>
+                <h4 style={{ marginBottom: 6 }}>{sec.title}</h4>
+                {sec.moduleLabel ? (
+                  <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+                    估價模組：{sec.moduleLabel}
+                  </p>
+                ) : null}
+                <div className="tableScroll">
+                  <table className="data tight">
+                    <thead>
+                      <tr>
+                        <th>細項</th>
+                        <th className="num">計價工數</th>
+                        <th className="num">坪數</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sec.lines.map((ln, li) => (
+                        <tr key={`${li}-${ln.item}`}>
+                          <td>{ln.item}</td>
+                          <td className="num">{ln.pricingDays.toFixed(2)}</td>
+                          <td className="num">{ln.ping.toFixed(4)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          )}
+          <div
+            style={{
+              marginTop: 16,
+              padding: '12px 14px',
+              border: '1px solid rgba(232, 176, 96, 0.55)',
+              borderRadius: 8,
+              background: 'rgba(255, 245, 228, 0.35)',
+            }}
+          >
+            <h4 style={{ margin: '0 0 8px', fontSize: '1rem' }}>製圖成本（試算）</h4>
+            <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
+              {Math.round(result.drawingCost).toLocaleString()} 元
+            </p>
+            <p className="muted" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: 1.55 }}>
+              總坪 {result.ping.toFixed(4)} 坪 × 作圖 {site.fees.drawingPerPing.toLocaleString()} 元／坪（總坪不含「基礎工程」列，與「總結」之作圖成本一致）。
+            </p>
+          </div>
+        </section>
+      )}
+
       {quoteSheet === 'summary' && (
       <section className="card summary">
         <h3>總結</h3>
@@ -1079,6 +1215,62 @@ export function QuotePanel({
         </dl>
       </section>
       )}
+
+      {ownerScopePreviewOpen ? (
+        <div
+          className="quoteDialogOverlay ownerScopePdfPreviewOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ownerScopePdfPreviewTitle"
+          onClick={() => setOwnerScopePreviewOpen(false)}
+        >
+          <div className="quoteDialogPanel ownerScopePdfPreviewPanel" onClick={(e) => e.stopPropagation()}>
+            <div className="ownerScopePdfPreviewHead">
+              <h2 id="ownerScopePdfPreviewTitle">PDF 預覽</h2>
+              <p className="muted" style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.5 }}>
+                下方為與下載檔相同的版面；確認後再按「下載 PDF」。按 Esc 或背景可關閉。
+              </p>
+            </div>
+            <div className="ownerScopePdfPreviewScroll">
+              <div ref={ownerScopePdfPreviewRef}>
+                <OwnerScopePdfSheet
+                  site={site}
+                  sections={ownerWorkSections}
+                  modeLabel={ownerScopeMode === 'module' ? '模組版' : '逐層版'}
+                  docDateLabel={ownerScopeDocDateLabel}
+                  drawingCost={result.drawingCost}
+                  sumPing={result.ping}
+                  drawingPerPing={site.fees.drawingPerPing}
+                />
+              </div>
+            </div>
+            <div className="quoteDialogActions">
+              <button type="button" className="btn secondary" onClick={() => setOwnerScopePreviewOpen(false)}>
+                關閉
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={ownerWorkSections.length === 0 || ownerPdfBusy}
+                onClick={async () => {
+                  const el = ownerScopePdfPreviewRef.current
+                  if (!el) return
+                  setOwnerPdfBusy(true)
+                  try {
+                    await downloadOwnerScopePdf(el, buildOwnerScopePdfFilename(site.name))
+                  } catch (e) {
+                    window.alert(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setOwnerPdfBusy(false)
+                  }
+                }}
+              >
+                {ownerPdfBusy ? '產生 PDF 中…' : '下載 PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {quickAddOpen ? (
         <div
