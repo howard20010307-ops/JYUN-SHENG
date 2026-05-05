@@ -30,13 +30,33 @@ export function buildWorkDetailPdfFilename(caseTitle: string): string {
   return `承攬供述明細_${safe}_${y}${m}${day}.pdf`
 }
 
-export function buildPricingPdfFilename(sheetTitle: string): string {
-  const d = new Date()
-  const y = d.getFullYear()
+function parseDateLikeInput(input: string): Date | null {
+  const s = input.trim()
+  if (!s) return null
+  const m = s.match(/^(\d{4})[\/\-\.]?(\d{1,2})[\/\-\.]?(\d{1,2})$/)
+  if (!m) return null
+  const y = Number(m[1])
+  const mon = Number(m[2])
+  const day = Number(m[3])
+  if (!Number.isFinite(y) || !Number.isFinite(mon) || !Number.isFinite(day)) return null
+  if (mon < 1 || mon > 12 || day < 1 || day > 31) return null
+  const d = new Date(y, mon - 1, day)
+  if (d.getFullYear() !== y || d.getMonth() !== mon - 1 || d.getDate() !== day) return null
+  return d
+}
+
+function rocDateCompact(d: Date): string {
+  const rocYear = String(d.getFullYear() - 1911).padStart(3, '0')
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
-  const safe = sheetTitle.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名計價單'
-  return `計價單_${safe}_${y}${m}${day}.pdf`
+  return `${rocYear}${m}${day}`
+}
+
+export function buildPricingPdfFilename(siteName: string, pricingDate = ''): string {
+  const dateSource = parseDateLikeInput(pricingDate) ?? new Date()
+  const roc = rocDateCompact(dateSource)
+  const safeSite = siteName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名案場'
+  return `鈞泩計價單 (${safeSite}) (${roc}).pdf`
 }
 
 function waitNextPaint(): Promise<void> {

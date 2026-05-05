@@ -2117,6 +2117,30 @@ input[type='number'] {
   min-height: var(--ui-input-min-h);
 }
 
+/* 全站規範：所有選單/輸入框皆採深色底，禁止白底黑字 */
+select,
+textarea {
+  background: #0b0f14;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  color: var(--head);
+  padding: var(--ui-input-pad-y) var(--ui-input-pad-x);
+  font-size: var(--ui-input-fs);
+  line-height: var(--ui-lh-snug);
+  min-height: var(--ui-input-min-h);
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+select option {
+  background: #0b0f14;
+  color: var(--head);
+}
+
 /**
  * 薪水表 number 格：須蓋過上一段 input[type='number'] 的 color（同權重時後者勝）。
  * -webkit-text-fill-color：避免 WebKit 內建樣式讓數字仍顯示預設色。
@@ -2233,6 +2257,13 @@ td.emptyTableMsg {
   overflow-x: auto;
 }
 
+/* 網頁規範：可橫向捲動表格採內容驅動欄寬，文字可影響欄寬自動調整 */
+.tableScroll > table.data {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
 /**
  * 薪水月表／分期總表：
  * - 橫向捲動：凍結第一欄（姓名、項目列等）
@@ -2301,6 +2332,29 @@ td.emptyTableMsg {
   z-index: 3;
   background: linear-gradient(180deg, rgba(90, 212, 168, 0.28), rgba(61, 156, 245, 0.16));
   box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+}
+
+/* 網頁規範：非 sticky 捲動容器，不可固定表頭或左欄 */
+.tableScroll:not(.tableScrollSticky) > table.data thead th,
+.tableScroll:not(.tableScrollSticky) > table.data tbody td:first-child,
+.tableScroll:not(.tableScrollSticky) > table.data tbody th:first-child {
+  position: static;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  box-shadow: none;
+}
+
+/* 網頁規範（反向）：可滾動表格一律啟用固定表頭＋固定左欄 */
+.tableScrollSticky > table.data thead th {
+  position: sticky !important;
+  top: 0 !important;
+}
+
+.tableScrollSticky > table.data tbody td:first-child,
+.tableScrollSticky > table.data tbody th:first-child {
+  position: sticky !important;
+  left: 0 !important;
 }
 
 /** 放樣估價：覆寫通用 tbody 首欄 z-index，使凍結欄正確疊在橫向捲動內容之上 */
@@ -2449,6 +2503,30 @@ table.data.tight input {
   width: 100%;
   min-width: 0;
   min-height: 0;
+}
+
+/* 網頁規範：表格內輸入元件需貼齊儲存格，避免格線錯位 */
+table.data td > .titleInput,
+table.data td > input.titleInput,
+table.data td > select.titleInput,
+table.data td > textarea.titleInput {
+  display: block;
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* 網頁規範：表格儲存格內的所有輸入/選擇框不得外凸，需完整落在格線內 */
+table.data td > input,
+table.data td > select,
+table.data td > textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /** 薪水月表：日期欄多時仍保持數字可讀 */
@@ -2935,6 +3013,82 @@ table.data.siteAnalysisContractSummaryTable td.contractCell--remaining {
 
 table.data.siteAnalysisContractSummaryTable tbody tr:hover {
   background: rgba(61, 156, 245, 0.12);
+}
+
+/* 計價單編輯表：沿用全站 data/tight 規範，僅做最小必要欄位可讀性 */
+table.data.pricingSheetTable {
+  width: 100%;
+  table-layout: auto;
+}
+
+table.data.pricingSheetTable thead th {
+  white-space: nowrap;
+}
+
+table.data.pricingSheetTable td .titleInput {
+  width: 100%;
+  min-width: 0;
+}
+
+table.data.pricingSheetTable td {
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+table.data.pricingSheetTable td > .titleInput,
+table.data.pricingSheetTable td > input,
+table.data.pricingSheetTable td > select,
+table.data.pricingSheetTable td > textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  min-height: 2.15rem;
+  line-height: 1.35;
+  padding: 6px 8px;
+}
+
+table.data.pricingSheetTable td > select.titleInput,
+table.data.pricingSheetTable td > select {
+  min-height: 2.15rem;
+  height: 2.15rem;
+  padding: 6px 8px;
+  line-height: 1.35;
+  outline-offset: 0;
+}
+
+table.data.pricingSheetTable td:nth-child(1) .titleInput {
+  min-width: 0;
+}
+
+table.data.pricingSheetTable td:nth-child(1) > select.titleInput:focus,
+table.data.pricingSheetTable td:nth-child(1) > select:focus {
+  outline-offset: 0;
+}
+
+table.data.pricingSheetTable td:last-child {
+  white-space: nowrap;
+}
+
+table.data.pricingSheetTable td.pricingSheetTable__totalCell {
+  color: #5eead4;
+  font-weight: 800;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.22), rgba(13, 148, 136, 0.18));
+  border-left-color: #0f766e;
+  border-right-color: #0f766e;
+}
+
+.pricingSheetProgress__thisReq {
+  color: #ffffff;
+  font-weight: 800;
+  background: linear-gradient(180deg, rgba(13, 148, 136, 0.88), rgba(15, 118, 110, 0.95));
+  border-color: #0f766e;
+}
+
+.pricingSheetProgress__thisReqStrong {
+  color: #fbbf24;
+  font-size: var(--ui-fs-md);
 }
 
 table.data.siteAnalysisContractTable thead th,
@@ -4344,4 +4498,42 @@ fieldset.tabFieldset {
   .quoteSheetTabs {
     grid-template-columns: 1fr;
   }
+}
+
+/* 網頁規範（最高優先）：所有表格欄寬由內容文字自動撐開 */
+.tableScroll > table.data,
+.tableScrollSticky > table.data {
+  width: max-content !important;
+  min-width: 100% !important;
+  table-layout: auto !important;
+}
+
+.tableScroll > table.data th,
+.tableScroll > table.data td,
+.tableScrollSticky > table.data th,
+.tableScrollSticky > table.data td {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+/* 網頁規範（強化）：所有表格欄寬由內容決定，輸入元件緊貼儲存格 */
+table.data {
+  table-layout: auto !important;
+}
+
+table.data th,
+table.data td {
+  width: auto !important;
+}
+
+table.data td > input,
+table.data td > select,
+table.data td > textarea,
+table.data td > .titleInput {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
 }
