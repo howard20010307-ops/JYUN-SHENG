@@ -216,6 +216,16 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
       }),
     [workspace.rows],
   )
+
+  const previewRows = useMemo(
+    () =>
+      sortedRows.map((r) => ({
+        ...r,
+        tax: pricingTaxFromNet(r.amountNet),
+        total: pricingRowTotalAuto(r),
+      })),
+    [sortedRows],
+  )
   function updateRow(id: string, patch: Partial<Omit<PricingRow, 'id'>>) {
     setWorkspace((prev) => ({
       ...prev,
@@ -620,11 +630,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                   supplier={workspace.supplier}
                   payer={workspace.payer}
                   remarkLines={workspace.remarkLines}
-                  rows={sortedRows.map((r) => ({
-                    ...r,
-                    tax: pricingTaxFromNet(r.amountNet),
-                    total: pricingRowTotalAuto(r),
-                  }))}
+                  rows={previewRows}
                   buildingProgress={buildingProgress}
                   overall={overall}
                 />

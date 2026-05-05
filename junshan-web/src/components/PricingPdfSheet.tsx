@@ -143,6 +143,7 @@ export function PricingPdfSheet({
         <span style={{ marginLeft: 14, fontSize: 14, fontWeight: 700, color: '#333' }}>Pricing Sheet</span>
       </div>
 
+      <div data-pdf-workspace="case">
       <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'stretch' }}>
         <div
           style={{
@@ -283,7 +284,18 @@ export function PricingPdfSheet({
         </div>
       </div>
 
-      <table data-pdf-workspace="lines" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, border: '1px solid #c9a227' }}>
+      </div>
+
+      <table data-pdf-workspace="lines" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10, border: '1px solid #c9a227' }}>
+        <colgroup>
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '28%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '16%' }} />
+        </colgroup>
         <thead>
           <tr style={{ background: '#ffd49a' }}>
             {['棟', '樓層', '階段', '項目', '金額(未稅)', '稅金', '總計'].map((h) => (
@@ -330,8 +342,18 @@ export function PricingPdfSheet({
         </tbody>
       </table>
 
+      <div data-pdf-workspace="vat">
       <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>棟別進度</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, border: '1px solid #c9a227' }}>
+      <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10.5, border: '1px solid #c9a227' }}>
+        <colgroup>
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '16%' }} />
+          <col style={{ width: '16%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '14%' }} />
+        </colgroup>
         <thead>
           <tr style={{ background: '#ffe8c8' }}>
             {['棟', '已請', '本次', '請後累計', '剩餘金額', '完成度', '未完成'].map((h) => (
@@ -375,7 +397,11 @@ export function PricingPdfSheet({
         }}
       >
         <div style={{ fontSize: 12.5, fontWeight: 900, color: '#4c1d95', marginBottom: 6, letterSpacing: '0.04em' }}>全案合計（重點）</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, marginBottom: 6 }}>
+        <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10.5, marginBottom: 6 }}>
+          <colgroup>
+            <col style={{ width: '48%' }} />
+            <col style={{ width: '52%' }} />
+          </colgroup>
           <tbody>
             <tr>
               <th style={{ border: '1px solid #c4b5fd', padding: '4px 6px', textAlign: 'left', background: '#ede9fe' }}>指標</th>
@@ -423,6 +449,7 @@ export function PricingPdfSheet({
             </tr>
           </tbody>
         </table>
+      </div>
       </div>
 
       <div data-pdf-workspace="clauses" style={{ marginTop: 12, ...box, padding: '8px 10px', fontSize: 10 }}>

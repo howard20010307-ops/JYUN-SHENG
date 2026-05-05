@@ -126,11 +126,10 @@ function measureTableSliceCssPx(
   return wrap.offsetHeight
 }
 
-export async function exportSheetPdfByWorkspaces(
+async function renderSheetPdfByWorkspaces(
   root: HTMLElement,
-  filename: string,
   spec: WorkspacePdfSpec,
-): Promise<void> {
+): Promise<jsPDF> {
   await waitPaint()
 
   const refW = Math.max(1, Math.ceil(root.getBoundingClientRect().width || root.offsetWidth))
@@ -263,10 +262,27 @@ export async function exportSheetPdfByWorkspaces(
       await placeClone(el)
     }
 
-    pdf.save(filename)
+    return pdf
   } finally {
     host.remove()
   }
+}
+
+export async function exportSheetPdfByWorkspaces(
+  root: HTMLElement,
+  filename: string,
+  spec: WorkspacePdfSpec,
+): Promise<void> {
+  const pdf = await renderSheetPdfByWorkspaces(root, spec)
+  pdf.save(filename)
+}
+
+export async function exportSheetPdfBlobByWorkspaces(
+  root: HTMLElement,
+  spec: WorkspacePdfSpec,
+): Promise<Blob> {
+  const pdf = await renderSheetPdfByWorkspaces(root, spec)
+  return pdf.output('blob')
 }
 
 export async function exportQuotationPdfByWorkspaces(root: HTMLElement, filename: string): Promise<void> {
@@ -275,4 +291,12 @@ export async function exportQuotationPdfByWorkspaces(root: HTMLElement, filename
 
 export async function exportOwnerScopePdfByWorkspaces(root: HTMLElement, filename: string): Promise<void> {
   return exportSheetPdfByWorkspaces(root, filename, OWNER_SCOPE_WORKSPACE_SPEC)
+}
+
+export async function exportQuotationPdfBlobByWorkspaces(root: HTMLElement): Promise<Blob> {
+  return exportSheetPdfBlobByWorkspaces(root, QUOTATION_WORKSPACE_SPEC)
+}
+
+export async function exportOwnerScopePdfBlobByWorkspaces(root: HTMLElement): Promise<Blob> {
+  return exportSheetPdfBlobByWorkspaces(root, OWNER_SCOPE_WORKSPACE_SPEC)
 }

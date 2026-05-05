@@ -1,7 +1,10 @@
 /** 業主明細 PDF：檔名與下載（html2canvas + jsPDF；可印區內等比置中） */
 
 import { jsPDF } from 'jspdf'
-import { exportOwnerScopePdfByWorkspaces, exportQuotationPdfByWorkspaces } from './quotationPdfExport'
+import {
+  exportOwnerScopePdfBlobByWorkspaces,
+  exportQuotationPdfBlobByWorkspaces,
+} from './quotationPdfExport'
 
 export function buildOwnerScopePdfFilename(siteName: string): string {
   const d = new Date()
@@ -78,55 +81,6 @@ function pdfSourceIntersectsViewport(el: HTMLElement): boolean {
 function resolvePdfCaptureRoot(wrapper: HTMLElement): HTMLElement {
   const inner = wrapper.querySelector<HTMLElement>('.quotationPdfRoot, .ownerScopePdfRoot')
   return inner ?? wrapper
-}
-
-/** 工作區分段 PDF：視區內直接截；否則複製到全白 overlay 再截（避免預覽灰底影響） */
-async function runWorkspacePdfExport(
-  captureRoot: HTMLElement,
-  filename: string,
-  exportFn: (root: HTMLElement, name: string) => Promise<void>,
-): Promise<void> {
-  if (pdfSourceIntersectsViewport(captureRoot)) {
-    await waitNextPaint()
-    await exportFn(captureRoot, filename)
-    return
-  }
-  const shell = document.createElement('div')
-  shell.setAttribute('data-owner-scope-pdf-capture', '1')
-  shell.style.cssText = [
-    'position:fixed',
-    'left:0',
-    'top:0',
-    'width:100%',
-    'max-height:100vh',
-    'overflow:auto',
-    'z-index:2147483646',
-    'background:#ffffff',
-    'opacity:1',
-    'visibility:visible',
-    'pointer-events:none',
-    'box-sizing:border-box',
-    'display:flex',
-    'justify-content:center',
-    'align-items:flex-start',
-  ].join(';')
-  const clone = captureRoot.cloneNode(true) as HTMLElement
-  clone.style.cssText = [
-    'position:relative',
-    'width:210mm',
-    'max-width:100%',
-    'margin:0',
-    'background:#ffffff',
-    'box-sizing:border-box',
-  ].join(';')
-  shell.appendChild(clone)
-  document.body.appendChild(shell)
-  try {
-    await waitNextPaint()
-    await exportFn(clone, filename)
-  } finally {
-    shell.remove()
-  }
 }
 
 function buildHtml2CanvasOpts(captureEl: HTMLElement) {
@@ -302,7 +256,7 @@ function addCanvasAsSlicedPagesCentered(
   }
 }
 
-async function captureToPdf(captureEl: HTMLElement, filename: string): Promise<void> {
+async function captureToPdfBlob(captureEl: HTMLElement): Promise<Blob> {
   const [{ default: html2canvas }] = await Promise.all([import('html2canvas')])
   const raw = await html2canvas(captureEl, buildHtml2CanvasOpts(captureEl))
   const canvas = cropCanvasToContentBounds(raw)
@@ -317,25 +271,79 @@ async function captureToPdf(captureEl: HTMLElement, filename: string): Promise<v
     addCanvasAsSlicedPagesCentered(pdf, canvas, PDF_MARGIN_MM, innerW, innerH, innerRatio)
   }
 
-  pdf.save(filename)
+  return pdf.output('blob')
 }
 
-export async function downloadOwnerScopePdf(element: HTMLElement, filename: string): Promise<void> {
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+async function buildWorkspacePdfBlob(
+  captureRoot: HTMLElement,
+  exportBlobFn: (root: HTMLElement) => Promise<Blob>,
+): Promise<Blob> {
+  if (pdfSourceIntersectsViewport(captureRoot)) {
+    await waitNextPaint()
+    return exportBlobFn(captureRoot)
+  }
+  const shell = document.createElement('div')
+  shell.setAttribute('data-owner-scope-pdf-capture', '1')
+  shell.style.cssText = [
+    'position:fixed',
+    'left:0',
+    'top:0',
+    'width:100%',
+    'max-height:100vh',
+    'overflow:auto',
+    'z-index:2147483646',
+    'background:#ffffff',
+    'opacity:1',
+    'visibility:visible',
+    'pointer-events:none',
+    'box-sizing:border-box',
+    'display:flex',
+    'justify-content:center',
+    'align-items:flex-start',
+  ].join(';')
+  const clone = captureRoot.cloneNode(true) as HTMLElement
+  clone.style.cssText = [
+    'position:relative',
+    'width:210mm',
+    'max-width:100%',
+    'margin:0',
+    'background:#ffffff',
+    'box-sizing:border-box',
+  ].join(';')
+  shell.appendChild(clone)
+  document.body.appendChild(shell)
+  try {
+    await waitNextPaint()
+    return await exportBlobFn(clone)
+  } finally {
+    shell.remove()
+  }
+}
+
+export async function buildOwnerScopePdfBlob(element: HTMLElement): Promise<Blob> {
   const captureRoot = resolvePdfCaptureRoot(element)
 
   if (captureRoot.classList.contains('quotationPdfRoot')) {
-    await runWorkspacePdfExport(captureRoot, filename, exportQuotationPdfByWorkspaces)
-    return
+    return buildWorkspacePdfBlob(captureRoot, exportQuotationPdfBlobByWorkspaces)
   }
   if (captureRoot.classList.contains('ownerScopePdfRoot')) {
-    await runWorkspacePdfExport(captureRoot, filename, exportOwnerScopePdfByWorkspaces)
-    return
+    return buildWorkspacePdfBlob(captureRoot, exportOwnerScopePdfBlobByWorkspaces)
   }
 
   if (pdfSourceIntersectsViewport(captureRoot)) {
     await waitNextPaint()
-    await captureToPdf(captureRoot, filename)
-    return
+    return captureToPdfBlob(captureRoot)
   }
 
   const shell = document.createElement('div')
@@ -373,8 +381,13 @@ export async function downloadOwnerScopePdf(element: HTMLElement, filename: stri
 
   try {
     await waitNextPaint()
-    await captureToPdf(clone, filename)
+    return await captureToPdfBlob(clone)
   } finally {
     shell.remove()
   }
+}
+
+export async function downloadOwnerScopePdf(element: HTMLElement, filename: string): Promise<void> {
+  const blob = await buildOwnerScopePdfBlob(element)
+  downloadBlob(blob, filename)
 }
