@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ContractContentState } from '../domain/contractContentModel'
 import type { ReceivablesState } from '../domain/receivablesModel'
 import {
   entryGross,
   entryTax,
-  migrateReceivablesState,
   newReceivableId,
   normalizeReceivableNote,
   parseReceivableSiteSelectValue,
@@ -35,6 +35,7 @@ type Props = {
   setReceivables: (fn: (prev: ReceivablesState) => ReceivablesState) => void
   salaryBook: SalaryBook
   setSalaryBook: (fn: (b: SalaryBook) => SalaryBook) => void
+  contractContents: ContractContentState
   /** 估價案場：案名與此相同時，樓層欄可從估價樓層清單選填 */
   quoteSite: QuoteSite
   canEdit: boolean
@@ -138,10 +139,11 @@ export function ReceivablesPanel({
   setReceivables,
   salaryBook,
   setSalaryBook,
+  contractContents,
   quoteSite,
   canEdit,
 }: Props) {
-  const data = useMemo(() => migrateReceivablesState(receivables), [receivables])
+  const data = useMemo(() => receivables, [receivables])
   const payrollSiteOptions = useMemo(() => {
     const base = receivableSiteSelectOptionsFromOverview(salaryBook)
     const byValue = new Map(base.map((o) => [o.value, o]))
@@ -281,7 +283,7 @@ export function ReceivablesPanel({
       setYearFilter(booked.slice(0, 4))
     }
     setReceivables((prev) => {
-      const p = migrateReceivablesState(prev)
+      const p = prev
       const draft: ReceivableEntry = {
         id: '',
         bookedDate: booked,
@@ -311,7 +313,7 @@ export function ReceivablesPanel({
     (id: string, patch: Partial<ReceivableEntry>) => {
       if (!canEdit) return
       setReceivables((prev) => {
-        const p = migrateReceivablesState(prev)
+        const p = prev
         return {
           entries: sortReceivableEntriesByBookedDate(
             p.entries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
@@ -361,7 +363,7 @@ export function ReceivablesPanel({
       if (!canEdit) return
       if (!window.confirm('確定刪除此筆入帳？')) return
       setReceivables((prev) => {
-        const p = migrateReceivablesState(prev)
+        const p = prev
         return {
           entries: sortReceivableEntriesByBookedDate(p.entries.filter((x) => x.id !== id)),
         }
@@ -522,6 +524,9 @@ export function ReceivablesPanel({
                 >
                   階段
                 </th>
+                <th scope="col" title="綁定案場分析合約內容列">
+                  對應合約
+                </th>
                 <th scope="col" className="num receivablesTable__cellMoney">
                   金額（未稅）
                 </th>
@@ -548,7 +553,7 @@ export function ReceivablesPanel({
             <tbody>
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="receivablesTable__empty muted">
+                  <td colSpan={12} className="receivablesTable__empty muted">
                     此檢視範圍尚無資料。{canEdit ? '請按「新增一列」或切換範圍。' : null}
                   </td>
                 </tr>
@@ -556,6 +561,9 @@ export function ReceivablesPanel({
                 visibleRows.map((row) => {
                   const resolvedProject = resolvedReceivableProjectName(salaryBook, row)
                   const siteSelectVal = receivableSiteSelectValue(salaryBook, row)
+                  const contractOptions = contractContents.lines.filter(
+                    (line) => line.siteName.trim() === resolvedProject.trim(),
+                  )
                   return (
                   <tr key={row.id}>
                     <td className="receivablesTable__cellDate">
@@ -653,6 +661,23 @@ export function ReceivablesPanel({
                         aria-label="階段"
                       />
                     </td>
+                    <td>
+                      <select
+                        className="receivablesTable__select"
+                        value={row.contractLineId ?? ''}
+                        disabled={!canEdit}
+                        onChange={(e) => updateEntry(row.id, { contractLineId: e.target.value || undefined })}
+                        aria-label="對應合約"
+                      >
+                        <option value="">未綁定</option>
+                        {contractOptions.map((line) => (
+                          <option key={line.id} value={line.id}>
+                            {line.buildingLabel || '未填棟'}／{line.floorLabel || '未填樓層'}／
+                            {line.phaseLabel || '未填階段'}（{line.unit || '未填單位'}）
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="num receivablesTable__cellMoney">
                       <PayrollNumberInput
                         className="receivablesTable__num"
@@ -737,6 +762,9 @@ export function ReceivablesPanel({
                     {'\u00a0'}
                   </td>
                   <td className="receivablesTable__cellPhase receivablesTable__footerFill" aria-hidden="true">
+                    {'\u00a0'}
+                  </td>
+                  <td className="receivablesTable__footerFill" aria-hidden="true">
                     {'\u00a0'}
                   </td>
                   <td className="num receivablesTable__cellMoney receivablesTable__footerNumCell">

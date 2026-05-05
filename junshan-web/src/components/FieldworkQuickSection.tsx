@@ -208,6 +208,7 @@ export function FieldworkQuickSection({
     const docId = stableWorkLogDayDocBaseId(todayIso())
     return [{ id: stableWorkLogWorkLineId(docId, 0, 0), label: '' }]
   })
+  const [siteRemark, setSiteRemark] = useState('')
   const [instrumentTotalStation, setInstrumentTotalStation] = useState('')
   const [instrumentRotatingLaser, setInstrumentRotatingLaser] = useState('')
   const [instrumentLineLaser, setInstrumentLineLaser] = useState('')
@@ -388,6 +389,7 @@ export function FieldworkQuickSection({
       dong: dong.trim(),
       floorLevel: floorLevel.trim(),
       workPhase: workPhase.trim(),
+      remark: siteRemark.trim(),
     }
 
     const mergedOpts = mergedWorkItemOptions(
@@ -464,9 +466,8 @@ export function FieldworkQuickSection({
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span>出工天數（每人該日）</span>
           <input
-            type="number"
-            step={0.25}
-            min={0}
+            type="text"
+            inputMode="decimal"
             className="narrow"
             value={dayVal}
             onFocus={(e) => clearSingleZeroOnFocus(e, setDayVal)}
@@ -476,8 +477,8 @@ export function FieldworkQuickSection({
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
           <span>預支（元／人，選填）</span>
           <input
-            type="number"
-            step={1}
+            type="text"
+            inputMode="decimal"
             className="narrow"
             value={advancePerPerson}
             onFocus={(e) => clearSingleZeroOnFocus(e, setAdvancePerPerson)}
@@ -618,10 +619,8 @@ export function FieldworkQuickSection({
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
             <span>全站儀（台）</span>
             <input
-              type="number"
-              min={0}
-              max={999}
-              step={1}
+              type="text"
+              inputMode="numeric"
               className="narrow"
               value={instrumentTotalStation}
               onChange={(e) => setInstrumentTotalStation(e.target.value)}
@@ -631,10 +630,8 @@ export function FieldworkQuickSection({
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
             <span>旋轉雷射（台）</span>
             <input
-              type="number"
-              min={0}
-              max={999}
-              step={1}
+              type="text"
+              inputMode="numeric"
               className="narrow"
               value={instrumentRotatingLaser}
               onChange={(e) => setInstrumentRotatingLaser(e.target.value)}
@@ -644,10 +641,8 @@ export function FieldworkQuickSection({
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
             <span>墨線儀（台）</span>
             <input
-              type="number"
-              min={0}
-              max={999}
-              step={1}
+              type="text"
+              inputMode="numeric"
               className="narrow"
               value={instrumentLineLaser}
               onChange={(e) => setInstrumentLineLaser(e.target.value)}
@@ -656,6 +651,16 @@ export function FieldworkQuickSection({
           </label>
         </div>
       </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+        <span>案場備註（寫入工作日誌）</span>
+        <textarea
+          rows={3}
+          style={{ width: '100%', maxWidth: 680, resize: 'vertical' }}
+          value={siteRemark}
+          onChange={(e) => setSiteRemark(e.target.value)}
+          placeholder="該案場施工重點、注意事項等（選填）"
+        />
+      </div>
       <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司損益表（選填）</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <fieldset style={fieldsetStyle}>
@@ -663,7 +668,8 @@ export function FieldworkQuickSection({
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
             <span>加帳金額</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               className="narrow"
               value={mealAmount}
               onFocus={(e) => clearSingleZeroOnFocus(e, setMealAmount)}
@@ -698,9 +704,8 @@ export function FieldworkQuickSection({
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
                   <span>數量</span>
                   <input
-                    type="number"
-                    min={0}
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     className="narrow"
                     value={row.qty}
                     onChange={(e) =>
@@ -728,7 +733,8 @@ export function FieldworkQuickSection({
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 140 }}>
                   <span>金額（元）</span>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     className="narrow"
                     value={row.amount}
                     onFocus={(e) =>
@@ -814,9 +820,8 @@ export function FieldworkQuickSection({
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
               <span>每人加班時數</span>
               <input
-                type="number"
-                step={0.5}
-                min={0}
+                type="text"
+                inputMode="decimal"
                 className="narrow"
                 value={otHoursPerPerson}
                 onFocus={(e) => clearSingleZeroOnFocus(e, setOtHoursPerPerson)}
@@ -826,7 +831,8 @@ export function FieldworkQuickSection({
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
               <span>手動加班費（僅在時數為 0 時入帳；可正負）</span>
               <input
-                type="number"
+                type="text"
+                inputMode="decimal"
                 className="narrow"
                 value={otManualAmount}
                 onFocus={(e) => clearSingleZeroOnFocus(e, setOtManualAmount)}

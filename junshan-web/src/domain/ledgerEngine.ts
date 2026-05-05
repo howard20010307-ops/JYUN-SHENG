@@ -83,6 +83,17 @@ export type MonthComputed = MonthLine & {
   surplus: number
 }
 
+/** 由 {@link withAutoLedgerDerived} 自動回填之欄位鍵（供外部比較是否需覆寫 months）。 */
+export const AUTO_LEDGER_DERIVED_KEYS = [
+  'salary',
+  'overtimePay',
+  'meals',
+  'tools',
+  'instrument',
+  'revenueNet',
+  'tax',
+] as const satisfies readonly (keyof MonthLine)[]
+
 export function computeMonth(m: MonthLine): MonthComputed {
   const junLaborWithOt = m.salary + (m.overtimePay ?? 0)
   const costOfGoodsSold = junLaborWithOt + m.meals + m.tools

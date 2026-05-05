@@ -42,9 +42,21 @@ import {
   migrateQuotationWorkspace,
   type QuotationWorkspaceState,
 } from './quotationWorkspace'
+import {
+  initialContractContentState,
+  migrateContractContentState,
+  type ContractContentState,
+} from './contractContentModel'
+import {
+  initialPricingWorkspace,
+  migratePricingWorkspace,
+  type PricingWorkspaceState,
+} from './pricingWorkspace'
 
 export type { CustomLaborWorkspaceState } from './customLaborWorkspace'
 export type { QuotationWorkspaceState } from './quotationWorkspace'
+export type { ContractContentState } from './contractContentModel'
+export type { PricingWorkspaceState } from './pricingWorkspace'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -61,7 +73,7 @@ function isFlatQuoteLayout(l: QuoteLayout): boolean {
 export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog' | 'receivables' | 'clientDocs'
 
 /** 「對外文件」內子畫面：工作明細（原自填明細）或報價單 */
-export type ClientDocsSheet = 'workDetail' | 'quotation'
+export type ClientDocsSheet = 'workDetail' | 'quotation' | 'pricing'
 
 export type AppState = {
   tab: Tab
@@ -83,7 +95,34 @@ export type AppState = {
   customLaborWorkspace: CustomLaborWorkspaceState
   /** 報價單：獨立於放樣估價案場（對外文件之一） */
   quotationWorkspace: QuotationWorkspaceState
+  /** 合約內容：案場分析用（可連接收帳） */
+  contractContents: ContractContentState
+  /** 計價單：對外文件（可連接合約與收帳進度） */
+  pricingWorkspace: PricingWorkspaceState
 }
+
+/**
+ * 遷移白名單防呆：新增／刪除 AppState 欄位時，這裡會在編譯期報錯，
+ * 逼迫我們同步檢查 initial/migrate/雲端合併路徑是否完整。
+ */
+const APP_STATE_FIELD_GUARD: Record<keyof AppState, true> = {
+  tab: true,
+  clientDocsSheet: true,
+  salaryBook: true,
+  site: true,
+  quoteRows: true,
+  quoteRowsSchemaVersion: true,
+  months: true,
+  ledgerYear: true,
+  workItemPresetLabels: true,
+  workLog: true,
+  receivables: true,
+  customLaborWorkspace: true,
+  quotationWorkspace: true,
+  contractContents: true,
+  pricingWorkspace: true,
+}
+void APP_STATE_FIELD_GUARD
 
 export function initialAppState(): AppState {
   const salaryBook = defaultSalaryBook()
@@ -101,6 +140,8 @@ export function initialAppState(): AppState {
     receivables: initialReceivablesState(),
     customLaborWorkspace: initialCustomLaborWorkspace(),
     quotationWorkspace: initialQuotationWorkspace(),
+    contractContents: initialContractContentState(),
+    pricingWorkspace: initialPricingWorkspace(),
   }
 }
 
@@ -128,8 +169,13 @@ export function migrateAppState(loaded: unknown): AppState {
   let clientDocsSheet: ClientDocsSheet = init.clientDocsSheet
   if (tab === 'clientDocs') {
     if (tabStr === 'quotation') clientDocsSheet = 'quotation'
+    else if (tabStr === 'pricing') clientDocsSheet = 'pricing'
     else if (tabStr === 'laborExplain') clientDocsSheet = 'workDetail'
-    else if (d.clientDocsSheet === 'quotation' || d.clientDocsSheet === 'workDetail') {
+    else if (
+      d.clientDocsSheet === 'quotation' ||
+      d.clientDocsSheet === 'workDetail' ||
+      d.clientDocsSheet === 'pricing'
+    ) {
       clientDocsSheet = d.clientDocsSheet
     }
   }
@@ -157,6 +203,8 @@ export function migrateAppState(loaded: unknown): AppState {
     legacyCustomLaborFromQuoteSite,
   )
   const quotationWorkspace = migrateQuotationWorkspace(d.quotationWorkspace)
+  const contractContents = migrateContractContentState(d.contractContents)
+  const pricingWorkspace = migratePricingWorkspace(d.pricingWorkspace)
   const storedSchema =
     typeof d.quoteRowsSchemaVersion === 'number' &&
     Number.isFinite(d.quoteRowsSchemaVersion)
@@ -195,21 +243,17 @@ export function migrateAppState(loaded: unknown): AppState {
       ? Math.trunc(d.ledgerYear)
       : inferPayrollYearFromBook(salaryBook)
 
-  const merged = {
-    ...init,
-    ...d,
+  const out: AppState = {
     tab,
     clientDocsSheet,
-    workLog,
     salaryBook,
     site: siteOut,
     quoteRows,
     quoteRowsSchemaVersion,
+    months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     ledgerYear,
     workItemPresetLabels,
-    customLaborWorkspace,
-    quotationWorkspace,
-    months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
+    workLog,
     receivables:
       d.receivables !== undefined && d.receivables !== null
         ? remapReceivablePayrollBindings(
@@ -218,9 +262,10 @@ export function migrateAppState(loaded: unknown): AppState {
             payrollIdRemap.blockByOldId,
           )
         : init.receivables,
-  }
-  const { billingProgress: _legacyBillingProgress, ...out } = merged as typeof merged & {
-    billingProgress?: unknown
+    customLaborWorkspace,
+    quotationWorkspace,
+    contractContents,
+    pricingWorkspace,
   }
   return out
 }

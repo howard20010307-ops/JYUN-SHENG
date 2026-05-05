@@ -53,7 +53,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
     }))
   }
 
-  const caseSeed = workspace.caseTitle.trim() !== '' ? workspace.caseTitle : '工作明細'
+  const caseSeed = workspace.caseTitle.trim() !== '' ? workspace.caseTitle : '承攬供述明細'
 
   function setClauseLine(id: string, text: string) {
     setWorkspace((w) => ({
@@ -64,7 +64,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
 
   function addClauseLine() {
     setWorkspace((w) => {
-      const seed = w.caseTitle.trim() !== '' ? w.caseTitle : '工作明細'
+      const seed = w.caseTitle.trim() !== '' ? w.caseTitle : '承攬供述明細'
       return {
         ...w,
         clauseLines: [...w.clauseLines, createCustomLaborClauseLine(seed, w.clauseLines)],
@@ -82,7 +82,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
   function confirmClearWorkspace() {
     if (
       !window.confirm(
-        '確定要一鍵清除「工作明細」？\n將還原為空白案名、空白甲方與明細，條款恢復為預設文字。',
+        '確定要一鍵清除「承攬供述明細」？\n將還原為空白案名、空白甲方與明細，條款恢復為預設文字。',
       )
     ) {
       return
@@ -104,7 +104,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
             marginBottom: 8,
           }}
         >
-          <h3 style={{ margin: 0 }}>工作明細</h3>
+          <h3 style={{ margin: 0 }}>承攬供述明細</h3>
           <button type="button" className="btn danger" onClick={confirmClearWorkspace}>
             一鍵清除
           </button>
@@ -252,7 +252,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
             預覽 PDF
           </button>
           <span className="muted" style={{ fontSize: 12 }}>
-            下載檔名含「工作明細」與案名、日期
+            下載檔名含「承攬供述明細」與案名、日期
           </span>
         </div>
         <div className="tableScroll">
@@ -358,7 +358,7 @@ export function CustomLaborWorkspacePanel({ workspace, setWorkspace }: Props) {
         >
           <div className="quoteDialogPanel ownerScopePdfPreviewPanel" onClick={(e) => e.stopPropagation()}>
             <div className="ownerScopePdfPreviewHead">
-              <h2 id="customLaborWsPdfPreviewTitle">工作明細 PDF 預覽</h2>
+              <h2 id="customLaborWsPdfPreviewTitle">承攬供述明細 PDF 預覽</h2>
               <p className="muted" style={{ margin: 0, fontSize: '0.88rem', lineHeight: 1.5 }}>
                 下方為與下載檔相同版面。按 Esc 或背景可關閉。
               </p>

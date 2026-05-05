@@ -1,6 +1,11 @@
 import { gzip, gunzip, strFromU8, strToU8 } from 'fflate'
 import { migrateAppState, type AppState } from '../domain/appState'
-import { assertJsonBinBackupWireStringComplete, stringifyAppBackupCompact, stringifyAppBackupFingerprint } from '../domain/appStateBackup'
+import {
+  assertJsonBinBackupWireStringComplete,
+  stringifyAppBackupCompact,
+  stringifyAppBackupFingerprint,
+  WIRE_DATA_KEYS,
+} from '../domain/appStateBackup'
 
 const BASE = 'https://api.jsonbin.io/v3/b'
 
@@ -257,9 +262,17 @@ function extractAppStatePayload(record: unknown): unknown {
 function isUsableAppPayload(loaded: unknown): boolean {
   if (!loaded || typeof loaded !== 'object') return false
   const d = loaded as Record<string, unknown>
+  for (const k of WIRE_DATA_KEYS) {
+    if (!(k in d)) return false
+  }
   if (!d.salaryBook || typeof d.salaryBook !== 'object') return false
   const months = (d.salaryBook as { months?: unknown }).months
-  return Array.isArray(months)
+  if (!Array.isArray(months)) return false
+  if (!d.customLaborWorkspace || typeof d.customLaborWorkspace !== 'object') return false
+  if (!d.quotationWorkspace || typeof d.quotationWorkspace !== 'object') return false
+  if (!d.contractContents || typeof d.contractContents !== 'object') return false
+  if (!d.pricingWorkspace || typeof d.pricingWorkspace !== 'object') return false
+  return true
 }
 
 function exportedAtMsFromBackupRoot(root: unknown): number {

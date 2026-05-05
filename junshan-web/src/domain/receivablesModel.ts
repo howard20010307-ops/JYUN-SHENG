@@ -37,6 +37,8 @@ export type ReceivableEntry = {
   tax: number
   /** 備註（可含換行） */
   note: string
+  /** 對應合約內容列 id（承攬供述明細／合約內容） */
+  contractLineId?: string
 }
 
 function safeNet(net: unknown): number {
@@ -291,6 +293,7 @@ function receivableMergeSansProjectFingerprint(e: ReceivableEntry): string {
     e.floorLabel.trim(),
     e.taxZero ? '1' : '0',
     normalizeReceivableNote(e.note).trim(),
+    (e.contractLineId ?? '').trim(),
   ].join(FP_SEP_SANS_PROJECT)
 }
 
@@ -302,6 +305,7 @@ function pickBestReceivableSansProjectGroup(
     let s = 0
     if (localIds.has(e.id)) s += 1000
     if (receivableHasPayrollSiteBinding(e)) s += 200
+    if ((e.contractLineId ?? '').trim() !== '') s += 80
     return s
   }
   return group.slice().sort((a, b) => {
@@ -374,6 +378,10 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
           : undefined
     const sb = r.siteBlockId
     const siteBlockId = typeof sb === 'string' && sb !== '' ? sb : undefined
+    const contractLineId =
+      typeof r.contractLineId === 'string' && r.contractLineId.trim() !== ''
+        ? r.contractLineId.trim()
+        : undefined
     const entry: ReceivableEntry = {
       id,
       bookedDate,
@@ -388,6 +396,7 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
     }
     if (monthSheetId !== undefined) entry.monthSheetId = monthSheetId
     if (siteBlockId !== undefined) entry.siteBlockId = siteBlockId
+    if (contractLineId !== undefined) entry.contractLineId = contractLineId
     out.push(entry)
   }
   return out
@@ -446,6 +455,7 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
       taxZero,
       tax: 0,
       note: normalizeReceivableNote(str(r.note, '')),
+      contractLineId: undefined,
     })
   }
   return { entries }
@@ -564,6 +574,7 @@ function receivableCloudMergeFingerprint(e: ReceivableEntry): string {
     e.floorLabel.trim(),
     e.taxZero ? '1' : '0',
     normalizeReceivableNote(e.note).trim(),
+    (e.contractLineId ?? '').trim(),
   ]
   return parts.join(FP_SEP)
 }

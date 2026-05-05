@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ContractContentState } from '../domain/contractContentModel'
 import type { ReceivablesState } from '../domain/receivablesModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import type { SalaryBook } from '../domain/salaryExcelModel'
@@ -14,6 +15,8 @@ type Props = {
   salaryBook: SalaryBook
   receivables: ReceivablesState
   workLog: WorkLogState
+  contractContents: ContractContentState
+  setContractContents: (fn: (prev: ContractContentState) => ContractContentState) => void
   canEdit: boolean
 }
 
@@ -56,6 +59,9 @@ export function CompanyAccountPanel(props: Props) {
           salaryBook={props.salaryBook}
           workLog={props.workLog}
           receivables={props.receivables}
+          contractContents={props.contractContents}
+          setContractContents={props.setContractContents}
+          canEdit={props.canEdit}
         />
       )}
     </div>

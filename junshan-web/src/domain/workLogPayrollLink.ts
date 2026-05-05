@@ -930,6 +930,8 @@ export type QuickApplyTextOverlay = {
   floorLevel?: string
   /** 階段 */
   workPhase?: string
+  /** 案場備註（覆寫目標案場區塊 remark） */
+  remark?: string
 }
 
 function baseToolLinesBeforeQuickApply(d: LinkedDayDraft): LinkedDayToolLineDraft[] {
@@ -1079,6 +1081,12 @@ function applyQuickTextOverlay(d: LinkedDayDraft, q: QuickApplyTextOverlay): Lin
           dong: q.dong !== undefined ? String(q.dong ?? '').trim() : next.dong,
           floorLevel: q.floorLevel !== undefined ? String(q.floorLevel ?? '').trim() : next.floorLevel,
           workPhase: q.workPhase !== undefined ? String(q.workPhase ?? '').trim() : next.workPhase,
+        }
+      }
+      if (q.remark !== undefined) {
+        next = {
+          ...next,
+          remark: String(q.remark ?? '').trim(),
         }
       }
       return next

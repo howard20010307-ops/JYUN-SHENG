@@ -99,7 +99,7 @@ html {
 }
 
 #root {
-  max-width: 1200px;
+  max-width: 1460px;
   margin: 0 auto;
   padding: 0 var(--ui-space-3) var(--ui-space-6);
   min-height: 100vh;
@@ -2766,6 +2766,182 @@ input[type='date'].ownerClientField--date:hover::-webkit-calendar-picker-indicat
   max-width: 100%;
   min-height: 0;
   box-shadow: 0 4px 28px rgba(0, 0, 0, 0.4);
+}
+
+.siteAnalysisContractBlock .hint {
+  font-size: var(--ui-fs-xs);
+}
+
+.siteAnalysisContractBlock .titleInput,
+.siteAnalysisContractBlock .btn {
+  font-size: var(--ui-fs-sm);
+}
+
+table.data.siteAnalysisContractTable th,
+table.data.siteAnalysisContractTable td,
+table.data.siteAnalysisContractSummaryTable th,
+table.data.siteAnalysisContractSummaryTable td {
+  font-size: var(--ui-table-fs);
+  padding: var(--ui-cell-pad-y) var(--ui-cell-pad-x);
+}
+
+.siteAnalysisContractTable .titleInput {
+  min-height: 2.25rem;
+}
+
+/* 案場分析區下拉：統一深色，避免白底黑字突兀 */
+.siteAnalysisContractBlock select.titleInput,
+.siteAnalysisBlock select.titleInput {
+  background: #0b0f14;
+  color: var(--head);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+}
+
+.siteAnalysisContractBlock select.titleInput:focus,
+.siteAnalysisBlock select.titleInput:focus {
+  outline: 2px solid rgba(61, 156, 245, 0.45);
+  outline-offset: 1px;
+}
+
+/* 計價模式欄：不要撐滿整格，依內容寬度顯示 */
+table.data.siteAnalysisContractTable th:nth-child(4),
+table.data.siteAnalysisContractTable td:nth-child(4) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+table.data.siteAnalysisContractTable td:nth-child(4) .titleInput {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+table.data.siteAnalysisContractTable {
+  width: 100%;
+  table-layout: auto;
+}
+
+table.data.siteAnalysisContractSummaryTable {
+  width: max-content;
+}
+
+table.data.siteAnalysisContractTable {
+  min-width: 0;
+}
+
+table.data.siteAnalysisContractSummaryTable {
+  min-width: 0;
+}
+
+.siteAnalysisContractBoardsScroll {
+  padding-bottom: 4px;
+}
+
+.siteAnalysisContractBoards {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: max-content;
+}
+
+.siteAnalysisContractBoard {
+  min-width: 520px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(61, 156, 245, 0.35);
+  background: linear-gradient(180deg, rgba(13, 20, 30, 0.95), rgba(9, 15, 23, 0.95));
+}
+
+.siteAnalysisContractBoardTitle {
+  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.siteAnalysisContractBoardBadge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--ui-fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+
+.siteAnalysisContractBoardBadge.is-linked {
+  color: #d4ffe8;
+  background: rgba(90, 212, 168, 0.22);
+  border-color: rgba(90, 212, 168, 0.55);
+}
+
+.siteAnalysisContractBoardBadge.is-unlinked {
+  color: #ffe3cf;
+  background: rgba(255, 166, 87, 0.2);
+  border-color: rgba(255, 166, 87, 0.45);
+}
+
+.siteAnalysisContractGrandSummary {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(61, 156, 245, 0.5);
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.18), rgba(90, 212, 168, 0.08));
+  color: #eaf4ff;
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.siteAnalysisContractGrandSummary strong {
+  color: #ffffff;
+  font-size: var(--ui-fs-md);
+}
+
+.siteAnalysisBlock {
+  margin-top: 16px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.siteAnalysisBlock--contractSubtotal {
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.1), rgba(12, 18, 26, 0.96));
+}
+
+.siteAnalysisBlock--profit {
+  background: linear-gradient(180deg, rgba(90, 212, 168, 0.08), rgba(12, 18, 26, 0.96));
+}
+
+table.data.siteAnalysisContractSummaryTable tbody tr.contractRow--linked {
+  background: rgba(90, 212, 168, 0.08);
+}
+
+table.data.siteAnalysisContractSummaryTable tbody tr.contractRow--unlinked {
+  background: rgba(255, 166, 87, 0.07);
+}
+
+table.data.siteAnalysisContractSummaryTable td.contractCell--linked {
+  color: #b9f8d7;
+  font-weight: 700;
+}
+
+table.data.siteAnalysisContractSummaryTable td.contractCell--remaining {
+  color: #ffd6c5;
+}
+
+table.data.siteAnalysisContractSummaryTable tbody tr:hover {
+  background: rgba(61, 156, 245, 0.12);
+}
+
+table.data.siteAnalysisContractTable thead th,
+table.data.siteAnalysisContractSummaryTable thead th {
+  white-space: normal;
+  word-break: break-word;
+  line-height: var(--ui-lh-snug);
 }
 
 /** 公司損益表：欄位多、雙列表頭，橫向捲動；數字欄 tabular-nums */

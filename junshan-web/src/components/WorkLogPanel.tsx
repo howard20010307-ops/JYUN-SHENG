@@ -1127,7 +1127,8 @@ export function WorkLogPanel({
               </div>
               <div className="worklogKvValue">
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   className="titleInput"
                   disabled={!formUnlocked}
                   value={dayDraft.mealCost}
@@ -1175,9 +1176,8 @@ export function WorkLogPanel({
                         數量
                       </span>
                       <input
-                        type="number"
-                        min={0}
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
                         className="titleInput"
                         disabled={!formUnlocked}
                         value={row.qty ?? ''}
@@ -1218,7 +1218,8 @@ export function WorkLogPanel({
                         金額（元）
                       </span>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         className="titleInput"
                         disabled={!formUnlocked}
                         value={row.amount}
@@ -1266,7 +1267,8 @@ export function WorkLogPanel({
                     : ' 此欄唯讀；請於各案場填寫儀器台數後儲存，即會依台數自動計入；僅舊資料無台數時顯示已存金額。'}
                 </p>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   className="titleInput"
                   disabled
                   readOnly
@@ -1516,12 +1518,10 @@ export function WorkLogPanel({
                         </td>
                         <td>
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             className="titleInput"
                             disabled={!formUnlocked}
-                            min={0}
-                            max={99}
-                            step={0.5}
                             placeholder="1"
                             value={ln.workDays}
                             onChange={(e) =>
@@ -1719,10 +1719,8 @@ export function WorkLogPanel({
                           {label}（台）
                         </span>
                         <input
-                          type="number"
-                          min={0}
-                          max={999}
-                          step={1}
+                          type="text"
+                          inputMode="numeric"
                           className="titleInput"
                           disabled={!formUnlocked}
                           value={val}

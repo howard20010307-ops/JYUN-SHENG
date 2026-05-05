@@ -27,7 +27,16 @@ export function buildWorkDetailPdfFilename(caseTitle: string): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   const safe = caseTitle.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名案名'
-  return `工作明細_${safe}_${y}${m}${day}.pdf`
+  return `承攬供述明細_${safe}_${y}${m}${day}.pdf`
+}
+
+export function buildPricingPdfFilename(sheetTitle: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = sheetTitle.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名計價單'
+  return `計價單_${safe}_${y}${m}${day}.pdf`
 }
 
 function waitNextPaint(): Promise<void> {

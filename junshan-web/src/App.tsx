@@ -5,13 +5,14 @@ import { CompanyAccountPanel } from './components/CompanyAccountPanel'
 import { WorkLogPanel } from './components/WorkLogPanel'
 import { CustomLaborWorkspacePanel } from './components/CustomLaborWorkspacePanel'
 import { QuotationWorkspacePanel } from './components/QuotationWorkspacePanel'
+import { PricingWorkspacePanel } from './components/PricingWorkspacePanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
 import type { AppState, Tab } from './domain/appState'
 import { initialAppState, migrateAppState, QUOTE_ROWS_SCHEMA_VERSION } from './domain/appState'
 import { applySiteRenameAcrossAppState } from './domain/siteRenameAcrossApp'
-import { withAutoLedgerDerived } from './domain/ledgerEngine'
+import { AUTO_LEDGER_DERIVED_KEYS, withAutoLedgerDerived } from './domain/ledgerEngine'
 import {
   repairWorkLogDayDocumentsAgainstPayroll,
   salaryBookNamedSitesFingerprint,
@@ -173,17 +174,10 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
       )
       if (nextMonths.length !== s.months.length) return { ...s, months: nextMonths }
       for (let i = 0; i < s.months.length; i++) {
-        const a = s.months[i]!
-        const b = nextMonths[i]!
-        if (
-          a.salary !== b.salary ||
-          a.overtimePay !== b.overtimePay ||
-          a.meals !== b.meals ||
-          a.tools !== b.tools ||
-          a.instrument !== b.instrument ||
-          a.revenueNet !== b.revenueNet ||
-          a.tax !== b.tax
-        ) {
+        const changed = AUTO_LEDGER_DERIVED_KEYS.some(
+          (k) => s.months[i]![k] !== nextMonths[i]![k],
+        )
+        if (changed) {
           return { ...s, months: nextMonths }
         }
       }
@@ -435,7 +429,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 className={`tab ${state.clientDocsSheet === 'workDetail' ? 'on' : ''}`}
                 onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'workDetail' }))}
               >
-                工作明細
+                承攬供述明細
               </button>
               <button
                 type="button"
@@ -445,6 +439,15 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'quotation' }))}
               >
                 報價單
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={state.clientDocsSheet === 'pricing'}
+                className={`tab ${state.clientDocsSheet === 'pricing' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'pricing' }))}
+              >
+                計價單
               </button>
             </div>
             {state.clientDocsSheet === 'workDetail' ? (
@@ -458,7 +461,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   }))
                 }
               />
-            ) : (
+            ) : state.clientDocsSheet === 'quotation' ? (
               <QuotationWorkspacePanel
                 workspace={state.quotationWorkspace}
                 setWorkspace={(fn) =>
@@ -468,6 +471,19 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                       typeof fn === 'function' ? fn(s.quotationWorkspace) : fn,
                   }))
                 }
+              />
+            ) : (
+              <PricingWorkspacePanel
+                workspace={state.pricingWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    pricingWorkspace:
+                      typeof fn === 'function' ? fn(s.pricingWorkspace) : fn,
+                  }))
+                }
+                contractContents={state.contractContents}
+                receivables={state.receivables}
               />
             )}
           </fieldset>
@@ -482,6 +498,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             setSalaryBook={(fn) =>
               setState((s) => ({ ...s, salaryBook: fn(s.salaryBook) }))
             }
+            contractContents={state.contractContents}
             quoteSite={state.site}
             canEdit={canEdit}
           />
@@ -495,6 +512,10 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             salaryBook={state.salaryBook}
             receivables={state.receivables}
             workLog={state.workLog}
+            contractContents={state.contractContents}
+            setContractContents={(fn) =>
+              setState((s) => ({ ...s, contractContents: fn(s.contractContents) }))
+            }
             canEdit={canEdit}
           />
         )}

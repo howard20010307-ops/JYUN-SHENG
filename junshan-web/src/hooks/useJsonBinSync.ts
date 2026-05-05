@@ -18,6 +18,8 @@ import {
 import { mergeWorkLogPreferLocal } from '../domain/workLogModel'
 import { mergeWorkItemPresetLabelsPreferLocal } from '../domain/workItemPresets'
 import { mergeLedgerMonthLinesPreferLocal } from '../domain/ledgerEngine'
+import { mergeContractContentPreferLocal } from '../domain/contractContentModel'
+import { mergePricingWorkspacePreferLocal } from '../domain/pricingWorkspace'
 
 export type JsonBinLine = { text: string; isError: boolean } | null
 
@@ -140,6 +142,8 @@ export function useJsonBinSync(
     if (!allowCloudWrite) return
     if (keyErr || !canUse || !ready) return
     if (!cloudUploadSuspended) return
+    // resume 會觸發依賴 cloudUploadSuspended 的 upload effect；先標記跳過下一輪，避免手動上傳後重送一次。
+    skipNextUpload.current = true
     setCloudUploadSuspended(false)
     void performUpload(latestStateRef.current)
       .then((r) => {
@@ -226,6 +230,14 @@ export function useJsonBinSync(
               receivables,
               workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
               salaryBook,
+              contractContents: mergeContractContentPreferLocal(
+                prev.contractContents,
+                fromCloud.contractContents,
+              ),
+              pricingWorkspace: mergePricingWorkspacePreferLocal(
+                prev.pricingWorkspace,
+                fromCloud.pricingWorkspace,
+              ),
               workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
                 prev.workItemPresetLabels,
                 fromCloud.workItemPresetLabels,

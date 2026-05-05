@@ -1,6 +1,7 @@
 import type { ReceivablesState } from './receivablesModel'
 import type { SalaryBook } from './salaryExcelModel'
 import type { WorkLogState } from './workLogModel'
+import { contractAmountOf, type ContractContentState } from './contractContentModel'
 import { effectiveEntriesForCalendar } from './workLogModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 
@@ -39,6 +40,22 @@ export type SiteAnalysisDetail = {
   note: string
 }
 
+export type SiteAnalysisContractRow = {
+  contractLineId: string
+  siteName: string
+  dong: string
+  floorLevel: string
+  workPhase: string
+  unit: string
+  contractUnitPrice: number
+  contractQuantity: number
+  contractAmount: number
+  receivableNetLinked: number
+  receivableProgress: number
+  receivableRemaining: number
+  note: string
+}
+
 export type SiteAnalysisSnapshot = {
   siteNames: string[]
   bySite: Record<
@@ -47,6 +64,13 @@ export type SiteAnalysisSnapshot = {
       groups: SiteAnalysisGroup[]
       details: SiteAnalysisDetail[]
       totals: SiteAnalysisGroup
+      contractRows: SiteAnalysisContractRow[]
+      contractTotals: {
+        contractAmount: number
+        receivableNetLinked: number
+        receivableRemaining: number
+        receivableProgress: number
+      }
     }
   >
 }
@@ -77,7 +101,16 @@ function resolveSite(raw: string, fallback = UNMATCHED_SITE): { key: string; dis
   return { key, display }
 }
 
+function isMissingLabel(raw: string): boolean {
+  const t = (raw ?? '').trim()
+  return t === '' || t === '未填'
+}
+
 function toGroupKey(siteKey: string, dong: string, floor: string, phase: string): string {
+  return [siteKey, norm(dong), norm(floor), norm(phase)].join('\u0001')
+}
+
+function toContractMatchKey(siteKey: string, dong: string, floor: string, phase: string): string {
   return [siteKey, norm(dong), norm(floor), norm(phase)].join('\u0001')
 }
 
@@ -172,6 +205,44 @@ function normalizeDateKey(raw: string): string {
   return `${y}-${mo}-${d}`
 }
 
+type FloorSortToken = {
+  rank: number
+  value: number
+  text: string
+}
+
+function parseFloorSortToken(raw: string): FloorSortToken {
+  const text = norm(raw)
+  const compact = text.replace(/\s+/g, '').toUpperCase()
+
+  const b = /^B(\d+)(?:F|樓)?$/.exec(compact)
+  if (b) return { rank: 0, value: -Number(b[1]), text } // B數字越大越上面（B3 在 B2 前）
+
+  if (compact.includes('夾層')) return { rank: 2, value: 0, text } // 固定放在 1F 後
+
+  const rf = /^(?:R(\d+)F?|RF(\d+))$/.exec(compact)
+  if (rf) {
+    const n = Number(rf[1] ?? rf[2] ?? '1')
+    return { rank: 3, value: Number.isFinite(n) ? n : 1, text } // RF 最後，數字小在前
+  }
+
+  const f = /^(-?\d+(?:\.\d+)?)(?:F|樓)?$/.exec(compact) ?? /(-?\d+(?:\.\d+)?)/.exec(compact)
+  if (f) {
+    const n = Number(f[1])
+    return { rank: 1, value: Number.isFinite(n) ? n : 0, text } // 一般樓層數字小在前
+  }
+
+  return { rank: 4, value: 0, text }
+}
+
+export function compareFloorLevelAsc(a: string, b: string): number {
+  const aa = parseFloorSortToken(a)
+  const bb = parseFloorSortToken(b)
+  if (aa.rank !== bb.rank) return aa.rank - bb.rank
+  if (aa.value !== bb.value) return aa.value - bb.value
+  return aa.text.localeCompare(bb.text, 'zh-Hant')
+}
+
 function payrollWorkerKey(dateKey: string, siteKey: string, staffName: string): string {
   return `${dateKey}\u0001${siteKey}\u0001${staffName.trim()}`
 }
@@ -241,6 +312,7 @@ export function buildSiteAnalysis(
   salaryBook: SalaryBook,
   workLog: WorkLogState,
   receivables: ReceivablesState,
+  contractContents: ContractContentState,
 ): SiteAnalysisSnapshot {
   /**
    * 工作日誌優先：
@@ -444,21 +516,24 @@ export function buildSiteAnalysis(
     const parts = candidates.map((k) => ({ key: k, p: splitGroupKey(k) }))
     const exact = parts.find((x) => x.p.dong === dn && x.p.floorLevel === fn && x.p.workPhase === pn)
     if (exact) return exact.key
-    const floorPhase = parts.find((x) => x.p.floorLevel === fn && x.p.workPhase === pn)
-    if (floorPhase) return floorPhase.key
-    const phaseOnly = parts.find((x) => x.p.workPhase === pn)
-    if (phaseOnly) return phaseOnly.key
-    const floorOnly = parts.find((x) => x.p.floorLevel === fn)
-    if (floorOnly) return floorOnly.key
-    if (parts.length === 1) return parts[0]!.key
+    // 嚴格模式：只有在收帳欄位全空且案場只有唯一分類時，才允許單一候選自動掛載。
+    if (parts.length === 1 && isMissingLabel(dong) && isMissingLabel(floor) && isMissingLabel(phase)) return parts[0]!.key
     return toGroupKey(siteKey, UNMATCHED_RECEIVABLE_DONG, floor, phase)
   }
 
+  const contractLineById = new Map<string, (typeof contractContents.lines)[number]>()
+  for (const line of contractContents.lines ?? []) {
+    contractLineById.set((line.id ?? '').trim(), line)
+  }
+
   for (const r of receivables.entries ?? []) {
-    const rawSite = (r.projectName ?? '').trim() || (r.siteBlockId ?? '').trim()
+    const linkedContract = contractLineById.get((r.contractLineId ?? '').trim())
+    const rawSite = (linkedContract?.siteName ?? '').trim() || (r.projectName ?? '').trim() || (r.siteBlockId ?? '').trim()
     const site = resolveSite(rawSite)
     siteDisplayByKey.set(site.key, site.display)
-    const key = pickReceivableTargetKey(site.key, r.buildingLabel, r.floorLabel, r.phaseLabel)
+    const key = linkedContract
+      ? toGroupKey(site.key, linkedContract.buildingLabel, linkedContract.floorLabel, linkedContract.phaseLabel)
+      : pickReceivableTargetKey(site.key, r.buildingLabel, r.floorLabel, r.phaseLabel)
     const g = ensureGroup(groupMap, key, site.display)
     g.revenueNet += nz(r.net)
     if (!groupKeysBySite.has(site.key)) groupKeysBySite.set(site.key, [])
@@ -477,6 +552,38 @@ export function buildSiteAnalysis(
     .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
 
   const bySite: SiteAnalysisSnapshot['bySite'] = {}
+  const receivableNetByContractLineId = new Map<string, number>()
+  const uniqueContractLineIdByKey = new Map<string, string>()
+  const duplicateContractMatchKeys = new Set<string>()
+  for (const line of contractContents.lines ?? []) {
+    const siteKey = normalizeSiteNameKey(line.siteName)
+    if (!siteKey) continue
+    const key = toContractMatchKey(siteKey, line.buildingLabel, line.floorLabel, line.phaseLabel)
+    const existing = uniqueContractLineIdByKey.get(key)
+    if (!existing) {
+      uniqueContractLineIdByKey.set(key, line.id)
+      continue
+    }
+    if (existing !== line.id) {
+      duplicateContractMatchKeys.add(key)
+      uniqueContractLineIdByKey.delete(key)
+    }
+  }
+  for (const r of receivables.entries ?? []) {
+    const boundCid = (r.contractLineId ?? '').trim()
+    if (boundCid) {
+      receivableNetByContractLineId.set(boundCid, (receivableNetByContractLineId.get(boundCid) ?? 0) + nz(r.net))
+      continue
+    }
+    // 未手動綁定時，僅在「案場+棟+樓層+階段」唯一匹配單一合約列時才自動納入對帳。
+    const siteKey = normalizeSiteNameKey((r.projectName ?? '').trim() || (r.siteBlockId ?? '').trim())
+    if (!siteKey) continue
+    const matchKey = toContractMatchKey(siteKey, r.buildingLabel, r.floorLabel, r.phaseLabel)
+    if (duplicateContractMatchKeys.has(matchKey)) continue
+    const autoCid = uniqueContractLineIdByKey.get(matchKey)
+    if (!autoCid) continue
+    receivableNetByContractLineId.set(autoCid, (receivableNetByContractLineId.get(autoCid) ?? 0) + nz(r.net))
+  }
   for (const siteKey of siteKeys) {
     const siteName = siteDisplayByKey.get(siteKey) ?? UNMATCHED_SITE
     const groups = [...groupMap.values()]
@@ -485,7 +592,7 @@ export function buildSiteAnalysis(
       .sort((a, b) => {
         const d = a.dong.localeCompare(b.dong, 'zh-Hant')
         if (d !== 0) return d
-        const f = a.floorLevel.localeCompare(b.floorLevel, 'zh-Hant')
+        const f = compareFloorLevelAsc(a.floorLevel, b.floorLevel)
         if (f !== 0) return f
         return a.workPhase.localeCompare(b.workPhase, 'zh-Hant')
       })
@@ -515,7 +622,50 @@ export function buildSiteAnalysis(
       ),
     )
     const details = (detailsBySite.get(siteKey) ?? []).slice().sort(detailSortAsc)
-    bySite[siteName] = { groups, details, totals }
+    const contractRows: SiteAnalysisContractRow[] = (contractContents.lines ?? [])
+      .filter((line) => normalizeSiteNameKey(line.siteName) === siteKey)
+      .map((line) => {
+        const contractAmount = contractAmountOf(line)
+        const receivableNetLinked = nz(receivableNetByContractLineId.get(line.id) ?? 0)
+        const receivableRemaining = contractAmount - receivableNetLinked
+        const receivableProgress = contractAmount > 0 ? receivableNetLinked / contractAmount : 0
+        return {
+          contractLineId: line.id,
+          siteName,
+          dong: norm(line.buildingLabel),
+          floorLevel: norm(line.floorLabel),
+          workPhase: norm(line.phaseLabel),
+          unit: line.unit.trim() || '未填',
+          contractUnitPrice: nz(line.contractUnitPrice),
+          contractQuantity: nz(line.contractQuantity),
+          contractAmount,
+          receivableNetLinked,
+          receivableRemaining,
+          receivableProgress,
+          note: (line.note ?? '').trim(),
+        }
+      })
+      .sort((a, b) => {
+        const d = a.dong.localeCompare(b.dong, 'zh-Hant')
+        if (d !== 0) return d
+        const f = compareFloorLevelAsc(a.floorLevel, b.floorLevel)
+        if (f !== 0) return f
+        return a.workPhase.localeCompare(b.workPhase, 'zh-Hant')
+      })
+    const contractTotals = contractRows.reduce(
+      (acc, row) => {
+        acc.contractAmount += row.contractAmount
+        acc.receivableNetLinked += row.receivableNetLinked
+        return acc
+      },
+      { contractAmount: 0, receivableNetLinked: 0, receivableRemaining: 0, receivableProgress: 0 },
+    )
+    contractTotals.receivableRemaining = contractTotals.contractAmount - contractTotals.receivableNetLinked
+    contractTotals.receivableProgress =
+      contractTotals.contractAmount > 0
+        ? contractTotals.receivableNetLinked / contractTotals.contractAmount
+        : 0
+    bySite[siteName] = { groups, details, totals, contractRows, contractTotals }
   }
 
   return { siteNames, bySite }

@@ -10,8 +10,9 @@ export type BackupFileV1 = {
 }
 
 /** 與 {@link AppState} 對齊；上傳 JSONBin 前須全部存在於 `data` 內（含巢狀結構之最小形狀）。 */
-const WIRE_DATA_KEYS: (keyof AppState)[] = [
+export const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'tab',
+  'clientDocsSheet',
   'salaryBook',
   'site',
   'quoteRows',
@@ -21,7 +22,31 @@ const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'workItemPresetLabels',
   'workLog',
   'receivables',
+  'customLaborWorkspace',
+  'quotationWorkspace',
+  'contractContents',
+  'pricingWorkspace',
 ]
+
+/** 備份線路防呆：新增／刪除 AppState 欄位時，若未同步更新 WIRE_DATA_KEYS，編譯期直接報錯。 */
+const WIRE_DATA_KEYS_GUARD: Record<keyof AppState, true> = {
+  tab: true,
+  clientDocsSheet: true,
+  salaryBook: true,
+  site: true,
+  quoteRows: true,
+  quoteRowsSchemaVersion: true,
+  months: true,
+  ledgerYear: true,
+  workItemPresetLabels: true,
+  workLog: true,
+  receivables: true,
+  customLaborWorkspace: true,
+  quotationWorkspace: true,
+  contractContents: true,
+  pricingWorkspace: true,
+}
+void WIRE_DATA_KEYS_GUARD
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -161,6 +186,9 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   const rec = data.receivables
   if (!rec || typeof rec !== 'object' || !Array.isArray((rec as { entries?: unknown }).entries)) {
     throw new Error('上傳中止：receivables.entries 必須為陣列。')
+  }
+  if (!data.pricingWorkspace || typeof data.pricingWorkspace !== 'object') {
+    throw new Error('上傳中止：pricingWorkspace 必須為物件。')
   }
 }
 
