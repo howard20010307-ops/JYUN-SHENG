@@ -9,6 +9,7 @@ import type { ReceivablesState } from '../domain/receivablesModel'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import { buildSiteAnalysis, compareFloorLevelAsc } from '../domain/siteAnalysis'
 import type { WorkLogState } from '../domain/workLogModel'
+import { PhasePeriodRangeInputs } from './PhasePeriodRangeInputs'
 import { PayrollNumberInput } from './PayrollNumberInput'
 
 type Props = {
@@ -26,6 +27,11 @@ function fmtMoney(n: number): string {
 
 function fmtPct(n: number): string {
   return `${(Number.isFinite(n) ? n * 100 : 0).toFixed(1)}%`
+}
+
+function inputSizeByContent(v: string, min = 4, max = 28): number {
+  const n = (v ?? '').trim().length
+  return Math.max(min, Math.min(max, n + 1))
 }
 
 export function SiteAnalysisPanel({
@@ -377,7 +383,8 @@ export function SiteAnalysisPanel({
       <h2>案場分析</h2>
       <p className="hint">
         僅供分析，唯讀不回寫。資料來源：工作日誌＋收帳＋薪水月表。收入以收帳掛載；
-        棟/樓層/階段以工作日誌分類；薪資與工數依月表同日同案場人員資料計算；儀器成本列入營業費用（儀器）。
+        棟/樓層/階段以工作日誌分類；合約／收帳／日誌之棟樓階段會折疊全形與多餘空白；空欄在損益分組時與「未填」相同。薪資與工數依月表同日同案場人員資料計算；儀器成本列入營業費用（儀器）。
+        「未對應收帳」且階段為日期區間時，會依下方出工明細對齊：薪資／餐費／工數以棟樓階段皆未填者為準；儀器為該日明細「儀器」加總（含錨點區塊掛在有填階段者）併入請款列並自對應列扣回。
       </p>
       <div className="btnRow" style={{ marginBottom: 10 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -424,7 +431,7 @@ export function SiteAnalysisPanel({
                   <tr>
                     <th>棟</th>
                     <th>樓層</th>
-                    <th>階段</th>
+                    <th>階段（期間）</th>
                     <th>計價模式</th>
                     <th>單位</th>
                     <th className="num">合約單價</th>
@@ -448,6 +455,7 @@ export function SiteAnalysisPanel({
                         <td>
                           <input
                             type="text"
+                            size={inputSizeByContent(line.buildingLabel, 3, 10)}
                             className="titleInput"
                             value={line.buildingLabel}
                             onChange={(e) => updateContractLine(line.id, { buildingLabel: e.target.value })}
@@ -457,6 +465,7 @@ export function SiteAnalysisPanel({
                         <td>
                           <input
                             type="text"
+                            size={inputSizeByContent(line.floorLabel, 3, 10)}
                             className="titleInput"
                             value={line.floorLabel}
                             onChange={(e) => updateContractLine(line.id, { floorLabel: e.target.value })}
@@ -464,12 +473,10 @@ export function SiteAnalysisPanel({
                           />
                         </td>
                         <td>
-                          <input
-                            type="text"
-                            className="titleInput"
+                          <PhasePeriodRangeInputs
                             value={line.phaseLabel}
-                            onChange={(e) => updateContractLine(line.id, { phaseLabel: e.target.value })}
-                            placeholder="例：結構"
+                            onChange={(next) => updateContractLine(line.id, { phaseLabel: next })}
+                            disabled={!canEdit}
                           />
                         </td>
                         <td>
@@ -490,6 +497,7 @@ export function SiteAnalysisPanel({
                         <td>
                           <input
                             type="text"
+                            size={inputSizeByContent(line.unit, 2, 8)}
                             className="titleInput"
                             value={line.unit}
                             onChange={(e) => updateContractLine(line.id, { unit: e.target.value })}
@@ -506,7 +514,13 @@ export function SiteAnalysisPanel({
                         </td>
                         <td className="num">
                           {line.pricingMode === 'manualWorkDays' ? (
-                            <input type="text" className="titleInput" value={line.contractQuantity} disabled />
+                            <input
+                              type="text"
+                              size={1}
+                              className="titleInput"
+                              value={line.contractQuantity}
+                              disabled
+                            />
                           ) : (
                             <PayrollNumberInput
                               className="titleInput"
@@ -518,7 +532,13 @@ export function SiteAnalysisPanel({
                         </td>
                         <td className="num">
                           {line.pricingMode !== 'manualWorkDays' ? (
-                            <input type="text" className="titleInput" value={line.manualWorkDays} disabled />
+                            <input
+                              type="text"
+                              size={1}
+                              className="titleInput"
+                              value={line.manualWorkDays}
+                              disabled
+                            />
                           ) : (
                             <PayrollNumberInput
                               className="titleInput"
@@ -532,6 +552,7 @@ export function SiteAnalysisPanel({
                         <td>
                           <input
                             type="text"
+                            size={inputSizeByContent(line.note, 6, 30)}
                             className="titleInput"
                             value={line.note}
                             onChange={(e) => updateContractLine(line.id, { note: e.target.value })}

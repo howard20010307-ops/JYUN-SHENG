@@ -171,6 +171,11 @@ function initialPayrollSelection(book: SalaryBook): { activeMonthId: string; pay
   }
 }
 
+function textInputSize(v: string, min = 4, max = 24): number {
+  const n = (v ?? '').trim().length
+  return Math.max(min, Math.min(max, n + 1))
+}
+
 export function PayrollPanel({
   salaryBook,
   setSalaryBook,
@@ -697,6 +702,7 @@ export function PayrollPanel({
                       <td>
                         <input
                           type="text"
+                          size={textInputSize(name, 4, 18)}
                           className="titleInput"
                           defaultValue={name}
                           aria-label={`${name} 姓名`}
@@ -801,7 +807,8 @@ export function PayrollPanel({
             </div>
           </section>
 
-          {month.blocks.map((block, bi) => (
+          {month.blocks.map((block, bi) => {
+            return (
             <section key={block.id} className="card">
               <div className="panelHead" style={{ flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
                 <input
@@ -912,7 +919,7 @@ export function PayrollPanel({
                 時，會寫回<strong>全書各月</strong>、<strong>放樣估價主案名</strong>、<strong>收帳案名</strong>、<strong>工作日誌（含整日文件）</strong>（以您<strong>第一次點進此欄位時的案名</strong>為舊名）。輸入時不即時寫入，可避免卡頓。
               </p>
               <div className="tableScroll tableScrollSticky">
-                <table className="data tight">
+                <table className="data tight payrollSiteBlockTable">
                   <thead>
                     <tr>
                       <th />
@@ -926,7 +933,7 @@ export function PayrollPanel({
                             key={d}
                             className={`dtCol${colHasStaffWork ? ' dtCol--hasWork' : ''}`}
                           >
-                            {d.slice(5).replace('-', '/')}
+                            {d.slice(5)}
                           </th>
                         )
                       })}
@@ -1013,7 +1020,7 @@ export function PayrollPanel({
                       </td>
                     </tr>
                     <tr className="payrollGrandRow">
-                      <th scope="row">總計©</th>
+                      <th scope="row">總計</th>
                       {blockDayColumnTotals(block, staffOrder, month.dates.length).map(
                         (v, j) => (
                           <td
@@ -1038,7 +1045,8 @@ export function PayrollPanel({
                 </table>
               </div>
             </section>
-          ))}
+            )
+          })}
 
           <section className="card">
             <h3>總出工數（跨案場加總，與 Excel 同欄對齊）</h3>

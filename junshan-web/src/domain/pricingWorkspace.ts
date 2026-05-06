@@ -1,5 +1,11 @@
 import { allocateWithSuffix, stableHash16 } from './stableIds'
 import { COMPANY_CONTRACTOR } from './companyContact'
+import {
+  contractAmountOf,
+  taiwanGrossInclusiveFivePercentRoundedFromNet,
+  taiwanVatFivePercentTaxFromRoundedGross,
+  type ContractContentLine,
+} from './contractContentModel'
 import { migrateQuoteOwnerClient, type QuoteOwnerClient } from './quoteEngine'
 
 export type PricingRow = {
@@ -9,6 +15,8 @@ export type PricingRow = {
   floorLabel: string
   phaseLabel: string
   item: string
+  unit: string
+  quantity: number
   amountNet: number
   tax: number
   total: number
@@ -49,10 +57,12 @@ function str(v: unknown): string {
 }
 
 function normalizeRow(row: PricingRow): PricingRow {
+  const quantity = safeNum(row.quantity)
   const amountNet = safeNum(row.amountNet)
-  const tax = safeNum(row.tax)
+  const subtotal = Math.round(amountNet * quantity)
+  const tax = safeNum(row.tax) || taiwanVatFivePercentTaxFromRoundedGross(subtotal)
   const totalRaw = safeNum(row.total)
-  const total = totalRaw !== 0 ? totalRaw : amountNet + tax
+  const total = totalRaw !== 0 ? totalRaw : taiwanGrossInclusiveFivePercentRoundedFromNet(subtotal)
   return {
     ...row,
     contractLineId: (row.contractLineId ?? '').trim(),
@@ -60,7 +70,9 @@ function normalizeRow(row: PricingRow): PricingRow {
     floorLabel: row.floorLabel.trim(),
     phaseLabel: row.phaseLabel.trim(),
     item: row.item.trim(),
+    unit: row.unit.trim(),
     note: row.note.trim(),
+    quantity,
     amountNet,
     tax,
     total,
@@ -75,6 +87,8 @@ function ensureStableRowIds(rows: PricingRow[]): PricingRow[] {
       row.floorLabel,
       row.phaseLabel,
       row.item,
+      row.unit,
+      String(row.quantity),
       String(row.amountNet),
       String(row.tax),
       String(row.total),
@@ -129,6 +143,8 @@ export function migratePricingWorkspace(raw: unknown): PricingWorkspaceState {
         floorLabel: str(x.floorLabel),
         phaseLabel: str(x.phaseLabel),
         item: str(x.item),
+        unit: str(x.unit),
+        quantity: safeNum(x.quantity) || 1,
         amountNet: safeNum(x.amountNet),
         tax: safeNum(x.tax),
         total: safeNum(x.total),
@@ -190,6 +206,8 @@ export function createPricingRow(seedSite: string, existing: readonly PricingRow
     floorLabel: '',
     phaseLabel: '',
     item: '',
+    unit: '',
+    quantity: 1,
     amountNet: 0,
     tax: 0,
     total: 0,
@@ -206,10 +224,30 @@ export function createPricingRemarkLine(
   return { id, text: '' }
 }
 
-export function pricingRowNormalizedTotal(row: Pick<PricingRow, 'amountNet' | 'tax' | 'total'>): number {
+/** 計價列「小計(未稅)」：已對照合約時與合約列金額 contractAmountOf 一致；否則為 round(單價×數量)。 */
+export function pricingLineSubtotalNet(
+  row: Pick<PricingRow, 'contractLineId' | 'amountNet' | 'quantity'>,
+  contractLineById: ReadonlyMap<string, ContractContentLine>,
+): number {
+  const cid = (row.contractLineId ?? '').trim()
+  if (cid) {
+    const linked = contractLineById.get(cid)
+    if (linked) return contractAmountOf(linked)
+  }
+  const unitPrice = safeNum(row.amountNet)
+  const qty = safeNum(row.quantity)
+  return Math.round(unitPrice * qty)
+}
+
+export function pricingRowNormalizedTotal(
+  row: Pick<PricingRow, 'amountNet' | 'quantity' | 'tax' | 'total'>,
+): number {
   const total = safeNum(row.total)
   if (total !== 0) return total
-  return safeNum(row.amountNet) + safeNum(row.tax)
+  const quantity = safeNum(row.quantity)
+  const subtotal = Math.round(safeNum(row.amountNet) * quantity)
+  const tax = safeNum(row.tax) || taiwanVatFivePercentTaxFromRoundedGross(subtotal)
+  return subtotal + tax
 }
 
 export function mergePricingWorkspacePreferLocal(

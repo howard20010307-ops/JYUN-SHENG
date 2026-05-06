@@ -3,6 +3,8 @@
 import type { SalaryBook } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 import { allocateWithSuffix, stableHash16 } from './stableIds'
+import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
+import { normalizePhasePeriodLabel } from './receivablePhaseRange'
 
 export type ReceivableEntryId = string
 
@@ -25,7 +27,7 @@ export type ReceivableEntry = {
   buildingLabel: string
   /** 樓層／區位（可空；例：3F、B1；與估價案名一致時可由清單選） */
   floorLabel: string
-  /** 階段 */
+  /** 階段（期間）：建議填年/月/日區間，如 2026/05/01 ~ 2026/05/31 */
   phaseLabel: string
   net: number
   /**
@@ -275,6 +277,15 @@ function receivableSingleLineField(s: string): string {
   return s.replace(/\r\n|\r|\n/g, ' ')
 }
 
+function normalizeReceivableEntryDimensions(e: ReceivableEntry): ReceivableEntry {
+  return {
+    ...e,
+    buildingLabel: collapseSiteDimensionWhitespace(e.buildingLabel),
+    floorLabel: collapseSiteDimensionWhitespace(e.floorLabel),
+    phaseLabel: normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
+  }
+}
+
 /** 備註可含換行：僅正規化換行字元為 \n */
 export function normalizeReceivableNote(s: string): string {
   return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -288,9 +299,9 @@ function receivableMergeSansProjectFingerprint(e: ReceivableEntry): string {
   return [
     e.bookedDate.trim(),
     String(net),
-    receivableSingleLineField(e.phaseLabel).trim(),
-    e.buildingLabel.trim(),
-    e.floorLabel.trim(),
+    normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
+    collapseSiteDimensionWhitespace(e.buildingLabel),
+    collapseSiteDimensionWhitespace(e.floorLabel),
     e.taxZero ? '1' : '0',
     normalizeReceivableNote(e.note).trim(),
     (e.contractLineId ?? '').trim(),
@@ -397,7 +408,7 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
     if (monthSheetId !== undefined) entry.monthSheetId = monthSheetId
     if (siteBlockId !== undefined) entry.siteBlockId = siteBlockId
     if (contractLineId !== undefined) entry.contractLineId = contractLineId
-    out.push(entry)
+    out.push(normalizeReceivableEntryDimensions(entry))
   }
   return out
 }
@@ -569,9 +580,9 @@ function receivableCloudMergeFingerprint(e: ReceivableEntry): string {
     e.bookedDate.trim(),
     payrollSiteKeyForMerge(e),
     String(net),
-    receivableSingleLineField(e.phaseLabel).trim(),
-    e.buildingLabel.trim(),
-    e.floorLabel.trim(),
+    normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
+    collapseSiteDimensionWhitespace(e.buildingLabel),
+    collapseSiteDimensionWhitespace(e.floorLabel),
     e.taxZero ? '1' : '0',
     normalizeReceivableNote(e.note).trim(),
     (e.contractLineId ?? '').trim(),

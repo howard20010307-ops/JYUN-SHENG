@@ -1,16 +1,24 @@
 import { useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { buildPricingPdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
-import { contractAmountOf, type ContractContentState } from '../domain/contractContentModel'
+import {
+  contractAmountOf,
+  contractQuantityForAmount,
+  taiwanGrossInclusiveFivePercentRoundedFromNet,
+  taiwanVatFivePercentTaxFromRoundedGross,
+  type ContractContentLine,
+  type ContractContentState,
+} from '../domain/contractContentModel'
 import { compareFloorLevelAsc } from '../domain/siteAnalysis'
 import {
   createPricingRemarkLine,
   createPricingRow,
   initialPricingWorkspace,
+  pricingLineSubtotalNet,
   type PricingRow,
   type PricingWorkspaceState,
 } from '../domain/pricingWorkspace'
 import type { ReceivablesState } from '../domain/receivablesModel'
-import { PayrollNumberInput } from './PayrollNumberInput'
+import { normalizeSiteDimensionLabel } from '../domain/siteDimensionLabels'
 import { PricingPdfSheet } from './PricingPdfSheet'
 
 type Props = {
@@ -24,11 +32,6 @@ function normSite(v: string): string {
   return (v ?? '').replace(/\u3000/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
-function normPart(v: string): string {
-  const t = (v ?? '').trim()
-  return t === '' ? '未填' : t
-}
-
 function money(n: number): string {
   return Math.round(Number.isFinite(n) ? n : 0).toLocaleString()
 }
@@ -37,14 +40,31 @@ function pct(n: number): string {
   return `${((Number.isFinite(n) ? n : 0) * 100).toFixed(1)}%`
 }
 
-function pricingTaxFromNet(n: number): number {
-  const net = Number.isFinite(n) ? n : 0
-  return Math.round(net * 0.05)
+/** 該列未稅小計對應之總價含稅所拆分出的營業稅（總價＝round(未稅×1.05)，稅＝總價−未稅）。 */
+function pricingTaxFromSubtotal(n: number): number {
+  return taiwanVatFivePercentTaxFromRoundedGross(n)
 }
 
-function pricingRowTotalAuto(row: Pick<PricingRow, 'amountNet'>): number {
-  const net = Number.isFinite(row.amountNet) ? row.amountNet : 0
-  return net + pricingTaxFromNet(net)
+function pricingRowTotalAuto(
+  row: Pick<PricingRow, 'contractLineId' | 'amountNet' | 'quantity'>,
+  contractLineById: ReadonlyMap<string, ContractContentLine>,
+): number {
+  const subtotal = pricingLineSubtotalNet(row, contractLineById)
+  return taiwanGrossInclusiveFivePercentRoundedFromNet(subtotal)
+}
+
+function inputSizeByContent(v: string, min = 4, max = 24): number {
+  const n = (v ?? '').trim().length
+  return Math.max(min, Math.min(max, n + 1))
+}
+
+function contractUnitPriceDisplayed(line: { contractUnitPrice: number }): number {
+  return Number.isFinite(line.contractUnitPrice) ? line.contractUnitPrice : 0
+}
+
+function decimal(n: number): string {
+  if (!Number.isFinite(n)) return '0'
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
 function buildingSort(a: string, b: string): number {
@@ -89,6 +109,24 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
     for (const x of contractLinesForSite) m.set(x.id, x)
     return m
   }, [contractLinesForSite])
+  const hydratedRows = useMemo(
+    () =>
+      workspace.rows.map((row) => {
+        const linked = contractLineById.get((row.contractLineId ?? '').trim())
+        if (!linked) return row
+        return {
+          ...row,
+          buildingLabel: linked.buildingLabel,
+          floorLabel: linked.floorLabel,
+          phaseLabel: linked.phaseLabel,
+          unit: linked.unit || row.unit,
+          quantity: contractQuantityForAmount(linked),
+          amountNet: contractUnitPriceDisplayed(linked),
+          note: linked.note || row.note,
+        }
+      }),
+    [workspace.rows, contractLineById],
+  )
 
   const contractTotalByBuilding = useMemo(() => {
     const m = new Map<string, number>()
@@ -103,7 +141,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
     const uniqueContractIdByKey = new Map<string, string>()
     const duplicateKeys = new Set<string>()
     for (const line of contractLinesForSite) {
-      const key = `${activeSiteKey}\u0001${normPart(line.buildingLabel)}\u0001${normPart(line.floorLabel)}\u0001${normPart(line.phaseLabel)}`
+      const key = `${activeSiteKey}\u0001${normalizeSiteDimensionLabel(line.buildingLabel)}\u0001${normalizeSiteDimensionLabel(line.floorLabel)}\u0001${normalizeSiteDimensionLabel(line.phaseLabel)}`
       const got = uniqueContractIdByKey.get(key)
       if (!got) {
         uniqueContractIdByKey.set(key, line.id)
@@ -120,7 +158,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
       if (!line) {
         const recvSiteKey = normSite((r.projectName ?? '').trim() || (r.siteBlockId ?? '').trim())
         if (recvSiteKey !== activeSiteKey) continue
-        const key = `${activeSiteKey}\u0001${normPart(r.buildingLabel)}\u0001${normPart(r.floorLabel)}\u0001${normPart(r.phaseLabel)}`
+        const key = `${activeSiteKey}\u0001${normalizeSiteDimensionLabel(r.buildingLabel)}\u0001${normalizeSiteDimensionLabel(r.floorLabel)}\u0001${normalizeSiteDimensionLabel(r.phaseLabel)}`
         if (duplicateKeys.has(key)) continue
         const autoCid = uniqueContractIdByKey.get(key)
         if (!autoCid) continue
@@ -136,7 +174,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
     const uniqueContractIdByKey = new Map<string, string>()
     const duplicateKeys = new Set<string>()
     for (const line of contractLinesForSite) {
-      const key = `${activeSiteKey}\u0001${normPart(line.buildingLabel)}\u0001${normPart(line.floorLabel)}\u0001${normPart(line.phaseLabel)}`
+      const key = `${activeSiteKey}\u0001${normalizeSiteDimensionLabel(line.buildingLabel)}\u0001${normalizeSiteDimensionLabel(line.floorLabel)}\u0001${normalizeSiteDimensionLabel(line.phaseLabel)}`
       const got = uniqueContractIdByKey.get(key)
       if (!got) {
         uniqueContractIdByKey.set(key, line.id)
@@ -156,7 +194,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
       }
       const recvSiteKey = normSite((r.projectName ?? '').trim() || (r.siteBlockId ?? '').trim())
       if (recvSiteKey !== activeSiteKey) continue
-      const key = `${activeSiteKey}\u0001${normPart(r.buildingLabel)}\u0001${normPart(r.floorLabel)}\u0001${normPart(r.phaseLabel)}`
+      const key = `${activeSiteKey}\u0001${normalizeSiteDimensionLabel(r.buildingLabel)}\u0001${normalizeSiteDimensionLabel(r.floorLabel)}\u0001${normalizeSiteDimensionLabel(r.phaseLabel)}`
       if (duplicateKeys.has(key)) continue
       const autoCid = uniqueContractIdByKey.get(key)
       if (!autoCid) continue
@@ -167,13 +205,13 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
 
   const thisByBuilding = useMemo(() => {
     const m = new Map<string, number>()
-    for (const row of workspace.rows) {
+    for (const row of hydratedRows) {
       const linked = contractLineById.get((row.contractLineId ?? '').trim())
       const key = (linked?.buildingLabel ?? row.buildingLabel).trim() || '未填'
-      m.set(key, (m.get(key) ?? 0) + pricingRowTotalAuto(row))
+      m.set(key, (m.get(key) ?? 0) + pricingLineSubtotalNet(row, contractLineById))
     }
     return m
-  }, [workspace.rows, contractLineById])
+  }, [hydratedRows, contractLineById])
 
   const buildingProgress = useMemo(() => {
     const keys = new Set<string>([
@@ -198,33 +236,43 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
   const overall = useMemo(() => {
     const contractTotal = [...contractTotalByBuilding.values()].reduce((a, b) => a + b, 0)
     const alreadyRequested = [...alreadyByBuilding.values()].reduce((a, b) => a + b, 0)
-    const thisRequest = workspace.rows.reduce((sum, row) => sum + pricingRowTotalAuto(row), 0)
+    const thisRequest = hydratedRows.reduce((sum, row) => sum + pricingLineSubtotalNet(row, contractLineById), 0)
     const after = alreadyRequested + thisRequest
     const remaining = contractTotal - after
     const completion = contractTotal > 0 ? after / contractTotal : 0
     return { contractTotal, alreadyRequested, thisRequest, remaining, completion }
-  }, [contractTotalByBuilding, alreadyByBuilding, workspace.rows])
+  }, [contractTotalByBuilding, alreadyByBuilding, hydratedRows, contractLineById])
 
   const sortedRows = useMemo(
     () =>
-      workspace.rows.slice().sort((a, b) => {
+      hydratedRows.slice().sort((a, b) => {
         const d = buildingSort(a.buildingLabel || '未填', b.buildingLabel || '未填')
         if (d !== 0) return d
         const f = compareFloorLevelAsc(a.floorLabel || '未填', b.floorLabel || '未填')
         if (f !== 0) return f
         return a.phaseLabel.localeCompare(b.phaseLabel, 'zh-Hant')
       }),
-    [workspace.rows],
+    [hydratedRows],
   )
+  const rowSummary = useMemo(() => {
+    const rowCount = sortedRows.length
+    const amountNet = sortedRows.reduce((sum, row) => sum + pricingLineSubtotalNet(row, contractLineById), 0)
+    const tax = sortedRows.reduce(
+      (sum, row) => sum + pricingTaxFromSubtotal(pricingLineSubtotalNet(row, contractLineById)),
+      0,
+    )
+    const total = amountNet + tax
+    return { rowCount, amountNet, tax, total }
+  }, [sortedRows, contractLineById])
 
   const previewRows = useMemo(
     () =>
       sortedRows.map((r) => ({
         ...r,
-        tax: pricingTaxFromNet(r.amountNet),
-        total: pricingRowTotalAuto(r),
+        tax: pricingTaxFromSubtotal(pricingLineSubtotalNet(r, contractLineById)),
+        total: pricingRowTotalAuto(r, contractLineById),
       })),
-    [sortedRows],
+    [sortedRows, contractLineById],
   )
   function updateRow(id: string, patch: Partial<Omit<PricingRow, 'id'>>) {
     setWorkspace((prev) => ({
@@ -232,11 +280,12 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
       rows: prev.rows.map((row) => {
         if (row.id !== id) return row
         const next = { ...row, ...patch }
-        if ('amountNet' in patch) {
-          next.tax = pricingTaxFromNet(next.amountNet)
-          next.total = next.amountNet + next.tax
+        if ('amountNet' in patch || 'quantity' in patch || 'contractLineId' in patch) {
+          const subtotal = pricingLineSubtotalNet(next, contractLineById)
+          next.tax = pricingTaxFromSubtotal(subtotal)
+          next.total = subtotal + next.tax
         } else if ('tax' in patch) {
-          next.total = next.amountNet + next.tax
+          next.total = pricingLineSubtotalNet(next, contractLineById) + next.tax
         }
         return next
       }),
@@ -294,7 +343,9 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
             一鍵清除
           </button>
         </div>
-        <p className="hint">可選案場帶入合約對照，並自填本次請款列；可預覽與下載 PDF。</p>
+        <p className="hint">
+          可選案場帶入合約對照，並自填本次請款列；可預覽與下載 PDF。總價＝該列未稅小計加計稅金（合約對照列之含稅總額）。
+        </p>
         <div className="btnRow" style={{ marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             標題
@@ -413,9 +464,12 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                 <th>樓層</th>
                 <th>階段</th>
                 <th>項目</th>
-                <th className="num">金額(未稅)</th>
+                <th>單位</th>
+                <th className="num">數量</th>
+                <th className="num">單價(未稅)</th>
+                <th className="num">小計(未稅)</th>
                 <th className="num">稅金</th>
-                <th className="num">總計</th>
+                <th className="num">總價</th>
                 <th>備註</th>
                 <th />
               </tr>
@@ -423,25 +477,36 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="muted">
+                  <td colSpan={13} className="muted">
                     尚無列，請按「新增列」。
                   </td>
                 </tr>
               ) : (
                 sortedRows.map((row) => (
                   <tr key={row.id}>
+                    {(() => {
+                      const linked = contractLineById.get((row.contractLineId ?? '').trim())
+                      const viewBuilding = linked?.buildingLabel ?? row.buildingLabel
+                      const viewFloor = linked?.floorLabel ?? row.floorLabel
+                      const viewPhase = linked?.phaseLabel ?? row.phaseLabel
+                      const viewItem = row.item
+                      const viewUnit = linked?.unit ?? row.unit
+                      const viewQuantity = linked ? contractQuantityForAmount(linked) : row.quantity
+                      const viewAmountNet = linked ? contractUnitPriceDisplayed(linked) : row.amountNet
+                      const viewNote = linked?.note || row.note
+                      const viewSubtotal = pricingLineSubtotalNet(row, contractLineById)
+                      const viewTax = pricingTaxFromSubtotal(viewSubtotal)
+                      const viewTotal = viewSubtotal + viewTax
+                      return (
+                        <>
                     <td>
                       <select
                         className="titleInput"
                         value={(row.contractLineId ?? '').trim()}
                         onChange={(e) => {
                           const nextId = e.target.value
-                          const linked = contractLineById.get(nextId)
                           updateRow(row.id, {
                             contractLineId: nextId,
-                            buildingLabel: linked?.buildingLabel ?? row.buildingLabel,
-                            floorLabel: linked?.floorLabel ?? row.floorLabel,
-                            phaseLabel: linked?.phaseLabel ?? row.phaseLabel,
                           })
                         }}
                       >
@@ -458,24 +523,68 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                       </select>
                     </td>
                     <td>
-                      <input type="text" className="titleInput" value={row.buildingLabel} onChange={(e) => updateRow(row.id, { buildingLabel: e.target.value })} />
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewBuilding, 3, 10)}
+                        className="titleInput"
+                        value={viewBuilding}
+                        readOnly
+                      />
                     </td>
                     <td>
-                      <input type="text" className="titleInput" value={row.floorLabel} onChange={(e) => updateRow(row.id, { floorLabel: e.target.value })} />
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewFloor, 3, 10)}
+                        className="titleInput"
+                        value={viewFloor}
+                        readOnly
+                      />
                     </td>
                     <td>
-                      <input type="text" className="titleInput" value={row.phaseLabel} onChange={(e) => updateRow(row.id, { phaseLabel: e.target.value })} />
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewPhase, 4, 12)}
+                        className="titleInput"
+                        value={viewPhase}
+                        readOnly
+                      />
                     </td>
                     <td>
-                      <input type="text" className="titleInput" value={row.item} onChange={(e) => updateRow(row.id, { item: e.target.value })} />
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewItem, 8, 36)}
+                        className="titleInput"
+                        value={viewItem}
+                        onChange={(e) => updateRow(row.id, { item: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewUnit, 3, 10)}
+                        className="titleInput"
+                        placeholder="式"
+                        value={viewUnit}
+                        readOnly
+                      />
                     </td>
                     <td className="num">
-                      <PayrollNumberInput className="titleInput" value={row.amountNet} onCommit={(n) => updateRow(row.id, { amountNet: n })} />
+                      <input type="text" className="titleInput" value={decimal(viewQuantity)} readOnly />
                     </td>
-                    <td className="num">{money(pricingTaxFromNet(row.amountNet))}</td>
-                    <td className="num pricingSheetTable__totalCell">{money(pricingRowTotalAuto(row))}</td>
+                    <td className="num">
+                      <input type="text" className="titleInput" value={money(viewAmountNet)} readOnly />
+                    </td>
+                    <td className="num">{money(viewSubtotal)}</td>
+                    <td className="num">{money(viewTax)}</td>
+                    <td className="num pricingSheetTable__totalCell">{money(viewTotal)}</td>
                     <td>
-                      <input type="text" className="titleInput" value={row.note} onChange={(e) => updateRow(row.id, { note: e.target.value })} />
+                      <input
+                        type="text"
+                        size={inputSizeByContent(viewNote, 6, 28)}
+                        className="titleInput"
+                        value={viewNote}
+                        readOnly
+                      />
                     </td>
                     <td>
                       <button
@@ -491,10 +600,25 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                         刪除
                       </button>
                     </td>
+                        </>
+                      )
+                    })()}
                   </tr>
                 ))
               )}
             </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={8} className="pricingSheetTable__footerLabel">
+                  合計
+                </td>
+                <td className="num pricingSheetTable__footerNum">{money(rowSummary.amountNet)}</td>
+                <td className="num pricingSheetTable__footerNum">{money(rowSummary.tax)}</td>
+                <td className="num pricingSheetTable__totalCell pricingSheetTable__footerTotalCell">{money(rowSummary.total)}</td>
+                <td className="pricingSheetTable__rowCount">共 {rowSummary.rowCount} 列</td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </div>
         <div className="btnRow" style={{ marginTop: 8, marginBottom: 6, gap: 8, justifyContent: 'flex-end' }}>
@@ -516,16 +640,16 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
         </div>
 
         <section className="siteAnalysisBlock siteAnalysisBlock--contractSubtotal">
-          <h3 style={{ marginTop: 0 }}>棟別請款進度（本次＋既有）</h3>
+          <h3 style={{ marginTop: 0 }}>棟別請款進度（未稅，本次＋既有）</h3>
           <div className="tableScroll">
             <table className="data tight siteAnalysisContractSummaryTable">
               <thead>
                 <tr>
                   <th>棟</th>
-                  <th className="num">已請</th>
-                  <th className="num">本次</th>
-                  <th className="num">請後累計</th>
-                  <th className="num">剩餘金額</th>
+                  <th className="num">已請(未稅)</th>
+                  <th className="num">本次(未稅)</th>
+                  <th className="num">請後累計(未稅)</th>
+                  <th className="num">剩餘金額(未稅)</th>
                   <th className="num">完成度</th>
                   <th className="num">未完成</th>
                 </tr>
@@ -549,8 +673,8 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
             </table>
           </div>
           <p className="hint siteAnalysisContractGrandSummary">
-            全案：合約總金額 <strong>{money(overall.contractTotal)}</strong>；已請 <strong>{money(overall.alreadyRequested)}</strong>；本次 <strong className="pricingSheetProgress__thisReqStrong">{money(overall.thisRequest)}</strong>；請後累計{' '}
-            <strong>{money(overall.alreadyRequested + overall.thisRequest)}</strong>；剩餘 <strong>{money(overall.remaining)}</strong>；完成度{' '}
+            全案：合約總金額(未稅) <strong>{money(overall.contractTotal)}</strong>；已請(未稅) <strong>{money(overall.alreadyRequested)}</strong>；本次(未稅) <strong className="pricingSheetProgress__thisReqStrong">{money(overall.thisRequest)}</strong>；請後累計(未稅){' '}
+            <strong>{money(overall.alreadyRequested + overall.thisRequest)}</strong>；剩餘(未稅) <strong>{money(overall.remaining)}</strong>；完成度{' '}
             <strong>{pct(overall.completion)}</strong>；未完成 <strong>{pct(1 - overall.completion)}</strong>
           </p>
         </section>
@@ -631,6 +755,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                   payer={workspace.payer}
                   remarkLines={workspace.remarkLines}
                   rows={previewRows}
+                  contractLineById={contractLineById}
                   buildingProgress={buildingProgress}
                   overall={overall}
                 />

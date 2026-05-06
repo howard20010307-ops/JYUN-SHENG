@@ -11,6 +11,8 @@ import {
   QUICK_SITE_JUN_ADJUST,
 } from './fieldworkQuickApply'
 import { allocateWithSuffix, stableHash16 } from './stableIds'
+import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
+import { normalizePhasePeriodLabel } from './receivablePhaseRange'
 
 /** 整日文件根 id（同_finalize_首段；重複同日由 {@link finalizeWorkLogStableIds} 加 `~2`）。 */
 export function stableWorkLogDayDocBaseId(logDate: string): string {
@@ -284,7 +286,7 @@ export type WorkLogSiteBlock = {
   dong: string
   /** 樓層 */
   floorLevel: string
-  /** 階段（例：結構、粗裝） */
+  /** 階段（期間）：與收帳相同之起迄日字串，例 2026/05/01 ~ 2026/05/31 */
   workPhase: string
   staffLines: WorkLogStaffLine[]
 }
@@ -795,9 +797,9 @@ function migrateSiteBlock(o: unknown, docId: string, blockIndex: number): WorkLo
     instrumentQty,
     remark,
     workLines,
-    dong,
-    floorLevel,
-    workPhase,
+    dong: collapseSiteDimensionWhitespace(dong),
+    floorLevel: collapseSiteDimensionWhitespace(floorLevel),
+    workPhase: normalizePhasePeriodLabel(collapseSiteDimensionWhitespace(workPhase)),
     staffLines,
   }
 }

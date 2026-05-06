@@ -51,6 +51,7 @@ import {
   type PayrollDaySnapshot,
 } from '../domain/payrollDayForWorkLog'
 import { normalizeQuickSiteKey, QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
+import { PhasePeriodRangeInputs } from './PhasePeriodRangeInputs'
 
 const EMPTY_SITE = ''
 
@@ -1387,20 +1388,18 @@ export function WorkLogPanel({
                     placeholder="例：3F"
                   />
                 </label>
-                <label className="worklogFormLabel" style={{ flex: '1 1 120px', minWidth: 96, margin: 0 }}>
-                  <span className="worklogDayInfoLabel">階段</span>
-                  <input
-                    type="text"
-                    className="titleInput"
-                    disabled={!formUnlocked}
+                <label className="worklogFormLabel" style={{ flex: '1 1 220px', minWidth: 180, margin: 0 }}>
+                  <span className="worklogDayInfoLabel">階段（期間）</span>
+                  <PhasePeriodRangeInputs
                     value={block.workPhase}
-                    onChange={(e) =>
+                    rowClassName="worklogPhasePeriodRow"
+                    onChange={(next) =>
                       setDayDraft((d) => ({
                         ...d,
-                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, workPhase: e.target.value } : b)),
+                        blocks: d.blocks.map((b, i) => (i === bi ? { ...b, workPhase: next } : b)),
                       }))
                     }
-                    placeholder="例：結構／粗裝"
+                    disabled={!formUnlocked}
                   />
                 </label>
                 </div>

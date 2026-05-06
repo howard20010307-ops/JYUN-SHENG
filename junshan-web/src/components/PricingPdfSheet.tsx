@@ -1,8 +1,11 @@
-import type { PricingRow } from '../domain/pricingWorkspace'
+import type { ContractContentLine } from '../domain/contractContentModel'
 import { COMPANY_CONTRACTOR } from '../domain/companyContact'
+import { pricingLineSubtotalNet, type PricingRow } from '../domain/pricingWorkspace'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
 
 const STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
+
+const EMPTY_CONTRACT_LINE_BY_ID = new Map<string, ContractContentLine>()
 
 type BuildingProgress = {
   building: string
@@ -31,6 +34,7 @@ type Props = {
   payer: QuoteOwnerClient
   remarkLines: readonly { id: string; text: string }[]
   rows: PricingRow[]
+  contractLineById?: ReadonlyMap<string, ContractContentLine>
   buildingProgress: BuildingProgress[]
   overall: {
     contractTotal: number
@@ -64,10 +68,19 @@ export function PricingPdfSheet({
   payer,
   remarkLines,
   rows,
+  contractLineById,
   buildingProgress,
   overall,
 }: Props) {
   const remarks = remarkLines.map((x) => x.text.trim()).filter(Boolean)
+  const lineMap = contractLineById ?? EMPTY_CONTRACT_LINE_BY_ID
+  const lineNetTotal = rows.reduce((sum, r) => sum + pricingLineSubtotalNet(r, lineMap), 0)
+  const lineTaxTotal = rows.reduce((sum, r) => sum + (Number.isFinite(r.tax) ? r.tax : 0), 0)
+  const lineGrossTotal = lineNetTotal + lineTaxTotal
+  const thisRequestGross = rows.reduce((sum, r) => {
+    const total = Number.isFinite(r.total) ? r.total : r.amountNet + r.tax
+    return sum + (Number.isFinite(total) ? total : 0)
+  }, 0)
   const bar = {
     background: 'linear-gradient(180deg, #ffe8c8 0%, #ffd49a 55%, #ffc978 100%)',
     border: '1px solid #e8b060',
@@ -288,21 +301,24 @@ export function PricingPdfSheet({
 
       <table data-pdf-workspace="lines" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10, border: '1px solid #c9a227' }}>
         <colgroup>
-          <col style={{ width: '10%' }} />
-          <col style={{ width: '10%' }} />
-          <col style={{ width: '10%' }} />
-          <col style={{ width: '28%' }} />
-          <col style={{ width: '14%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '20%' }} />
+          <col style={{ width: '7%' }} />
+          <col style={{ width: '8%' }} />
           <col style={{ width: '12%' }} />
-          <col style={{ width: '16%' }} />
+          <col style={{ width: '12%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '9%' }} />
         </colgroup>
         <thead>
           <tr style={{ background: '#ffd49a' }}>
-            {['棟', '樓層', '階段', '項目', '金額(未稅)', '稅金', '總計'].map((h) => (
+            {['棟', '樓層', '階段', '項目', '單位', '數量', '單價(未稅)', '小計(未稅)', '稅金', '總價'].map((h) => (
               <th
                 key={h}
                 style={
-                  h === '總計'
+                  h === '總價'
                     ? totalColHeader
                     : {
                         border: '1px solid #c9a227',
@@ -320,30 +336,44 @@ export function PricingPdfSheet({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#666', padding: 12 }}>
+              <td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#666', padding: 12 }}>
                 尚無計價列
               </td>
             </tr>
           ) : (
-            rows.map((r) => (
-              <tr key={r.id}>
-                <td style={cell}>{r.buildingLabel || '—'}</td>
-                <td style={cell}>{r.floorLabel || '—'}</td>
-                <td style={cell}>{r.phaseLabel || '—'}</td>
-                <td style={cell}>{r.item || '—'}</td>
-                <td style={{ ...cell, textAlign: 'right' }}>{money(r.amountNet)}</td>
-                <td style={{ ...cell, textAlign: 'right' }}>{money(r.tax)}</td>
-                <td style={totalColBody}>
-                  {money(r.total)}
-                </td>
-              </tr>
-            ))
+            rows.map((r) => {
+              const subtotal = pricingLineSubtotalNet(r, lineMap)
+              return (
+                <tr key={r.id}>
+                  <td style={cell}>{r.buildingLabel || '—'}</td>
+                  <td style={cell}>{r.floorLabel || '—'}</td>
+                  <td style={cell}>{r.phaseLabel || '—'}</td>
+                  <td style={cell}>{r.item || '—'}</td>
+                  <td style={cell}>{r.unit || '—'}</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>{money(Number.isFinite(r.quantity) ? r.quantity : 0)}</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>{money(Number.isFinite(r.amountNet) ? r.amountNet : 0)}</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>{money(subtotal)}</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>{money(r.tax)}</td>
+                  <td style={totalColBody}>{money(r.total)}</td>
+                </tr>
+              )
+            })
           )}
         </tbody>
+        <tfoot>
+          <tr>
+            <td colSpan={7} style={{ ...cell, textAlign: 'right', fontWeight: 800 }}>
+              合計
+            </td>
+            <td style={{ ...cell, textAlign: 'right', fontWeight: 800 }}>{money(lineNetTotal)}</td>
+            <td style={{ ...cell, textAlign: 'right', fontWeight: 800 }}>{money(lineTaxTotal)}</td>
+            <td style={{ ...totalColBody, fontWeight: 900 }}>{money(lineGrossTotal)}</td>
+          </tr>
+        </tfoot>
       </table>
 
       <div data-pdf-workspace="vat">
-      <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>棟別進度</h3>
+      <h3 style={{ margin: '14px 0 6px', fontSize: 14 }}>棟別進度（未稅）</h3>
       <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10.5, border: '1px solid #c9a227' }}>
         <colgroup>
           <col style={{ width: '12%' }} />
@@ -356,11 +386,11 @@ export function PricingPdfSheet({
         </colgroup>
         <thead>
           <tr style={{ background: '#ffe8c8' }}>
-            {['棟', '已請', '本次', '請後累計', '剩餘金額', '完成度', '未完成'].map((h) => (
+            {['棟', '已請(未稅)', '本次(未稅)', '請後累計(未稅)', '剩餘金額(未稅)', '完成度', '未完成'].map((h) => (
               <th
                 key={h}
                 style={
-                  h === '本次'
+                  h === '本次(未稅)'
                     ? thisReqHeader
                     : { border: '1px solid #c9a227', padding: '5px 4px', fontWeight: 700, textAlign: h === '棟' ? 'left' : 'right' }
                 }
@@ -396,7 +426,7 @@ export function PricingPdfSheet({
           padding: '8px 10px',
         }}
       >
-        <div style={{ fontSize: 12.5, fontWeight: 900, color: '#4c1d95', marginBottom: 6, letterSpacing: '0.04em' }}>全案合計（重點）</div>
+        <div style={{ fontSize: 12.5, fontWeight: 900, color: '#4c1d95', marginBottom: 6, letterSpacing: '0.04em' }}>全案合計</div>
         <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 10.5, marginBottom: 6 }}>
           <colgroup>
             <col style={{ width: '48%' }} />
@@ -408,15 +438,15 @@ export function PricingPdfSheet({
               <th style={{ border: '1px solid #c4b5fd', padding: '4px 6px', textAlign: 'right', background: '#ede9fe' }}>數值</th>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', fontWeight: 800 }}>合約總金額</td>
+              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', fontWeight: 800 }}>合約總金額(未稅)</td>
               <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', textAlign: 'right', fontWeight: 900 }}>{money(overall.contractTotal)}</td>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px' }}>已請</td>
+              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px' }}>已請(未稅)</td>
               <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', textAlign: 'right' }}>{money(overall.alreadyRequested)}</td>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', color: '#9a3412', fontWeight: 900, fontSize: 11 }}>本次</td>
+              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', color: '#9a3412', fontWeight: 900, fontSize: 11 }}>本次(未稅)</td>
               <td
                 style={{
                   border: '1px solid #7c3aed',
@@ -432,11 +462,11 @@ export function PricingPdfSheet({
               </td>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px' }}>請後累計</td>
+              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px' }}>請後累計(未稅)</td>
               <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', textAlign: 'right' }}>{money(overall.alreadyRequested + overall.thisRequest)}</td>
             </tr>
             <tr>
-              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', color: '#b91c1c', fontWeight: 700 }}>剩餘</td>
+              <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', color: '#b91c1c', fontWeight: 700 }}>剩餘(未稅)</td>
               <td style={{ border: '1px solid #ddd6fe', padding: '4px 6px', textAlign: 'right', color: '#b91c1c', fontWeight: 800 }}>{money(overall.remaining)}</td>
             </tr>
             <tr>
@@ -449,6 +479,21 @@ export function PricingPdfSheet({
             </tr>
           </tbody>
         </table>
+        <div
+          style={{
+            marginTop: 6,
+            border: '2px solid #0f766e',
+            background: 'linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%)',
+            padding: '6px 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <span style={{ color: '#065f46', fontWeight: 900, fontSize: 11.5, letterSpacing: '0.02em' }}>本次請款總金額(含稅)</span>
+          <span style={{ color: '#065f46', fontWeight: 900, fontSize: 14, letterSpacing: '0.03em' }}>{money(thisRequestGross)}</span>
+        </div>
       </div>
       </div>
 

@@ -13,6 +13,8 @@ import {
   type SalaryBook,
   type SiteRenameEditedRef,
 } from '../domain/salaryExcelModel'
+import { collapseSiteDimensionWhitespace } from '../domain/siteDimensionLabels'
+import { normalizePhasePeriodLabel } from '../domain/receivablePhaseRange'
 import {
   DEFAULT_WORK_END,
   DEFAULT_WORK_START,
@@ -28,6 +30,7 @@ import {
   WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION,
   type WorkLogState,
 } from '../domain/workLogModel'
+import { PhasePeriodRangeInputs } from './PhasePeriodRangeInputs'
 import {
   reconcileDayDocumentWithPayrollBook,
   type QuickApplyTextOverlay,
@@ -386,9 +389,9 @@ export function FieldworkQuickSection({
       ...(toolLedgerLines.length > 0 ? { toolLines: toolLedgerLines } : {}),
       timeStart: padHhmm(timeStart, DEFAULT_WORK_START),
       timeEnd: padHhmm(timeEnd, DEFAULT_WORK_END),
-      dong: dong.trim(),
-      floorLevel: floorLevel.trim(),
-      workPhase: workPhase.trim(),
+      dong: collapseSiteDimensionWhitespace(dong),
+      floorLevel: collapseSiteDimensionWhitespace(floorLevel),
+      workPhase: normalizePhasePeriodLabel(collapseSiteDimensionWhitespace(workPhase)),
       remark: siteRemark.trim(),
     }
 
@@ -454,13 +457,12 @@ export function FieldworkQuickSection({
             placeholder="例：3F"
           />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 88 }}>
-          <span>階段</span>
-          <input
-            type="text"
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
+          <span>階段（期間）</span>
+          <PhasePeriodRangeInputs
             value={workPhase}
-            onChange={(e) => setWorkPhase(e.target.value)}
-            placeholder="例：結構"
+            onChange={setWorkPhase}
+            rowClassName="worklogPhasePeriodRow"
           />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -868,10 +870,10 @@ export function FieldworkQuickSection({
           ) : null}
         </p>
         <div className="tableScrollSticky" style={{ overflowX: 'auto' }}>
-          <table className="data" style={{ width: '100%', minWidth: 280 }}>
+          <table className="data">
             <thead>
               <tr>
-                <th scope="col" style={{ width: '3.5rem' }}>
+                <th scope="col">
                   #
                 </th>
                 <th scope="col">案名</th>
@@ -901,7 +903,6 @@ export function FieldworkQuickSection({
                         <input
                           type="text"
                           className="titleInput"
-                          style={{ width: '100%', minWidth: 160, maxWidth: 420 }}
                           aria-label={`總案場：${row.siteName}`}
                           value={siteOverviewDraft[row.siteName] ?? row.siteName}
                           onFocus={() => {

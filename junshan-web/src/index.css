@@ -558,20 +558,8 @@ select.sitePick {
   font-weight: 600;
 }
 
-th.dtCol,
-td:has(> input.cellIn) {
-  min-width: var(--payroll-cell-min);
-  max-width: var(--payroll-cell-max);
-  width: var(--payroll-cell-min);
-}
-
 input.cellIn {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: var(--payroll-input-pad-y) var(--payroll-input-pad-x);
   font-size: var(--payroll-input-font);
-  line-height: 1.35;
 }
 
 /** 案場格線：數值 > 0 時紅字標示 */
@@ -1775,36 +1763,17 @@ table.data.quoteFloorTable input[type='number']:-webkit-autofill:focus {
 }
 table.data.quoteFloorPricingTable {
   min-width: 1080px;
-  /** 與首欄「樓層」固定寬一致，供第二欄「套用模組」sticky */
-  --quote-floor-sticky-a: 6.25rem;
 }
-.tableScrollSticky > table.quoteFloorPricingTable thead th:first-child,
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child,
-.tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
-  width: 6.25rem;
-  min-width: 6.25rem;
-  max-width: 6.25rem;
-}
+
+/**
+ * 每層計價工數：僅凍結首欄「樓層」。
+ * 第二欄若再 position:sticky + 固定 left，會與全站 td/th「內容驅動寬」(!important) 衝突——
+ * 第一欄實際寬≠假設值時，側邊陰影像在儲存格內側出現「破口」深色直條。
+ */
 .tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2),
 .tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
 .tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
-  position: sticky;
-  left: var(--quote-floor-sticky-a);
-  z-index: 3;
-  min-width: 5.5rem;
-  max-width: 10rem;
-  background: var(--card);
-  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
   vertical-align: middle;
-}
-.tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2) {
-  top: 0;
-  z-index: 5;
-  background: #0b0f14;
-  box-shadow:
-    6px 0 14px -6px rgba(0, 0, 0, 0.75),
-    0 1px 0 var(--border),
-    0 6px 12px -4px rgba(0, 0, 0, 0.35);
 }
 table.data.quoteItemPricingTable {
   min-width: 640px;
@@ -2368,10 +2337,6 @@ td.emptyTableMsg {
 .tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
   z-index: 4;
 }
-.tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
-.tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
-  z-index: 3;
-}
 .tableScrollSticky > table.quoteItemPricingTable tbody td.quoteStickyItemCol,
 .tableScrollSticky > table.quoteItemPricingTable tfoot td.quoteStickyItemCol {
   z-index: 4;
@@ -2410,16 +2375,6 @@ table.data.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow th {
   background: linear-gradient(180deg, rgba(61, 156, 245, 0.26), rgba(12, 18, 26, 0.98));
   box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
 }
-.tableScrollSticky > table.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow td:nth-child(2) {
-  position: sticky;
-  left: var(--quote-floor-sticky-a);
-  z-index: 5;
-  background: linear-gradient(180deg, rgba(61, 156, 245, 0.24), rgba(12, 18, 26, 0.98));
-  box-shadow:
-    6px 0 14px -6px rgba(0, 0, 0, 0.75),
-    0 1px 0 var(--border);
-}
-
 table.data {
   width: 100%;
   border-collapse: collapse;
@@ -2431,42 +2386,43 @@ table.data {
  * 月表「鈞泩／蔡董日薪」：僅四欄，手機若全寬均分會把姓名擠扁；固定版面讓姓名欄優先寬度。
  */
 table.data.payrollRatesTable {
-  table-layout: fixed;
-  min-width: 17.5rem;
+  table-layout: auto;
+  min-width: max-content;
 }
 
 table.data.payrollRatesTable thead th:first-child,
 table.data.payrollRatesTable tbody td:first-child {
-  min-width: 11rem;
-  width: 44%;
+  min-width: max-content;
+  width: auto;
   max-width: none;
   vertical-align: middle;
 }
 
 .tableScrollSticky > table.data.payrollRatesTable thead th:first-child,
 .tableScrollSticky > table.data.payrollRatesTable tbody td:first-child {
-  min-width: 11rem;
+  min-width: max-content;
 }
 
 table.data.payrollRatesTable thead th:nth-child(2),
 table.data.payrollRatesTable thead th:nth-child(3),
 table.data.payrollRatesTable tbody td:nth-child(2),
 table.data.payrollRatesTable tbody td:nth-child(3) {
-  width: 24%;
-  min-width: 5.5rem;
+  width: auto;
+  min-width: max-content;
 }
 
 table.data.payrollRatesTable thead th:nth-child(4),
 table.data.payrollRatesTable tbody td:nth-child(4) {
-  width: 8%;
-  min-width: 3.5rem;
+  width: auto;
+  min-width: max-content;
   white-space: nowrap;
 }
 
 table.data.payrollRatesTable .titleInput {
   flex: none;
   display: block;
-  width: 100%;
+  width: auto;
+  min-width: max-content;
   max-width: none;
   box-sizing: border-box;
   word-break: break-word;
@@ -2529,28 +2485,10 @@ table.data td > textarea {
   box-shadow: none;
 }
 
-/** 薪水月表：日期欄多時仍保持數字可讀 */
-table.data.tight th.dtCol {
-  font-size: var(--ui-fs-xs);
-  line-height: var(--ui-lh-snug);
-  padding: var(--ui-space-2) var(--ui-space-2);
-}
-
-table.data.tight td:has(> input.cellIn) {
-  padding: var(--ui-space-1) calc(var(--ui-space-2) - 2px);
-  vertical-align: middle;
-}
-
 table.data.tight td.num {
   font-size: var(--payroll-input-font);
   line-height: var(--ui-lh-snug);
   padding: var(--ui-input-pad-y) var(--ui-input-pad-x);
-}
-
-table.data.tight th:first-child,
-table.data.tight td:first-child {
-  min-width: 4.75rem;
-  max-width: 8rem;
 }
 
 .summary .dl {
@@ -2896,7 +2834,7 @@ table.data.siteAnalysisContractTable td:nth-child(4) .titleInput {
 }
 
 table.data.siteAnalysisContractTable {
-  width: 100%;
+  width: max-content;
   table-layout: auto;
 }
 
@@ -2905,7 +2843,7 @@ table.data.siteAnalysisContractSummaryTable {
 }
 
 table.data.siteAnalysisContractTable {
-  min-width: 0;
+  min-width: max-content;
 }
 
 table.data.siteAnalysisContractSummaryTable {
@@ -3015,60 +2953,16 @@ table.data.siteAnalysisContractSummaryTable tbody tr:hover {
   background: rgba(61, 156, 245, 0.12);
 }
 
-/* 計價單編輯表：沿用全站 data/tight 規範，僅做最小必要欄位可讀性 */
-table.data.pricingSheetTable {
-  width: 100%;
-  table-layout: auto;
-}
-
-table.data.pricingSheetTable thead th {
-  white-space: nowrap;
-}
-
-table.data.pricingSheetTable td .titleInput {
-  width: 100%;
-  min-width: 0;
-}
-
-table.data.pricingSheetTable td {
-  overflow: hidden;
-  vertical-align: middle;
-}
-
-table.data.pricingSheetTable td > .titleInput,
-table.data.pricingSheetTable td > input,
-table.data.pricingSheetTable td > select,
-table.data.pricingSheetTable td > textarea {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  box-sizing: border-box;
-  min-height: 2.15rem;
-  line-height: 1.35;
-  padding: 6px 8px;
-}
-
-table.data.pricingSheetTable td > select.titleInput,
-table.data.pricingSheetTable td > select {
-  min-height: 2.15rem;
-  height: 2.15rem;
-  padding: 6px 8px;
-  line-height: 1.35;
-  outline-offset: 0;
-}
-
-table.data.pricingSheetTable td:nth-child(1) .titleInput {
-  min-width: 0;
-}
-
-table.data.pricingSheetTable td:nth-child(1) > select.titleInput:focus,
-table.data.pricingSheetTable td:nth-child(1) > select:focus {
-  outline-offset: 0;
-}
-
-table.data.pricingSheetTable td:last-child {
-  white-space: nowrap;
+/*
+ * 計價單編輯表：嚴格遵守全站 Table Rules Checklist[A]／檔尾 policy。
+ * — 不重設 table-layout／欄寬百分比（避免覆寫檔尾 !important 與內容驅動欄寬）。
+ * — 僅補「可讀寬度下限」，作法同 quoteCostTableExcel。
+ */
+table.data.pricingSheetTable,
+.tableScroll > table.data.pricingSheetTable,
+.tableScrollSticky > table.data.pricingSheetTable {
+  width: max-content !important;
+  min-width: max-content !important;
 }
 
 table.data.pricingSheetTable td.pricingSheetTable__totalCell {
@@ -3077,6 +2971,29 @@ table.data.pricingSheetTable td.pricingSheetTable__totalCell {
   background: linear-gradient(180deg, rgba(16, 185, 129, 0.22), rgba(13, 148, 136, 0.18));
   border-left-color: #0f766e;
   border-right-color: #0f766e;
+}
+
+table.data.pricingSheetTable tfoot td.pricingSheetTable__footerLabel {
+  text-align: right;
+  font-weight: 800;
+}
+
+table.data.pricingSheetTable tfoot td.pricingSheetTable__footerNum {
+  font-weight: 800;
+}
+
+table.data.pricingSheetTable tfoot td.pricingSheetTable__footerTotalCell {
+  font-weight: 900;
+}
+
+table.data.pricingSheetTable tfoot td.pricingSheetTable__rowCount {
+  text-align: center;
+  font-weight: 700;
+}
+
+/* 操作欄：按鈕不換行（不影響全站 td overflow 規則） */
+table.data.pricingSheetTable td:last-child {
+  white-space: nowrap;
 }
 
 .pricingSheetProgress__thisReq {
@@ -3110,7 +3027,7 @@ table.data.siteAnalysisContractSummaryTable thead th {
 }
 
 table.data.ledgerCompanyTable {
-  min-width: 1480px;
+  min-width: max-content;
   width: max-content;
   font-size: var(--ui-fs-sm);
   border-collapse: collapse;
@@ -3143,8 +3060,8 @@ table.data.ledgerCompanyTable tbody td:first-child {
 /** 第 2 欄起（數字與輸入） */
 table.data.ledgerCompanyTable thead th:nth-child(n + 2),
 table.data.ledgerCompanyTable tbody td:nth-child(n + 2) {
-  width: 5.35rem;
-  min-width: 5rem;
+  width: auto;
+  min-width: max-content;
   font-variant-numeric: tabular-nums;
 }
 table.data.ledgerCompanyTable tbody td.num {
@@ -3153,8 +3070,8 @@ table.data.ledgerCompanyTable tbody td.num {
 }
 table.data.ledgerCompanyTable input.narrow {
   box-sizing: border-box;
-  width: 100%;
-  min-width: 5rem;
+  width: auto;
+  min-width: 5ch;
   max-width: none;
   padding: 6px 8px;
   font-size: var(--ui-fs-sm);
@@ -3434,7 +3351,7 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   /** 公司損益表：輸入格在手機拉寬、易點 */
   table.data.ledgerCompanyTable {
-    min-width: 1380px;
+    min-width: max-content;
     font-size: 0.9rem;
   }
 
@@ -3449,7 +3366,7 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   table.data.ledgerCompanyTable thead th:nth-child(n + 2),
   table.data.ledgerCompanyTable tbody td:nth-child(n + 2) {
-    min-width: 5.25rem;
+    min-width: max-content;
   }
 
   table.data.ledgerCompanyTable tbody td.num {
@@ -3458,8 +3375,8 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   table.data.ledgerCompanyTable input.narrow {
     max-width: none;
-    width: 100%;
-    min-width: 5.25rem;
+    width: auto;
+    min-width: 5ch;
     min-height: 44px;
     font-size: 1rem;
     padding: 10px 8px;
@@ -3590,15 +3507,11 @@ table.data.ledgerCompanyTable tfoot th.num {
 
   table.data.quoteFloorPricingTable {
     min-width: 880px;
-    --quote-floor-sticky-a: 5.25rem;
   }
 
   .tableScrollSticky > table.quoteFloorPricingTable thead th:first-child,
   .tableScrollSticky > table.quoteFloorPricingTable tbody td:first-child,
   .tableScrollSticky > table.quoteFloorPricingTable tfoot td:first-child {
-    width: var(--quote-floor-sticky-a);
-    min-width: var(--quote-floor-sticky-a);
-    max-width: 7rem;
     font-size: 0.8rem;
     white-space: normal;
     line-height: 1.25;
@@ -3608,9 +3521,6 @@ table.data.ledgerCompanyTable tfoot th.num {
   .tableScrollSticky > table.quoteFloorPricingTable thead th:nth-child(2),
   .tableScrollSticky > table.quoteFloorPricingTable tbody td:nth-child(2),
   .tableScrollSticky > table.quoteFloorPricingTable tfoot td:nth-child(2) {
-    left: var(--quote-floor-sticky-a);
-    min-width: 5rem;
-    max-width: 9rem;
     font-size: 0.78rem;
     white-space: normal;
     line-height: 1.2;
@@ -4192,6 +4102,52 @@ fieldset.tabFieldset {
   font: inherit;
 }
 
+/* 收帳提示字改淡色，避免看起來像已填內容 */
+.receivablesTable__inline::placeholder,
+.receivablesTable__noteTextarea::placeholder {
+  color: rgba(200, 208, 218, 0.52);
+  -webkit-text-fill-color: rgba(200, 208, 218, 0.52);
+}
+
+.receivablesTable__phaseRangeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.receivablesTable__phaseDate {
+  min-width: 9.4rem;
+}
+
+.receivablesTable__phaseDate.is-empty {
+  color: rgba(200, 208, 218, 0.5);
+  -webkit-text-fill-color: rgba(200, 208, 218, 0.5);
+}
+
+.receivablesTable__phaseSep {
+  color: rgba(200, 208, 218, 0.7);
+  font-weight: 600;
+  user-select: none;
+}
+
+/* 收帳期間日期欄：小日曆圖示加亮，深色底可讀性提升 */
+.receivablesTable__phaseDate::-webkit-calendar-picker-indicator {
+  filter: brightness(1.45) contrast(1.2);
+  opacity: 0.95;
+  cursor: pointer;
+}
+
+.receivablesTable__phaseDate:hover::-webkit-calendar-picker-indicator,
+.receivablesTable__phaseDate:focus::-webkit-calendar-picker-indicator {
+  filter: brightness(1.75) contrast(1.3) drop-shadow(0 0 2px rgba(90, 212, 168, 0.5));
+  opacity: 1;
+}
+
+/* 工作日誌整日表單：階段期間與收帳同款元件 */
+.worklogPhasePeriodRow {
+  flex-wrap: wrap;
+}
+
 .receivablesTable__num {
   width: 100%;
   max-width: 7rem;
@@ -4500,40 +4456,393 @@ fieldset.tabFieldset {
   }
 }
 
-/* 網頁規範（最高優先）：所有表格欄寬由內容文字自動撐開 */
-.tableScroll > table.data,
-.tableScrollSticky > table.data {
-  width: max-content !important;
-  min-width: 100% !important;
-  table-layout: auto !important;
-}
-
-.tableScroll > table.data th,
-.tableScroll > table.data td,
-.tableScrollSticky > table.data th,
-.tableScrollSticky > table.data td {
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-}
-
-/* 網頁規範（強化）：所有表格欄寬由內容決定，輸入元件緊貼儲存格 */
+/* ===== FINAL ENFORCEMENT: global strict table policy =====
+ * 全站最後優先規則：
+ * - 欄寬由「表頭＋非控件內容／同欄其他儲存格」等表格邏輯決定（內容驅動、max-content）。
+ * - 儲存格內 input/select/textarea/.titleInput 不另加固有最小寬：填滿格內、min-width:0，
+ *   避免「一變成輸入格整欄被撐寬」；過長內文以格內橫向捲動承接，仍不用 ellipsis。
+ * - 整表寬度 max-content，超寬由 tableScroll / tableScrollSticky 橫向捲動。
+ */
 table.data {
   table-layout: auto !important;
+  width: max-content !important;
+  min-width: max-content !important;
+}
+
+.tableScroll > table.data,
+.tableScrollSticky > table.data,
+.receivablesTableScroll > table.data {
+  table-layout: auto !important;
+  width: max-content !important;
+  min-width: max-content !important;
 }
 
 table.data th,
 table.data td {
   width: auto !important;
+  min-width: max-content !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
-table.data td > input,
+/**
+ * 儲存格內只要出現表單控件：td 不得再用 max-content 把「控件固有寬」算進欄最小寬（含非直接子層包一層 div 的情況），
+ * 否則與僅含純文字的同欄相比，欄會被莫名撐寬。欄寬改由同欄 th、純文字 td 等決定。
+ */
+table.data td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data td:has(select),
+table.data td:has(textarea),
+table.data td:has(.titleInput) {
+  min-width: 0 !important;
+}
+
+/* 欄寬規則（全站）：欄標題長則跟欄標題，同欄內容長則跟內容（控件不抬高欄最小寬） */
+table.data thead th {
+  white-space: nowrap !important;
+}
+
+table.data td > input:not([type='checkbox']):not([type='radio']),
 table.data td > select,
 table.data td > textarea,
 table.data td > .titleInput {
+  display: block !important;
   width: 100% !important;
-  max-width: 100% !important;
   min-width: 0 !important;
+  max-width: 100% !important;
   box-sizing: border-box !important;
   margin: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  text-overflow: clip !important;
 }
+
+table.data td > input.narrow:not([type='checkbox']):not([type='radio']),
+table.data td > input.receivablesTable__num:not([type='checkbox']):not([type='radio']),
+table.data td > input.titleInput.narrow:not([type='checkbox']):not([type='radio']) {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+table.data td *,
+table.data th * {
+  text-overflow: clip !important;
+}
+
+/**
+ * 成本估算列：與全站表格政策對齊（非特例，為補平泛用規則的副作用）
+ *
+ * 1) 檔尾的 table.data {!important min-width:max-content} 會洗掉本表原本 floor min-width，
+ *    導致表身偏窄時整表不再維持可讀寬度下限。
+ * 2) thead th「全站 nowrap」會蓋過本表多行表頭標籤（.excelLbl）。
+ * 3) 區塊橫幅列僅一格 td:first-child colspan，套用「首欄凍結」會出現異常破口／疊字。
+ */
+table.data.quoteCostTableExcel {
+  width: max-content !important;
+  min-width: max(1560px, max-content) !important;
+}
+
+.tableScrollSticky > table.data.quoteCostTableExcel,
+.tableScroll > table.data.quoteCostTableExcel {
+  width: max-content !important;
+  min-width: max(1560px, max-content) !important;
+}
+
+table.data.quoteCostTableExcel thead th {
+  white-space: normal !important;
+}
+
+table.data.quoteCostTableExcel th.quoteExcelTH,
+table.data.quoteCostTableExcel th.quoteExcelTHAct {
+  min-width: max-content !important;
+  max-width: none !important;
+}
+
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow td:first-child,
+.tableScrollSticky > table.quoteCostTableExcel tbody tr.quoteZoneBannerRow td.quoteZoneBannerCell {
+  position: static !important;
+  left: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 720px) {
+  table.data.quoteCostTableExcel,
+  .tableScrollSticky > table.data.quoteCostTableExcel,
+  .tableScroll > table.data.quoteCostTableExcel {
+    min-width: max(1340px, max-content) !important;
+  }
+}
+
+/* 計價單：同為「僅補可讀寬度下限」，不重設 table-layout／欄寬百分比（見 .pricingSheetTable） */
+
+/* ==========================================================================
+ * Table Rules Checklist (single source of truth)
+ * --------------------------------------------------------------------------
+ * 目的：未來新增任何表格時，直接依這份清單檢查，避免規則分岔。
+ *
+ * [A] 全站預設（所有 table.data）
+ * 1) 欄寬邏輯：欄寬由表頭與同欄內容決定；**格內任一處**有表單控件的 td 用 min-width:0，
+ *    避免 td 的 max-content 把控件固有寬算進欄寬（見檔尾 :has 區塊）。
+ * 2) 表格布局：table-layout:auto；寬度採內容驅動（max-content）。
+ * 3) 文字顯示：不得用 ellipsis 省略；過長輸入可於控件內橫向捲動。
+ * 4) 超寬處理：以外層捲動容器承接（tableScroll / tableScrollSticky）。
+ *
+ * [B] 表格內輸入元件（input/select/textarea/.titleInput，不含 checkbox／radio）
+ * 1) 填滿儲存格：width/max-width 100%，min-width:0；不強制控件固有最小寬參與撐欄。
+ * 2) box-sizing:border-box；margin:0；必要時 overflow-x:auto（格內捲）。
+ * 3) 不在 JSX 對 table／欄位寫死 width/tableLayout 規避整表邏輯（Checklist[C]）。
+ *
+ * [C] 新增表格開發流程（每次必做）
+ * 1) 先使用 `<table class="data ...">` + `.tableScroll`（或 Sticky 版）。
+ * 2) 不在 JSX inline style 寫 table/minWidth/width/tableLayout。
+ * 3) 若視覺異常，先查是否違反 [A]/[B]，不得新增局部例外規則。
+ * 4) 變更後跑 `npx tsc --noEmit`，確保結構調整無型別副作用。
+ * ========================================================================== */
+
+/*
+ * 計價單：例外於檔尾 [B]「控件 width:100%」— 輸入格寬緊貼表頭與內容（欄寬隨文字長）。
+ * （須放在檔尾 policy 之後，才能覆寫 !important）
+ */
+table.data.pricingSheetTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.pricingSheetTable td:has(select),
+table.data.pricingSheetTable td:has(textarea),
+table.data.pricingSheetTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.pricingSheetTable td > select,
+table.data.pricingSheetTable td > textarea,
+table.data.pricingSheetTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+/* 月表案場區塊：比照計價單，輸入格不再強制撐滿整欄，欄寬由表頭與內容共同決定。 */
+table.data.payrollSiteBlockTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.payrollSiteBlockTable td:has(select),
+table.data.payrollSiteBlockTable td:has(textarea),
+table.data.payrollSiteBlockTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.payrollSiteBlockTable td > select,
+table.data.payrollSiteBlockTable td > textarea,
+table.data.payrollSiteBlockTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+/* 樓層面積表（quoteFloorTable）：輸入格寬度貼合內容，避免被全站 width:100% 規則撐寬。 */
+table.data.quoteFloorTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.quoteFloorTable td:has(select),
+table.data.quoteFloorTable td:has(textarea),
+table.data.quoteFloorTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.quoteFloorTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.quoteFloorTable td > select,
+table.data.quoteFloorTable td > textarea,
+table.data.quoteFloorTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.quoteFloorTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.quoteFloorTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+/* 合約內容表（siteAnalysisContractTable）：套用同樣邏輯，欄寬依標題與內容，不讓輸入格強制撐滿。 */
+table.data.siteAnalysisContractTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.siteAnalysisContractTable td:has(select),
+table.data.siteAnalysisContractTable td:has(textarea),
+table.data.siteAnalysisContractTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.siteAnalysisContractTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.siteAnalysisContractTable td > select,
+table.data.siteAnalysisContractTable td > textarea,
+table.data.siteAnalysisContractTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.siteAnalysisContractTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.siteAnalysisContractTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+/* 合約內容表維持深色輸入外觀，避免白底黑字回退。 */
+table.data.siteAnalysisContractTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.siteAnalysisContractTable td > select,
+table.data.siteAnalysisContractTable td > textarea,
+table.data.siteAnalysisContractTable td > .titleInput {
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border) !important;
+}
+
+table.data.siteAnalysisContractTable td > input:-webkit-autofill,
+table.data.siteAnalysisContractTable td > input:-webkit-autofill:hover,
+table.data.siteAnalysisContractTable td > input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+}
+
+/* 收帳表（receivablesTable）：套用同樣邏輯，欄寬依標題與內容，不讓輸入格強制撐滿。 */
+table.data.receivablesTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.receivablesTable td:has(select),
+table.data.receivablesTable td:has(textarea),
+table.data.receivablesTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.receivablesTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.receivablesTable td > select,
+table.data.receivablesTable td > textarea,
+table.data.receivablesTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.receivablesTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.receivablesTable td > textarea,
+table.data.receivablesTable td > .titleInput {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.receivablesTable td > input:not([type='checkbox']):not([type='radio']),
+  table.data.receivablesTable td > textarea {
+    field-sizing: content;
+  }
+}
+
+/* 收帳表維持深色輸入外觀，避免白底黑字回退。 */
+table.data.receivablesTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.receivablesTable td > select,
+table.data.receivablesTable td > textarea,
+table.data.receivablesTable td > .titleInput {
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border) !important;
+}
+
+table.data.receivablesTable td > input:-webkit-autofill,
+table.data.receivablesTable td > input:-webkit-autofill:hover,
+table.data.receivablesTable td > input:-webkit-autofill:focus,
+table.data.receivablesTable td > textarea:-webkit-autofill,
+table.data.receivablesTable td > textarea:-webkit-autofill:hover,
+table.data.receivablesTable td > textarea:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+}
+
+/* 這幾張表一律深色輸入外觀：避免白底黑字回退。 */
+table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.pricingSheetTable td > select,
+table.data.pricingSheetTable td > textarea,
+table.data.pricingSheetTable td > .titleInput,
+table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.payrollSiteBlockTable td > select,
+table.data.payrollSiteBlockTable td > textarea,
+table.data.payrollSiteBlockTable td > .titleInput,
+table.data.quoteFloorTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.quoteFloorTable td > select,
+table.data.quoteFloorTable td > textarea,
+table.data.quoteFloorTable td > .titleInput {
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border) !important;
+}
+
+table.data.pricingSheetTable td > input:-webkit-autofill,
+table.data.pricingSheetTable td > input:-webkit-autofill:hover,
+table.data.pricingSheetTable td > input:-webkit-autofill:focus,
+table.data.payrollSiteBlockTable td > input:-webkit-autofill,
+table.data.payrollSiteBlockTable td > input:-webkit-autofill:hover,
+table.data.payrollSiteBlockTable td > input:-webkit-autofill:focus,
+table.data.quoteFloorTable td > input:-webkit-autofill,
+table.data.quoteFloorTable td > input:-webkit-autofill:hover,
+table.data.quoteFloorTable td > input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+}
+
+

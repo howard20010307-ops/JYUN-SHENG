@@ -16,9 +16,7 @@ import {
   taxFromNet,
   type ReceivableEntry,
 } from '../domain/receivablesModel'
-
-type RangeMode = 'month' | 'year' | 'all'
-
+import { phasePeriodLabelFromIsoRange, phaseRangeDateFieldsFromText } from '../domain/receivablePhaseRange'
 import type { SalaryBook } from '../domain/salaryExcelModel'
 import type { QuoteSite } from '../domain/quoteEngine'
 import {
@@ -29,6 +27,8 @@ import {
 import { receivableSiteSelectOptionsFromOverview } from '../domain/jobSitesFromBook'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from '../domain/fieldworkQuickApply'
 import { PayrollNumberInput } from './PayrollNumberInput'
+
+type RangeMode = 'month' | 'year' | 'all'
 
 type Props = {
   receivables: ReceivablesState
@@ -98,10 +98,6 @@ function receivableNoteFieldWidthCh(note: string, placeholder: string): number {
     w = Math.max(w, receivableFieldWidthCh(line, placeholder))
   }
   return w
-}
-
-function singleLineReceivableText(raw: string): string {
-  return raw.replace(/\r\n|\r|\n/g, ' ')
 }
 
 function todayYmd(): string {
@@ -522,10 +518,7 @@ export function ReceivablesPanel({
                   className="receivablesTable__cellPhase"
                   style={{ minWidth: `${phaseColMinCh}ch` }}
                 >
-                  階段
-                </th>
-                <th scope="col" title="綁定案場分析合約內容列">
-                  對應合約
+                  階段（期間）
                 </th>
                 <th scope="col" className="num receivablesTable__cellMoney">
                   金額（未稅）
@@ -553,7 +546,7 @@ export function ReceivablesPanel({
             <tbody>
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="receivablesTable__empty muted">
+                  <td colSpan={11} className="receivablesTable__empty muted">
                     此檢視範圍尚無資料。{canEdit ? '請按「新增一列」或切換範圍。' : null}
                   </td>
                 </tr>
@@ -561,9 +554,6 @@ export function ReceivablesPanel({
                 visibleRows.map((row) => {
                   const resolvedProject = resolvedReceivableProjectName(salaryBook, row)
                   const siteSelectVal = receivableSiteSelectValue(salaryBook, row)
-                  const contractOptions = contractContents.lines.filter(
-                    (line) => line.siteName.trim() === resolvedProject.trim(),
-                  )
                   return (
                   <tr key={row.id}>
                     <td className="receivablesTable__cellDate">
@@ -649,34 +639,44 @@ export function ReceivablesPanel({
                       className="receivablesTable__cellPhase"
                       style={{ minWidth: `${receivableFieldWidthCh(row.phaseLabel, '階段')}ch` }}
                     >
-                      <input
-                        type="text"
-                        className="receivablesTable__inline receivablesTable__inputGrow"
-                        placeholder="階段"
-                        value={row.phaseLabel}
-                        disabled={!canEdit}
-                        onChange={(e) =>
-                          updateEntry(row.id, { phaseLabel: singleLineReceivableText(e.target.value) })
-                        }
-                        aria-label="階段"
-                      />
-                    </td>
-                    <td>
-                      <select
-                        className="receivablesTable__select"
-                        value={row.contractLineId ?? ''}
-                        disabled={!canEdit}
-                        onChange={(e) => updateEntry(row.id, { contractLineId: e.target.value || undefined })}
-                        aria-label="對應合約"
-                      >
-                        <option value="">未綁定</option>
-                        {contractOptions.map((line) => (
-                          <option key={line.id} value={line.id}>
-                            {line.buildingLabel || '未填棟'}／{line.floorLabel || '未填樓層'}／
-                            {line.phaseLabel || '未填階段'}（{line.unit || '未填單位'}）
-                          </option>
-                        ))}
-                      </select>
+                      {(() => {
+                        const range = phaseRangeDateFieldsFromText(row.phaseLabel)
+                        return (
+                          <div className="receivablesTable__phaseRangeRow">
+                            <input
+                              type="date"
+                              className={`receivablesTable__inline receivablesTable__phaseDate${
+                                range.startDate === '' ? ' is-empty' : ''
+                              }`}
+                              value={range.startDate}
+                              disabled={!canEdit}
+                              onChange={(e) =>
+                                updateEntry(row.id, {
+                                  phaseLabel: phasePeriodLabelFromIsoRange(e.target.value, range.endDate),
+                                })
+                              }
+                              aria-label="期間起日"
+                            />
+                            <span className="receivablesTable__phaseSep" aria-hidden>
+                              ~
+                            </span>
+                            <input
+                              type="date"
+                              className={`receivablesTable__inline receivablesTable__phaseDate${
+                                range.endDate === '' ? ' is-empty' : ''
+                              }`}
+                              value={range.endDate}
+                              disabled={!canEdit}
+                              onChange={(e) =>
+                                updateEntry(row.id, {
+                                  phaseLabel: phasePeriodLabelFromIsoRange(range.startDate, e.target.value),
+                                })
+                              }
+                              aria-label="期間迄日"
+                            />
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="num receivablesTable__cellMoney">
                       <PayrollNumberInput
@@ -762,9 +762,6 @@ export function ReceivablesPanel({
                     {'\u00a0'}
                   </td>
                   <td className="receivablesTable__cellPhase receivablesTable__footerFill" aria-hidden="true">
-                    {'\u00a0'}
-                  </td>
-                  <td className="receivablesTable__footerFill" aria-hidden="true">
                     {'\u00a0'}
                   </td>
                   <td className="num receivablesTable__cellMoney receivablesTable__footerNumCell">

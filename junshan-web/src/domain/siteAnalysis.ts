@@ -4,6 +4,8 @@ import type { WorkLogState } from './workLogModel'
 import { contractAmountOf, type ContractContentState } from './contractContentModel'
 import { effectiveEntriesForCalendar } from './workLogModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
+import { parsePhaseDateFragmentToIso, parsePhasePeriodRangeStrict } from './receivablePhaseRange'
+import { normalizeSiteDimensionLabel } from './siteDimensionLabels'
 
 export type SiteAnalysisGroup = {
   siteName: string
@@ -82,11 +84,6 @@ function nz(n: number): number {
   return Number.isFinite(n) ? n : 0
 }
 
-function norm(v: string): string {
-  const t = (v ?? '').trim()
-  return t === '' ? '未填' : t
-}
-
 function normalizeSiteNameKey(raw: string): string {
   return (raw ?? '')
     .replace(/\u3000/g, ' ')
@@ -107,11 +104,11 @@ function isMissingLabel(raw: string): boolean {
 }
 
 function toGroupKey(siteKey: string, dong: string, floor: string, phase: string): string {
-  return [siteKey, norm(dong), norm(floor), norm(phase)].join('\u0001')
+  return [siteKey, normalizeSiteDimensionLabel(dong), normalizeSiteDimensionLabel(floor), normalizeSiteDimensionLabel(phase)].join('\u0001')
 }
 
 function toContractMatchKey(siteKey: string, dong: string, floor: string, phase: string): string {
-  return [siteKey, norm(dong), norm(floor), norm(phase)].join('\u0001')
+  return [siteKey, normalizeSiteDimensionLabel(dong), normalizeSiteDimensionLabel(floor), normalizeSiteDimensionLabel(phase)].join('\u0001')
 }
 
 function splitGroupKey(k: string): {
@@ -205,6 +202,203 @@ function normalizeDateKey(raw: string): string {
   return `${y}-${mo}-${d}`
 }
 
+/** 與 {@link normalizeDateKey} 相同，另支援單日之民國年寫法（與收帳階段一致），供出工明細與請款區間對齊。 */
+function normalizeDetailDateKey(raw: string): string {
+  const t = (raw ?? '').trim()
+  if (!t) return ''
+  const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(t)
+  if (m) return `${m[1]}-${m[2]!.padStart(2, '0')}-${m[3]!.padStart(2, '0')}`
+  const roc = parsePhaseDateFragmentToIso(t)
+  if (roc) return roc
+  return normalizeDateKey(raw)
+}
+
+function eachDateKeyInclusive(startIso: string, endIso: string): string[] {
+  const out: string[] = []
+  const [ys, ms, ds] = startIso.split('-').map((x) => parseInt(x, 10))
+  const [ye, me, de] = endIso.split('-').map((x) => parseInt(x, 10))
+  let t = Date.UTC(ys!, ms! - 1, ds!, 12, 0, 0)
+  const endT = Date.UTC(ye!, me! - 1, de!, 12, 0, 0)
+  while (t <= endT) {
+    const dt = new Date(t)
+    const y = dt.getUTCFullYear()
+    const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(dt.getUTCDate()).padStart(2, '0')
+    out.push(`${y}-${m}-${d}`)
+    t += 86_400_000
+  }
+  return out
+}
+
+function isUnstructuredSiteDetail(d: SiteAnalysisDetail): boolean {
+  return d.dong === '未填' && d.floorLevel === '未填' && d.workPhase === '未填'
+}
+
+/** 從出工明細可溯同日、同案場掛在「有填棟樓階段」列上之儀器（整日文件錨點區塊常落在此）。 */
+function subtractInstrumentFromStructuredSiteDetailsForDay(
+  groupMap: Map<string, MutableGroup>,
+  siteKey: string,
+  dateKey: string,
+  amount: number,
+  siteRows: SiteAnalysisDetail[],
+): void {
+  let remaining = nz(amount)
+  if (remaining <= 0) return
+  for (const d of siteRows) {
+    if (normalizeDetailDateKey(d.date) !== dateKey) continue
+    if (isUnstructuredSiteDetail(d)) continue
+    const inst = nz(d.instrumentCost)
+    if (inst <= 0) continue
+    const gk = toGroupKey(siteKey, d.dong, d.floorLevel, d.workPhase)
+    const g = groupMap.get(gk)
+    if (!g) continue
+    const take = Math.min(inst, remaining)
+    g.instrumentCost = Math.max(0, nz(g.instrumentCost) - take)
+    g.operatingExpenseAllocated = Math.max(0, nz(g.operatingExpenseAllocated) - take)
+    remaining -= take
+    if (remaining <= 0) return
+  }
+}
+
+type CostBucket = {
+  salaryCost: number
+  mealCost: number
+  workDays: number
+  instrumentCost: number
+}
+
+function addToBucket(m: Map<string, CostBucket>, bucketKey: string, partial: CostBucket): void {
+  const got = m.get(bucketKey) ?? {
+    salaryCost: 0,
+    mealCost: 0,
+    workDays: 0,
+    instrumentCost: 0,
+  }
+  got.salaryCost += partial.salaryCost
+  got.mealCost += partial.mealCost
+  got.workDays += partial.workDays
+  got.instrumentCost += partial.instrumentCost
+  m.set(bucketKey, got)
+}
+
+/**
+ * 收帳落在「未對應收帳」且階段可解讀為日期區間時：依案場分析「出工明細」對齊成本。
+ * - 薪資／餐費／工數：僅合併棟／樓／階段皆未填之明細，並自「未填」合計列扣回。
+ * - 儀器：該日該案場明細「儀器」欄之加總（含掛在有填棟樓階段之錨點列），併入請款列；超出未填列所承擔之部分自對應結構列扣回。
+ */
+function reallocateUnfilledDetailCostsToUnmatchedReceivablePhases(
+  groupMap: Map<string, MutableGroup>,
+  detailsBySite: Map<string, SiteAnalysisDetail[]>,
+): void {
+  const instrumentTotalBySiteDate = new Map<string, number>()
+  for (const [siteKey, rows] of detailsBySite) {
+    for (const d of rows) {
+      const dk = normalizeDetailDateKey(d.date)
+      if (!dk) continue
+      const k = `${siteKey}\u0001${dk}`
+      instrumentTotalBySiteDate.set(k, (instrumentTotalBySiteDate.get(k) ?? 0) + nz(d.instrumentCost))
+    }
+  }
+
+  const bySiteDate = new Map<string, CostBucket>()
+  for (const [siteKey, rows] of detailsBySite) {
+    for (const d of rows) {
+      if (!isUnstructuredSiteDetail(d)) continue
+      const dk = normalizeDetailDateKey(d.date)
+      if (!dk) continue
+      addToBucket(bySiteDate, `${siteKey}\u0001${dk}`, {
+        salaryCost: nz(d.salaryCost),
+        mealCost: nz(d.mealCost),
+        workDays: nz(d.workDays),
+        instrumentCost: nz(d.instrumentCost),
+      })
+    }
+  }
+
+  const targets: { key: string; siteKey: string; range: { start: string; end: string } }[] = []
+  for (const [key, g] of groupMap) {
+    const p = splitGroupKey(key)
+    if (p.dong !== UNMATCHED_RECEIVABLE_DONG) continue
+    const range = parsePhasePeriodRangeStrict(g.workPhase)
+    if (!range) continue
+    targets.push({ key, siteKey: p.siteKey, range })
+  }
+  targets.sort((a, b) => {
+    const c = a.range.start.localeCompare(b.range.start)
+    if (c !== 0) return c
+    return a.range.end.localeCompare(b.range.end)
+  })
+
+  const claimedDayBySite = new Map<string, Set<string>>()
+  const claim = (siteKey: string, dateKey: string): boolean => {
+    let set = claimedDayBySite.get(siteKey)
+    if (!set) {
+      set = new Set<string>()
+      claimedDayBySite.set(siteKey, set)
+    }
+    if (set.has(dateKey)) return false
+    set.add(dateKey)
+    return true
+  }
+
+  for (const { key, siteKey, range } of targets) {
+    const recv = groupMap.get(key)
+    if (!recv) continue
+    const transfer: CostBucket = {
+      salaryCost: 0,
+      mealCost: 0,
+      workDays: 0,
+      instrumentCost: 0,
+    }
+    let transferInstrumentFromUnfilled = 0
+    const siteRows = detailsBySite.get(siteKey) ?? []
+    for (const dateKey of eachDateKeyInclusive(range.start, range.end)) {
+      const dsK = `${siteKey}\u0001${dateKey}`
+      const b = bySiteDate.get(dsK)
+      const instAll = nz(instrumentTotalBySiteDate.get(dsK) ?? 0)
+      if (!b && instAll === 0) continue
+      if (!claim(siteKey, dateKey)) continue
+      if (b) {
+        transfer.salaryCost += b.salaryCost
+        transfer.mealCost += b.mealCost
+        transfer.workDays += b.workDays
+        transferInstrumentFromUnfilled += nz(b.instrumentCost)
+      }
+      transfer.instrumentCost += instAll
+      const instUnstr = b ? nz(b.instrumentCost) : 0
+      const instExtra = Math.max(0, instAll - instUnstr)
+      if (instExtra > 0) {
+        subtractInstrumentFromStructuredSiteDetailsForDay(groupMap, siteKey, dateKey, instExtra, siteRows)
+      }
+    }
+    if (
+      transfer.salaryCost === 0 &&
+      transfer.mealCost === 0 &&
+      transfer.workDays === 0 &&
+      transfer.instrumentCost === 0
+    ) {
+      continue
+    }
+    const unfilledKey = toGroupKey(siteKey, '', '', '')
+    const unfilled = groupMap.get(unfilledKey)
+    recv.salaryCost += transfer.salaryCost
+    recv.mealCost += transfer.mealCost
+    recv.workDays += transfer.workDays
+    recv.instrumentCost += transfer.instrumentCost
+    recv.operatingExpenseAllocated += transfer.instrumentCost
+    if (unfilled) {
+      unfilled.salaryCost = Math.max(0, nz(unfilled.salaryCost) - transfer.salaryCost)
+      unfilled.mealCost = Math.max(0, nz(unfilled.mealCost) - transfer.mealCost)
+      unfilled.workDays = Math.max(0, nz(unfilled.workDays) - transfer.workDays)
+      unfilled.instrumentCost = Math.max(0, nz(unfilled.instrumentCost) - transferInstrumentFromUnfilled)
+      unfilled.operatingExpenseAllocated = Math.max(
+        0,
+        nz(unfilled.operatingExpenseAllocated) - transferInstrumentFromUnfilled,
+      )
+    }
+  }
+}
+
 type FloorSortToken = {
   rank: number
   value: number
@@ -212,7 +406,7 @@ type FloorSortToken = {
 }
 
 function parseFloorSortToken(raw: string): FloorSortToken {
-  const text = norm(raw)
+  const text = normalizeSiteDimensionLabel(raw)
   const compact = text.replace(/\s+/g, '').toUpperCase()
 
   const b = /^B(\d+)(?:F|樓)?$/.exec(compact)
@@ -318,6 +512,7 @@ export function buildSiteAnalysis(
    * 工作日誌優先：
    * 1) 先用工作日誌建立案場/棟/樓層/階段骨幹與明細
    * 2) 再把收帳掛載到既有分類；對不到者歸入「未對應收帳」
+   * 3) 若「未對應收帳」列之階段為日期區間，則依出工明細對齊（未填者之薪資餐費工數；儀器為該日明細加總並自未填或結構列扣回）
    */
   const groupMap = new Map<string, MutableGroup>()
   const detailsBySite = new Map<string, SiteAnalysisDetail[]>()
@@ -398,9 +593,9 @@ export function buildSiteAnalysis(
       const detail: SiteAnalysisDetail = {
         date: doc.logDate,
         siteName: site.display,
-        dong: norm(b.dong),
-        floorLevel: norm(b.floorLevel),
-        workPhase: norm(b.workPhase),
+        dong: normalizeSiteDimensionLabel(b.dong),
+        floorLevel: normalizeSiteDimensionLabel(b.floorLevel),
+        workPhase: normalizeSiteDimensionLabel(b.workPhase),
         workItems:
           (b.workLines ?? [])
             .map((x) => (x.label ?? '').trim())
@@ -506,9 +701,9 @@ export function buildSiteAnalysis(
     floor: string,
     phase: string,
   ): string => {
-    const dn = norm(dong)
-    const fn = norm(floor)
-    const pn = norm(phase)
+    const dn = normalizeSiteDimensionLabel(dong)
+    const fn = normalizeSiteDimensionLabel(floor)
+    const pn = normalizeSiteDimensionLabel(phase)
     const candidates = groupKeysBySite.get(siteKey) ?? []
     if (candidates.length === 0) {
       return toGroupKey(siteKey, UNMATCHED_RECEIVABLE_DONG, floor, phase)
@@ -540,6 +735,8 @@ export function buildSiteAnalysis(
     const arr = groupKeysBySite.get(site.key)!
     if (!arr.includes(key)) arr.push(key)
   }
+
+  reallocateUnfilledDetailCostsToUnmatchedReceivablePhases(groupMap, detailsBySite)
 
   const siteKeys = [
     ...new Set([
@@ -632,9 +829,9 @@ export function buildSiteAnalysis(
         return {
           contractLineId: line.id,
           siteName,
-          dong: norm(line.buildingLabel),
-          floorLevel: norm(line.floorLabel),
-          workPhase: norm(line.phaseLabel),
+          dong: normalizeSiteDimensionLabel(line.buildingLabel),
+          floorLevel: normalizeSiteDimensionLabel(line.floorLabel),
+          workPhase: normalizeSiteDimensionLabel(line.phaseLabel),
           unit: line.unit.trim() || '未填',
           contractUnitPrice: nz(line.contractUnitPrice),
           contractQuantity: nz(line.contractQuantity),

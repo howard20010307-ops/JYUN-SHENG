@@ -1,4 +1,6 @@
 import { allocateWithSuffix, stableHash16 } from './stableIds'
+import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
+import { normalizePhasePeriodLabel } from './receivablePhaseRange'
 
 export type ContractContentLine = {
   id: string
@@ -36,9 +38,9 @@ function str(v: unknown): string {
 function contractLineFingerprintCore(line: Omit<ContractContentLine, 'id'>): string {
   return [
     line.siteName.trim(),
-    line.buildingLabel.trim(),
-    line.floorLabel.trim(),
-    line.phaseLabel.trim(),
+    collapseSiteDimensionWhitespace(line.buildingLabel),
+    collapseSiteDimensionWhitespace(line.floorLabel),
+    normalizePhasePeriodLabel(collapseSiteDimensionWhitespace(line.phaseLabel)),
     line.pricingMode,
     line.unit.trim(),
     String(line.contractUnitPrice),
@@ -52,9 +54,9 @@ function normalizeLine(line: ContractContentLine): ContractContentLine {
   return {
     ...line,
     siteName: line.siteName.trim(),
-    buildingLabel: line.buildingLabel.trim(),
-    floorLabel: line.floorLabel.trim(),
-    phaseLabel: line.phaseLabel.trim(),
+    buildingLabel: collapseSiteDimensionWhitespace(line.buildingLabel),
+    floorLabel: collapseSiteDimensionWhitespace(line.floorLabel),
+    phaseLabel: normalizePhasePeriodLabel(collapseSiteDimensionWhitespace(line.phaseLabel)),
     pricingMode: line.pricingMode === 'manualWorkDays' ? 'manualWorkDays' : 'fixedQuantity',
     unit: line.unit.trim(),
     note: line.note.trim(),
@@ -156,11 +158,29 @@ export function createContractContentLine(
   }
 }
 
+/** 計算合約該列「未稅金額」時使用的數量：固定數量或手填工數。 */
+export function contractQuantityForAmount(
+  line: Pick<ContractContentLine, 'pricingMode' | 'contractQuantity' | 'manualWorkDays'>,
+): number {
+  return line.pricingMode === 'manualWorkDays' ? safeNum(line.manualWorkDays) : safeNum(line.contractQuantity)
+}
+
 export function contractAmountOf(
   line: Pick<ContractContentLine, 'pricingMode' | 'contractUnitPrice' | 'contractQuantity' | 'manualWorkDays'>,
 ): number {
-  const qty = line.pricingMode === 'manualWorkDays' ? safeNum(line.manualWorkDays) : safeNum(line.contractQuantity)
-  return Math.round(safeNum(line.contractUnitPrice) * qty)
+  return Math.round(safeNum(line.contractUnitPrice) * contractQuantityForAmount(line))
+}
+
+/** 計價常用：總價＝未稅小計加稅金；此處為整數時點 = round(未稅×1.05)，稅＝總價−未稅（合約列含稅總額對應）。 */
+export function taiwanGrossInclusiveFivePercentRoundedFromNet(net: number): number {
+  const n = Math.round(safeNum(net))
+  return Math.round(n * 1.05)
+}
+
+/** 對應 `taiwanGrossInclusiveFivePercentRoundedFromNet`，稅 = 總價含稅(整數) − 未稅小計。 */
+export function taiwanVatFivePercentTaxFromRoundedGross(net: number): number {
+  const n = Math.round(safeNum(net))
+  return taiwanGrossInclusiveFivePercentRoundedFromNet(n) - n
 }
 
 /** 鍵級聯集：同 id 本機優先，避免手輸合約內容被雲端覆蓋。 */

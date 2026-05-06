@@ -20,6 +20,8 @@ type Props = {
  * 全站數字輸入（薪水格線、公司損益表等）：焦點內以字串編輯，移開焦點才寫回數字。
  * 若目前值為 0，一進入焦點即清空，不必先刪 0。
  * 避免 `type="number"` + 受控 value 在刪字時被 parse 吃掉、無法刪除前導 0 的問題。
+ *
+ * HTML `size` 固定為 1：避免依字數撐開表格欄寬；儲存格寬由 table.data 與 `width:100%` 決定。
  */
 export function PayrollNumberInput({
   value,
@@ -73,6 +75,7 @@ export function PayrollNumberInput({
       type="text"
       inputMode="decimal"
       className={className}
+      size={1}
       aria-label={ariaLabel}
       value={display}
       onFocus={onFocus}
