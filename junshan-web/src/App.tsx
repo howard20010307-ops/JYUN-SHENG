@@ -27,6 +27,33 @@ import { clearPersistentState, usePersistentStateWithUndo } from './hooks/usePer
 
 export type { AppState, ClientDocsSheet, Tab } from './domain/appState'
 
+/** 左側導覽分組（不重複定義 Tab，僅整理視覺層級） */
+const APP_MAIN_NAV_GROUPS: { groupLabel: string; items: { id: Tab; label: string }[] }[] = [
+  {
+    groupLabel: '現場與薪資',
+    items: [
+      { id: 'payroll', label: '薪水統計' },
+      { id: 'worklog', label: '工作日誌' },
+    ],
+  },
+  {
+    groupLabel: '報價與文件',
+    items: [
+      { id: 'quote', label: '放樣估價' },
+      { id: 'clientDocs', label: '對外文件' },
+    ],
+  },
+  {
+    groupLabel: '帳務',
+    items: [
+      { id: 'receivables', label: '收帳' },
+      { id: 'ledger', label: '公司帳' },
+    ],
+  },
+]
+
+const APP_SIDEBAR_MEDIA = '(min-width: 768px)'
+
 export default function App() {
   const gate = useAppGateAuth()
   if (!gate.isUnlocked) {
@@ -195,6 +222,35 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     [state.salaryBook],
   )
 
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia(APP_SIDEBAR_MEDIA)
+    const onMq = () => {
+      if (mq.matches) setMobileNavOpen(false)
+    }
+    mq.addEventListener('change', onMq)
+    onMq()
+    return () => mq.removeEventListener('change', onMq)
+  }, [])
+
+  useEffect(() => {
+    if (!mobileNavOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileNavOpen])
+
+  const pickTab = useCallback(
+    (tab: Tab) => {
+      setTab(tab)
+      setMobileNavOpen(false)
+    },
+    [setTab],
+  )
+
   return (
     <div className="app">
       <div
@@ -205,11 +261,20 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
       >
       <header className="top">
         <div className="topMain">
+          <button
+            type="button"
+            className="appSidebarToggle"
+            aria-expanded={mobileNavOpen}
+            aria-controls="app-sidebar"
+            onClick={() => setMobileNavOpen((o) => !o)}
+          >
+            <span className="appSidebarToggle__icon" aria-hidden>
+              ☰
+            </span>
+            <span className="appSidebarToggle__text">功能選單</span>
+          </button>
           <div className="brand">
             <h1>鈞泩放樣 · 營運試算</h1>
-            <p className="sub">
-              薪水統計版面與計算邏輯對齊 Excel《2026鈞泩薪水統計》：月表案場區塊、總出工數、預支、加班與分期總表。
-            </p>
           </div>
           <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
           {!canEdit ? (
@@ -305,29 +370,43 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
         />
       </header>
 
-      <nav className="tabs" aria-label="主選單">
-        {(
-          [
-            ['payroll', '薪水統計'],
-            ['quote', '放樣估價'],
-            ['clientDocs', '對外文件'],
-            ['receivables', '收帳'],
-            ['ledger', '公司帳'],
-            ['worklog', '工作日誌'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={`tab ${state.tab === id ? 'on' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          className="appSidebarBackdrop"
+          aria-label="關閉選單"
+          tabIndex={-1}
+          onClick={() => setMobileNavOpen(false)}
+        />
+      ) : null}
 
-      <main className="main">
+      <div className="appLayout">
+        <aside
+          id="app-sidebar"
+          className={`appSidebar ${mobileNavOpen ? 'appSidebar--open' : ''}`}
+          aria-label="主選單"
+        >
+          {APP_MAIN_NAV_GROUPS.map((g) => (
+            <div key={g.groupLabel} className="appSidebar__group">
+              <div className="appSidebar__groupLabel">{g.groupLabel}</div>
+              <nav className="appSidebar__nav" aria-label={g.groupLabel}>
+                {g.items.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`appSidebar__item tab ${state.tab === id ? 'on' : ''}`}
+                    onClick={() => pickTab(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          ))}
+        </aside>
+
+        <div className="appLayout__content">
+          <main className="main">
         {state.tab === 'payroll' && (
           <fieldset className="tabFieldset" disabled={!canEdit}>
             <PayrollPanel
@@ -540,12 +619,14 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
             />
           </fieldset>
         )}
-      </main>
+          </main>
 
-      <footer className="foot">
-        若與您手邊 Excel 仍有細部差異，請告知要對齊的「工作表名稱＋儲存格公式」。本機與線上可選
-        <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；工作日誌一併含在內。未用雲端時，各網址的瀏覽器資料仍互不共用。
-      </footer>
+          <footer className="foot">
+            若與您手邊 Excel 仍有細部差異，請告知要對齊的「工作表名稱＋儲存格公式」。本機與線上可選
+            <strong>JSONBin</strong>（設定環境變數則全自動讀寫雲端）或<strong>匯出／匯入備份</strong>；工作日誌一併含在內。未用雲端時，各網址的瀏覽器資料仍互不共用。
+          </footer>
+        </div>
+      </div>
       </div>
 
       {jsonBin.cloudBootstrapPending ? (

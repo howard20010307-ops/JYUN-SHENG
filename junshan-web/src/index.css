@@ -69,7 +69,7 @@
 
   --ui-overlay-z: 20050;
 
-  /** 薪水月表日期格／數字輸入（與全站 input 對齊） */
+  --app-sidebar-width: 15.75rem;
   --payroll-cell-min: 88px;
   --payroll-cell-max: 128px;
   --payroll-input-font: var(--ui-input-fs);
@@ -457,6 +457,158 @@ html {
   padding-bottom: var(--ui-space-5);
 }
 
+/* 左側主導覽（桌機 sticky；手機改為抽屜） */
+
+.appLayout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-4);
+  padding-top: var(--ui-space-2);
+}
+
+.appLayout__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.appSidebar {
+  flex: 0 0 var(--app-sidebar-width);
+  width: var(--app-sidebar-width);
+  box-sizing: border-box;
+  position: sticky;
+  top: var(--ui-space-2);
+  align-self: flex-start;
+  max-height: calc(100dvh - var(--ui-space-4));
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--ui-space-1) var(--ui-space-3) var(--ui-space-3) 0;
+  margin-right: 0;
+  border-right: 1px solid var(--border);
+  scrollbar-gutter: stable;
+}
+
+.appSidebar__group {
+  margin-bottom: var(--ui-space-4);
+}
+.appSidebar__group:last-child {
+  margin-bottom: 0;
+}
+
+.appSidebar__groupLabel {
+  font-size: var(--ui-fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  color: var(--muted);
+  margin: 0 0 var(--ui-space-1) 2px;
+  line-height: var(--ui-lh-snug);
+}
+
+.appSidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appSidebar__item.tab {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: var(--ui-radius-sm);
+  padding: 10px 12px;
+  font-size: var(--ui-fs-sm);
+  line-height: var(--ui-lh-snug);
+}
+
+.appSidebarToggle {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--ui-space-1);
+  padding: 10px 14px;
+  margin-right: var(--ui-space-2);
+  border-radius: var(--ui-radius-sm);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--head);
+  font-size: var(--ui-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.appSidebarToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.appSidebarToggle__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  opacity: 0.92;
+}
+
+.appSidebarToggle__text {
+  white-space: nowrap;
+}
+
+.appSidebarBackdrop {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .appSidebarToggle {
+    display: inline-flex;
+  }
+
+  .appLayout {
+    display: block;
+    padding-top: 0;
+  }
+
+  .appSidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(17.75rem, 90vw);
+    max-height: none;
+    flex: none;
+    margin: 0;
+    padding: var(--ui-space-5) var(--ui-space-3) var(--ui-space-4);
+    padding-top: max(var(--ui-space-5), env(safe-area-inset-top, 0px));
+    padding-left: max(var(--ui-space-3), env(safe-area-inset-left, 0px));
+    z-index: 10050;
+    transform: translate3d(-105%, 0, 0);
+    transition: transform 0.2s ease;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: 10px 0 36px rgba(0, 0, 0, 0.42);
+  }
+
+  .appSidebar--open {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .appSidebarBackdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 10040;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    background: rgba(6, 10, 16, 0.5);
+  }
+
+  .topMain .brand {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
 .panel h2 {
   margin: 0 0 var(--ui-space-2);
   font-size: var(--ui-fs-2xl);
@@ -483,6 +635,45 @@ html {
   flex-wrap: wrap;
   gap: var(--ui-space-1);
   align-items: center;
+}
+
+.payrollBlockAddWorker {
+  align-items: flex-end;
+  gap: var(--ui-space-2);
+}
+
+.payrollBlockAddWorkerField {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.payrollBlockAddWorkerField .titleInput {
+  width: min(12rem, 100%);
+}
+
+.payrollBlockGrandPayHint {
+  margin-top: calc(var(--ui-space-2) + 6px);
+  margin-bottom: var(--ui-space-2);
+  font-size: var(--ui-fs-sm);
+  color: #ffd7da;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.payrollBlockGrandPayValue {
+  display: inline;
+  margin-left: 0.4em;
+  transform: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--danger);
+  background: none;
+  border: 0;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  box-shadow: none;
 }
 
 .inlinePair {
@@ -915,6 +1106,212 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   font-size: var(--ui-fs-lg);
   line-height: var(--ui-lh-tight);
   color: var(--head);
+}
+
+/* 薪水頁 · 快速登記：分區塊、格線，減少長條 btnRow 視覺噪音 */
+.fieldworkQuick__header {
+  margin-bottom: var(--ui-space-4);
+}
+.fieldworkQuick__intro {
+  margin: 0;
+  font-size: var(--ui-fs-xs);
+  line-height: var(--ui-lh-body);
+  color: var(--muted);
+  max-width: 52rem;
+}
+.fieldworkQuick__layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-4);
+}
+.fieldworkQuick__panel {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  min-width: 0;
+}
+.fieldworkQuick__sectionTitle {
+  margin: 0 0 var(--ui-space-2);
+  font-size: var(--ui-fs-md);
+  font-weight: 650;
+  line-height: var(--ui-lh-tight);
+  color: var(--head);
+  letter-spacing: 0.02em;
+}
+.fieldworkQuick__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  min-width: 0;
+}
+.fieldworkQuick__field > span:first-of-type {
+  font-size: var(--ui-fs-xs);
+  color: var(--muted);
+  line-height: var(--ui-lh-snug);
+}
+.fieldworkQuick__field--block textarea {
+  width: 100%;
+  max-width: none;
+  resize: vertical;
+}
+.fieldworkQuick__gridBasic {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2) var(--ui-space-3);
+  align-items: end;
+}
+@media (min-width: 640px) {
+  .fieldworkQuick__gridBasic {
+    grid-template-columns: minmax(10rem, 12rem) minmax(12rem, 2fr) minmax(5rem, 6.5rem) minmax(
+        5rem,
+        6.5rem
+      );
+  }
+  .fieldworkQuick__site {
+    grid-column: span 2;
+  }
+}
+.fieldworkQuick__phase {
+  grid-column: 1 / -1;
+}
+.fieldworkQuick__staffGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-3);
+  margin-bottom: var(--ui-space-2);
+}
+.fieldworkQuick__staffGrid label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: var(--ui-fs-sm);
+}
+.fieldworkQuick__subsection {
+  margin-top: var(--ui-space-4);
+}
+.fieldworkQuick__subsection:first-of-type {
+  margin-top: var(--ui-space-3);
+}
+.fieldworkQuick__subLabel {
+  display: block;
+  margin: 0 0 var(--ui-space-2);
+  font-size: var(--ui-fs-sm);
+  color: var(--text);
+  font-weight: 600;
+  line-height: var(--ui-lh-snug);
+}
+.fieldworkQuick__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2) var(--ui-space-3);
+  align-items: flex-end;
+}
+.fieldworkQuick__workLineRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+  align-items: flex-end;
+}
+.fieldworkQuick__instrumentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: var(--ui-space-2) var(--ui-space-3);
+  align-items: end;
+}
+.fieldworkQuick__instrumentHint {
+  margin: 0 0 var(--ui-space-2);
+  font-size: var(--ui-fs-2xs);
+  line-height: var(--ui-lh-body);
+  color: var(--muted);
+}
+.fieldworkQuick__fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  margin: 0;
+  min-width: 0;
+}
+.fieldworkQuick__fieldset > legend {
+  padding: 0 6px;
+  font-size: var(--ui-fs-xs);
+  font-weight: 600;
+  color: var(--head);
+}
+.fieldworkQuick__ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-3);
+}
+@media (min-width: 800px) {
+  .fieldworkQuick__ledgerTop {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    gap: var(--ui-space-3);
+    align-items: start;
+  }
+}
+.fieldworkQuick__otRadios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2) var(--ui-space-4);
+  margin-bottom: var(--ui-space-2);
+}
+.fieldworkQuick__otRadios label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ui-fs-sm);
+  cursor: pointer;
+}
+.fieldworkQuick__toolRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+  align-items: flex-end;
+}
+.fieldworkQuick__submitBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-radius: var(--ui-radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.fieldworkQuick__aux {
+  padding-top: var(--ui-space-5);
+  margin-top: var(--ui-space-2);
+  border-top: 1px solid var(--border);
+}
+.fieldworkQuick__auxTitle {
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-fs-md);
+  font-weight: 650;
+  line-height: var(--ui-lh-tight);
+  color: var(--head);
+}
+.fieldworkQuick__presetList {
+  max-height: min(50vh, 22rem);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  padding: var(--ui-space-2);
+}
+.fieldworkQuick__presetList ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-2);
+}
+.fieldworkQuick__presetListItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
 }
 
 /* 工作日誌：月曆 */
@@ -1795,6 +2192,18 @@ table.data.quoteCostTableExcel {
   line-height: var(--ui-lh-tight);
 }
 
+/* 成本估算列表：提高格線可見度 */
+table.data.quoteCostTable th,
+table.data.quoteCostTable td,
+table.data.quoteCostTableExcel th,
+table.data.quoteCostTableExcel td {
+  border-color: rgba(147, 173, 204, 0.55);
+}
+
+table.data.quoteCostTableExcel thead th {
+  border-bottom: 2px solid rgba(147, 173, 204, 0.72);
+}
+
 /** 成本估算列：表頭允許換行（覆寫全站 thead nowrap），欄名不被 max-width 截斷 */
 table.data.quoteCostTableExcel thead th {
   white-space: normal;
@@ -2120,6 +2529,10 @@ table.data.tight input[type='number'].cellIn.cellIn--meal,
 table.data.tight input[type='text'].cellIn.cellIn--meal {
   color: var(--danger);
   -webkit-text-fill-color: var(--danger);
+  font-weight: 700;
+  border-color: rgba(240, 113, 120, 0.75);
+  background: linear-gradient(180deg, rgba(240, 113, 120, 0.2), rgba(185, 28, 28, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.25);
 }
 
 input.narrow {
@@ -4637,6 +5050,41 @@ table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio'
   }
 }
 
+/*
+ * 成本估算列：例外於檔尾 [B]「控件 width:100%」—
+ * 輸入格不強制撐滿，欄寬改由表頭與內容共同決定。
+ */
+table.data.quoteCostTableExcel td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.quoteCostTableExcel td:has(select),
+table.data.quoteCostTableExcel td:has(textarea),
+table.data.quoteCostTableExcel td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.quoteCostTableExcel td > input:not([type='checkbox']):not([type='radio']),
+table.data.quoteCostTableExcel td > select,
+table.data.quoteCostTableExcel td > textarea,
+table.data.quoteCostTableExcel td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.quoteCostTableExcel td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.quoteCostTableExcel td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
 /* 月表案場區塊：比照計價單，輸入格不再強制撐滿整欄，欄寬由表頭與內容共同決定。 */
 table.data.payrollSiteBlockTable td:has(input:not([type='checkbox']):not([type='radio'])),
 table.data.payrollSiteBlockTable td:has(select),
@@ -4667,6 +5115,67 @@ table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='ra
   table.data.payrollSiteBlockTable td > input:not([type='checkbox']):not([type='radio']) {
     field-sizing: content;
   }
+}
+
+/* 月表其餘表格（總出工／預支／調工／加班）：比照案場區塊輸入邏輯。 */
+table.data.payrollMonthSummaryTable td,
+table.data.payrollMonthSummaryTable th,
+table.data.payrollMonthEditableTable td,
+table.data.payrollMonthEditableTable th {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.payrollMonthEditableTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.payrollMonthEditableTable td:has(select),
+table.data.payrollMonthEditableTable td:has(textarea),
+table.data.payrollMonthEditableTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.payrollMonthEditableTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.payrollMonthEditableTable td > select,
+table.data.payrollMonthEditableTable td > textarea,
+table.data.payrollMonthEditableTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+}
+
+table.data.payrollMonthEditableTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+}
+
+@supports (field-sizing: content) {
+  table.data.payrollMonthEditableTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+/* 月表其餘表格輸入也固定深色，避免白底黑字。 */
+table.data.payrollMonthEditableTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.payrollMonthEditableTable td > select,
+table.data.payrollMonthEditableTable td > textarea,
+table.data.payrollMonthEditableTable td > .titleInput {
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border) !important;
+}
+
+table.data.payrollMonthEditableTable td > input:-webkit-autofill,
+table.data.payrollMonthEditableTable td > input:-webkit-autofill:hover,
+table.data.payrollMonthEditableTable td > input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
 }
 
 /* 樓層面積表（quoteFloorTable）：輸入格寬度貼合內容，避免被全站 width:100% 規則撐寬。 */
@@ -4811,6 +5320,17 @@ table.data.receivablesTable td > textarea:-webkit-autofill:focus {
   caret-color: var(--head);
 }
 
+/* 月表有數值格：最終優先紅字（避免被後段深色外觀覆寫） */
+table.data.tight input.cellIn.cellIn--work,
+table.data.tight input.cellIn.cellIn--meal,
+table.data.payrollMonthEditableTable input.cellIn.cellIn--work,
+table.data.payrollMonthEditableTable input.cellIn.cellIn--meal,
+table.data.payrollSiteBlockTable input.cellIn.cellIn--work,
+table.data.payrollSiteBlockTable input.cellIn.cellIn--meal {
+  color: var(--danger) !important;
+  -webkit-text-fill-color: var(--danger) !important;
+}
+
 /* 這幾張表一律深色輸入外觀：避免白底黑字回退。 */
 table.data.pricingSheetTable td > input:not([type='checkbox']):not([type='radio']),
 table.data.pricingSheetTable td > select,
@@ -4843,6 +5363,39 @@ table.data.quoteFloorTable td > input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
   -webkit-text-fill-color: var(--head) !important;
   caret-color: var(--head);
+}
+
+/* payrollSiteBlockTable：保留「數值 > 0」紅字標註（含餐費），不被全站深色輸入規則覆蓋 */
+table.data.payrollSiteBlockTable td > input.cellIn.cellIn--work,
+table.data.payrollSiteBlockTable td > input.cellIn.cellIn--meal {
+  color: var(--danger) !important;
+  -webkit-text-fill-color: var(--danger) !important;
+  background: rgba(240, 113, 120, 0.1) !important;
+  border-color: rgba(240, 113, 120, 0.55) !important;
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28) !important;
+}
+
+/* 預支／調工／加班：同樣保留「數值 > 0」紅字與醒目底色，不被全站深色輸入規則覆蓋 */
+table.data.payrollMonthEditableTable td > input.cellIn.cellIn--work,
+table.data.payrollMonthEditableTable td > input.cellIn.cellIn--meal {
+  color: var(--danger) !important;
+  -webkit-text-fill-color: var(--danger) !important;
+  background: rgba(240, 113, 120, 0.1) !important;
+  border-color: rgba(240, 113, 120, 0.55) !important;
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28) !important;
+}
+
+/* 最終保險：預支／調工／加班表的有值格一律醒目紅字 */
+table.data.payrollAdvanceTable td > input.cellIn.cellIn--work,
+table.data.payrollJunAdjustTable td > input.cellIn.cellIn--work,
+table.data.payrollTsaiAdjustTable td > input.cellIn.cellIn--work,
+table.data.payrollJunOtTable td > input.cellIn.cellIn--work,
+table.data.payrollTsaiOtTable td > input.cellIn.cellIn--work {
+  color: var(--danger) !important;
+  -webkit-text-fill-color: var(--danger) !important;
+  background: rgba(240, 113, 120, 0.1) !important;
+  border-color: rgba(240, 113, 120, 0.55) !important;
+  box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28) !important;
 }
 
 

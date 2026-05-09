@@ -121,13 +121,6 @@ function parseExtraWorkerNames(raw: string): string[] {
   return [...new Set(out)]
 }
 
-const fieldsetStyle = {
-  border: '1px solid var(--border, #ccc)',
-  borderRadius: 8,
-  padding: '10px 14px',
-  margin: 0,
-}
-
 export function FieldworkQuickSection({
   staffPickerKeys,
   salaryBook,
@@ -411,360 +404,196 @@ export function FieldworkQuickSection({
   }
 
   return (
-    <section className="card">
-      <h3>快速登記（出工＋公司損益表＋工作日誌）</h3>
-      <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
-        可<strong>分開登記</strong>：<strong>預支</strong>僅需日期＋人員（可不填地點）；<strong>工具</strong>入損益表需日期且每列名稱、數量、單位、金額皆填妥（可不填地點）；<strong>餐費</strong>需日期＋案場（地點）＋金額。有填地點與人員時另寫月表出工／調工、加班，並依月表<strong>同步整日工作日誌</strong>。
-      </p>
-      <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>日期</span>
-          <input type="date" value={iso} onChange={(e) => setIso(e.target.value)} />
-        </label>
-        <label
-          style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}
-          onPointerDownCapture={sitePickClear.onPointerDownCapture}
-        >
-          <span>地點（案場或調工支援）</span>
-          <input
-            type="text"
-            value={site}
-            onChange={(e) => setSite(e.target.value)}
-            onPointerDownCapture={sitePickClear.onPointerDownCapture}
-            onFocus={sitePickClear.onFocus}
-            onBlur={sitePickClear.onBlur}
-            placeholder="可選下方或自填"
-            list="fieldwork-site-datalist"
-          />
-          <datalist id="fieldwork-site-datalist">
-            {siteOptions.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </datalist>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
-          <span>棟</span>
-          <input type="text" value={dong} onChange={(e) => setDong(e.target.value)} placeholder="例：A棟" />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
-          <span>樓層</span>
-          <input
-            type="text"
-            value={floorLevel}
-            onChange={(e) => setFloorLevel(e.target.value)}
-            placeholder="例：3F"
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
-          <span>階段（期間）</span>
-          <PhasePeriodRangeInputs
-            value={workPhase}
-            onChange={setWorkPhase}
-            rowClassName="worklogPhasePeriodRow"
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>出工天數（每人該日）</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            className="narrow"
-            value={dayVal}
-            onFocus={(e) => clearSingleZeroOnFocus(e, setDayVal)}
-            onChange={(e) => setDayVal(e.target.value)}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
-          <span>預支（元／人，選填）</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            className="narrow"
-            value={advancePerPerson}
-            onFocus={(e) => clearSingleZeroOnFocus(e, setAdvancePerPerson)}
-            onChange={(e) => setAdvancePerPerson(e.target.value)}
-            placeholder="空白則不寫"
-            title="寫入月表「預支」該日欄，每人累加相同金額；可填負數沖帳"
-          />
-        </label>
-      </div>
+    <section className="card fieldworkQuick">
+      <header className="fieldworkQuick__header">
+        <h3>快速登記（出工＋公司損益表＋工作日誌）</h3>
+      </header>
 
-      <div style={{ marginTop: 12 }}>
-        <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8 }}>
-          {staffPickerKeys.map((name) => (
-            <label
-              key={name}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-            >
-              <input
-                type="checkbox"
-                checked={picked.has(name)}
-                onChange={() => toggle(name)}
-              />
-              {name}
+      <div className="fieldworkQuick__layout">
+        <section className="fieldworkQuick__panel" aria-labelledby="fwq-basic">
+          <h4 className="fieldworkQuick__sectionTitle" id="fwq-basic">
+            出工與地點
+          </h4>
+          <div className="fieldworkQuick__gridBasic">
+            <label className="fieldworkQuick__field">
+              <span>日期</span>
+              <input type="date" value={iso} onChange={(e) => setIso(e.target.value)} />
             </label>
-          ))}
-        </div>
-        <textarea
-          rows={3}
-          style={{ marginTop: 8, width: '100%', maxWidth: 480, resize: 'vertical' }}
-          aria-label="臨時人員"
-          placeholder="臨時人員（可逗號、換行分隔）"
-          value={extraNames}
-          onChange={(e) => setExtraNames(e.target.value)}
-        />
-      </div>
-
-      <h4 style={{ marginTop: 18, marginBottom: 8 }}>工作日誌欄位（與日誌頁連動）</h4>
-      <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>上班</span>
-          <input
-            type="time"
-            value={padHhmm(timeStart, DEFAULT_WORK_START)}
-            onChange={(e) => setTimeStart(e.target.value)}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span>下班</span>
-          <input
-            type="time"
-            value={padHhmm(timeEnd, DEFAULT_WORK_END)}
-            onChange={(e) => setTimeEnd(e.target.value)}
-          />
-        </label>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-        <span>工作內容（可複數列，與日誌頁多列工作相同）</span>
-        <datalist id="fieldwork-workitem-datalist">
-          {workItemOptions.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
-        {workLineRows.map((row, idx) => (
-          <div
-            key={row.id}
-            className="btnRow"
-            style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}
-          >
             <label
-              style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 220px', minWidth: 160 }}
-              {...(idx === 0
-                ? {
-                    onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
-                  }
-                : {})}
+              className="fieldworkQuick__field fieldworkQuick__site"
+              onPointerDownCapture={sitePickClear.onPointerDownCapture}
             >
-              <span className="muted" style={{ fontSize: 13 }}>
-                {idx === 0 ? '工作內容' : `第 ${idx + 1} 列`}
-              </span>
+              <span>地點（案場或調工支援）</span>
               <input
                 type="text"
-                value={row.label}
-                onChange={(e) =>
-                  setWorkLineRows((rows) =>
-                    rows.map((r, i) => (i === idx ? { ...r, label: e.target.value } : r)),
-                  )
-                }
-                {...(idx === 0
-                  ? {
-                      onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
-                      onFocus: workLine0PickClear.onFocus,
-                      onBlur: workLine0PickClear.onBlur,
-                    }
-                  : {})}
-                list="fieldwork-workitem-datalist"
-                placeholder="選擇或輸入"
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+                onPointerDownCapture={sitePickClear.onPointerDownCapture}
+                onFocus={sitePickClear.onFocus}
+                onBlur={sitePickClear.onBlur}
+                placeholder="可選下方或自填"
+                list="fieldwork-site-datalist"
+              />
+              <datalist id="fieldwork-site-datalist">
+                {siteOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </datalist>
+            </label>
+            <label className="fieldworkQuick__field">
+              <span>棟</span>
+              <input type="text" value={dong} onChange={(e) => setDong(e.target.value)} placeholder="例：A棟" />
+            </label>
+            <label className="fieldworkQuick__field">
+              <span>樓層</span>
+              <input
+                type="text"
+                value={floorLevel}
+                onChange={(e) => setFloorLevel(e.target.value)}
+                placeholder="例：3F"
               />
             </label>
-            <button
-              type="button"
-              className="btn secondary"
-              disabled={workLineRows.length <= 1}
-              onClick={() =>
-                setWorkLineRows((rows) => {
-                  if (rows.length <= 1) return rows
-                  const docId = stableWorkLogDayDocBaseId(iso)
-                  return rows
-                    .filter((_, i) => i !== idx)
-                    .map((r, i) => ({ ...r, id: stableWorkLogWorkLineId(docId, 0, i) }))
-                })
-              }
-            >
-              移除此列
-            </button>
+            <div className="fieldworkQuick__field fieldworkQuick__phase">
+              <span>階段（期間）</span>
+              <PhasePeriodRangeInputs
+                value={workPhase}
+                onChange={setWorkPhase}
+                rowClassName="worklogPhasePeriodRow"
+              />
+            </div>
+            <label className="fieldworkQuick__field">
+              <span>出工天數（每人該日）</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="narrow"
+                value={dayVal}
+                onFocus={(e) => clearSingleZeroOnFocus(e, setDayVal)}
+                onChange={(e) => setDayVal(e.target.value)}
+              />
+            </label>
+            <label className="fieldworkQuick__field">
+              <span>預支（元／人，選填）</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="narrow"
+                value={advancePerPerson}
+                onFocus={(e) => clearSingleZeroOnFocus(e, setAdvancePerPerson)}
+                onChange={(e) => setAdvancePerPerson(e.target.value)}
+                placeholder="空白則不寫"
+                title="寫入月表「預支」該日欄，每人累加相同金額；可填負數沖帳"
+              />
+            </label>
           </div>
-        ))}
-        <button
-          type="button"
-          className="btn secondary"
-          onClick={() =>
-            setWorkLineRows((rows) => {
-              const docId = stableWorkLogDayDocBaseId(iso)
-              return [...rows, { id: stableWorkLogWorkLineId(docId, 0, rows.length), label: '' }]
-            })
-          }
-        >
-          新增工作內容列
-        </button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-        <span>使用儀器</span>
-        <p className="hint muted" style={{ margin: 0, fontSize: 12 }}>
-          儀器支出單價（與工作日誌一致）：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()} 元／台、旋轉雷射{' '}
-          {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
-          {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
-            <span>全站儀（台）</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              className="narrow"
-              value={instrumentTotalStation}
-              onChange={(e) => setInstrumentTotalStation(e.target.value)}
-              placeholder="0"
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
-            <span>旋轉雷射（台）</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              className="narrow"
-              value={instrumentRotatingLaser}
-              onChange={(e) => setInstrumentRotatingLaser(e.target.value)}
-              placeholder="0"
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
-            <span>墨線儀（台）</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              className="narrow"
-              value={instrumentLineLaser}
-              onChange={(e) => setInstrumentLineLaser(e.target.value)}
-              placeholder="0"
-            />
-          </label>
-        </div>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-        <span>案場備註（寫入工作日誌）</span>
-        <textarea
-          rows={3}
-          style={{ width: '100%', maxWidth: 680, resize: 'vertical' }}
-          value={siteRemark}
-          onChange={(e) => setSiteRemark(e.target.value)}
-          placeholder="該案場施工重點、注意事項等（選填）"
-        />
-      </div>
-      <h4 style={{ marginTop: 18, marginBottom: 8 }}>公司損益表（選填）</h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <fieldset style={fieldsetStyle}>
-          <legend>餐費</legend>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-            <span>加帳金額</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="narrow"
-              value={mealAmount}
-              onFocus={(e) => clearSingleZeroOnFocus(e, setMealAmount)}
-              onChange={(e) => setMealAmount(e.target.value)}
-              placeholder="0"
-            />
-          </label>
-        </fieldset>
+        </section>
 
-        <fieldset style={fieldsetStyle}>
-          <legend>工具（入公司損益表「工具」）</legend>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {toolRows.map((row, idx) => (
-              <div
-                key={row.id}
-                className="btnRow"
-                style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}
-              >
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
-                  <span>名稱</span>
+        <section className="fieldworkQuick__panel" aria-labelledby="fwq-staff">
+          <h4 className="fieldworkQuick__sectionTitle" id="fwq-staff">
+            人員
+          </h4>
+          <div className="fieldworkQuick__staffGrid">
+            {staffPickerKeys.map((name) => (
+              <label key={name}>
+                <input type="checkbox" checked={picked.has(name)} onChange={() => toggle(name)} />
+                {name}
+              </label>
+            ))}
+          </div>
+          <label className="fieldworkQuick__field fieldworkQuick__field--block">
+            <span>臨時人員（可逗號、換行分隔）</span>
+            <textarea
+              rows={3}
+              aria-label="臨時人員"
+              placeholder="臨時人員（可逗號、換行分隔）"
+              value={extraNames}
+              onChange={(e) => setExtraNames(e.target.value)}
+            />
+          </label>
+        </section>
+
+        <section className="fieldworkQuick__panel" aria-labelledby="fwq-worklog">
+          <h4 className="fieldworkQuick__sectionTitle" id="fwq-worklog">
+            工作日誌（與日誌頁連動）
+          </h4>
+
+          <div className="fieldworkQuick__subsection">
+            <span className="fieldworkQuick__subLabel">上下班時段</span>
+            <div className="fieldworkQuick__row">
+              <label className="fieldworkQuick__field">
+                <span>上班</span>
+                <input
+                  type="time"
+                  value={padHhmm(timeStart, DEFAULT_WORK_START)}
+                  onChange={(e) => setTimeStart(e.target.value)}
+                />
+              </label>
+              <label className="fieldworkQuick__field">
+                <span>下班</span>
+                <input
+                  type="time"
+                  value={padHhmm(timeEnd, DEFAULT_WORK_END)}
+                  onChange={(e) => setTimeEnd(e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="fieldworkQuick__subsection">
+            <span className="fieldworkQuick__subLabel">
+              工作內容（可複數列，與日誌頁多列工作相同）
+            </span>
+            <datalist id="fieldwork-workitem-datalist">
+              {workItemOptions.map((o) => (
+                <option key={o} value={o} />
+              ))}
+            </datalist>
+            {workLineRows.map((row, idx) => (
+              <div key={row.id} className="fieldworkQuick__workLineRow">
+                <label
+                  className="fieldworkQuick__field"
+                  style={{ flex: '1 1 220px', minWidth: 160 }}
+                  {...(idx === 0
+                    ? {
+                        onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
+                      }
+                    : {})}
+                >
+                  <span className="muted" style={{ fontSize: 13 }}>
+                    {idx === 0 ? '工作內容' : `第 ${idx + 1} 列`}
+                  </span>
                   <input
                     type="text"
-                    value={row.name}
+                    value={row.label}
                     onChange={(e) =>
-                      setToolRows((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
+                      setWorkLineRows((rows) =>
+                        rows.map((r, i) => (i === idx ? { ...r, label: e.target.value } : r)),
                       )
                     }
-                    placeholder="選填"
-                  />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
-                  <span>數量</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className="narrow"
-                    value={row.qty}
-                    onChange={(e) =>
-                      setToolRows((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, qty: e.target.value } : r)),
-                      )
-                    }
-                    placeholder="1"
-                    title="空白則視為 1"
-                  />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 72 }}>
-                  <span>單位</span>
-                  <input
-                    type="text"
-                    value={row.unit}
-                    onChange={(e) =>
-                      setToolRows((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, unit: e.target.value } : r)),
-                      )
-                    }
-                    placeholder="組"
-                  />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 140 }}>
-                  <span>金額（元）</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className="narrow"
-                    value={row.amount}
-                    onFocus={(e) =>
-                      clearSingleZeroOnFocus(e, (s) =>
-                        setToolRows((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, amount: s } : r)),
-                        ),
-                      )
-                    }
-                    onChange={(e) =>
-                      setToolRows((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, amount: e.target.value } : r)),
-                      )
-                    }
-                    placeholder="0"
+                    {...(idx === 0
+                      ? {
+                          onPointerDownCapture: workLine0PickClear.onPointerDownCapture,
+                          onFocus: workLine0PickClear.onFocus,
+                          onBlur: workLine0PickClear.onBlur,
+                        }
+                      : {})}
+                    list="fieldwork-workitem-datalist"
+                    placeholder="選擇或輸入"
                   />
                 </label>
                 <button
                   type="button"
                   className="btn secondary"
-                  disabled={toolRows.length <= 1}
+                  disabled={workLineRows.length <= 1}
                   onClick={() =>
-                    setToolRows((rows) => {
+                    setWorkLineRows((rows) => {
                       if (rows.length <= 1) return rows
                       const docId = stableWorkLogDayDocBaseId(iso)
                       return rows
                         .filter((_, i) => i !== idx)
-                        .map((r, i) => ({ ...r, id: stableWorkLogToolLineId(docId, i) }))
+                        .map((r, i) => ({ ...r, id: stableWorkLogWorkLineId(docId, 0, i) }))
                     })
                   }
                 >
@@ -776,285 +605,424 @@ export function FieldworkQuickSection({
               type="button"
               className="btn secondary"
               onClick={() =>
-                setToolRows((rows) => {
+                setWorkLineRows((rows) => {
                   const docId = stableWorkLogDayDocBaseId(iso)
-                  return [
-                    ...rows,
-                    {
-                      id: stableWorkLogToolLineId(docId, rows.length),
-                      name: '',
-                      qty: '',
-                      unit: '',
-                      amount: '',
-                    },
-                  ]
+                  return [...rows, { id: stableWorkLogWorkLineId(docId, 0, rows.length), label: '' }]
                 })
               }
             >
-              新增工具列
+              新增工作內容列
             </button>
           </div>
-        </fieldset>
 
-        <fieldset style={fieldsetStyle}>
-          <legend>加班費</legend>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 16 }}>
+          <div className="fieldworkQuick__subsection">
+            <span className="fieldworkQuick__subLabel">使用儀器</span>
+            <p className="fieldworkQuick__instrumentHint">
+              儀器支出單價（與工作日誌一致）：全站儀 {WORK_LOG_INSTRUMENT_UNIT_PRICE_TOTAL_STATION.toLocaleString()}{' '}
+              元／台、旋轉雷射 {WORK_LOG_INSTRUMENT_UNIT_PRICE_ROTATING_LASER.toLocaleString()} 元／台、墨線儀{' '}
+              {WORK_LOG_INSTRUMENT_UNIT_PRICE_LINE_LASER.toLocaleString()} 元／台。
+            </p>
+            <div className="fieldworkQuick__instrumentGrid">
+              <label className="fieldworkQuick__field">
+                <span>全站儀（台）</span>
                 <input
-                  type="radio"
-                  name="ot-rate-line"
-                  checked={otRateLine === 'jun'}
-                  onChange={() => setOtRateLine('jun')}
+                  type="text"
+                  inputMode="numeric"
+                  className="narrow"
+                  value={instrumentTotalStation}
+                  onChange={(e) => setInstrumentTotalStation(e.target.value)}
+                  placeholder="0"
                 />
-                鈞泩日薪
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <label className="fieldworkQuick__field">
+                <span>旋轉雷射（台）</span>
                 <input
-                  type="radio"
-                  name="ot-rate-line"
-                  checked={otRateLine === 'tsai'}
-                  onChange={() => setOtRateLine('tsai')}
+                  type="text"
+                  inputMode="numeric"
+                  className="narrow"
+                  value={instrumentRotatingLaser}
+                  onChange={(e) => setInstrumentRotatingLaser(e.target.value)}
+                  placeholder="0"
                 />
-                蔡董日薪
+              </label>
+              <label className="fieldworkQuick__field">
+                <span>墨線儀（台）</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="narrow"
+                  value={instrumentLineLaser}
+                  onChange={(e) => setInstrumentLineLaser(e.target.value)}
+                  placeholder="0"
+                />
               </label>
             </div>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-              <span>每人加班時數</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="narrow"
-                value={otHoursPerPerson}
-                onFocus={(e) => clearSingleZeroOnFocus(e, setOtHoursPerPerson)}
-                onChange={(e) => setOtHoursPerPerson(e.target.value)}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 220 }}>
-              <span>手動加班費（僅在時數為 0 時入帳；可正負）</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="narrow"
-                value={otManualAmount}
-                onFocus={(e) => clearSingleZeroOnFocus(e, setOtManualAmount)}
-                onChange={(e) => setOtManualAmount(e.target.value)}
-                placeholder="0"
+          </div>
+
+          <div className="fieldworkQuick__subsection">
+            <label className="fieldworkQuick__field fieldworkQuick__field--block">
+              <span>案場備註（寫入工作日誌）</span>
+              <textarea
+                rows={3}
+                value={siteRemark}
+                onChange={(e) => setSiteRemark(e.target.value)}
+                placeholder="該案場施工重點、注意事項等（選填）"
               />
             </label>
           </div>
-        </fieldset>
-      </div>
+        </section>
 
-      <div className="btnRow" style={{ marginTop: 16 }}>
-        <button type="button" className="btn" onClick={submit}>
-          登記到月表、公司損益表與工作日誌
-        </button>
-      </div>
+        <section className="fieldworkQuick__panel" aria-labelledby="fwq-ledger">
+          <h4 className="fieldworkQuick__sectionTitle" id="fwq-ledger">
+            公司損益表（選填）
+          </h4>
+          <div className="fieldworkQuick__ledger">
+            <div className="fieldworkQuick__ledgerTop">
+              <fieldset className="fieldworkQuick__fieldset">
+                <legend>餐費</legend>
+                <label className="fieldworkQuick__field" style={{ maxWidth: 220 }}>
+                  <span>加帳金額</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="narrow"
+                    value={mealAmount}
+                    onFocus={(e) => clearSingleZeroOnFocus(e, setMealAmount)}
+                    onChange={(e) => setMealAmount(e.target.value)}
+                    placeholder="0"
+                  />
+                </label>
+              </fieldset>
 
-      <div
-        style={{
-          marginTop: 22,
-          paddingTop: 18,
-          borderTop: '1px solid var(--border, #ddd)',
-        }}
-      >
-        <h4 style={{ margin: '0 0 6px', fontSize: '1.05rem' }}>總案場整理</h4>
-        <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
-          不分月份，列出目前薪水書內可當「地點」的案名與調工列。一般案場之「區塊數」為全書月表區塊中<strong>同名</strong>列數（跨越多個月時可能大於 1）。
-          {commitSiteRenameAcrossApp ? (
-            <>
-              {' '}
-              <strong>案場區塊</strong>之列可<strong>直接改案名</strong>：離開欄位或按 Enter 後，與薪水月表各區塊、工作日誌、放樣估價主案名、收帳（純文字列）一併同步，與上方月表標題編輯相同。
-            </>
-          ) : null}
-        </p>
-        <div className="tableScrollSticky" style={{ overflowX: 'auto' }}>
-          <table className="data">
-            <thead>
-              <tr>
-                <th scope="col">
-                  #
-                </th>
-                <th scope="col">案名</th>
-                <th scope="col" className="num" style={{ whiteSpace: 'nowrap' }}>
-                  區塊數
-                </th>
-                <th scope="col" style={{ whiteSpace: 'nowrap' }}>
-                  類型
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sitesOverviewRows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="muted">
-                    尚無案場資料。
-                  </td>
-                </tr>
-              ) : (
-                sitesOverviewRows.map((row, i) => (
-                  <tr key={`${row.siteName}-${row.isVirtualAdjustment ? 'v' : 'b'}`}>
-                    <td className="muted">{i + 1}</td>
-                    <td>
-                      {row.isVirtualAdjustment || !commitSiteRenameAcrossApp ? (
-                        <span>{row.siteName}</span>
-                      ) : (
-                        <input
-                          type="text"
-                          className="titleInput"
-                          aria-label={`總案場：${row.siteName}`}
-                          value={siteOverviewDraft[row.siteName] ?? row.siteName}
-                          onFocus={() => {
-                            siteOverviewRenameAnchorRef.current = row.siteName
-                            setSiteOverviewDraft((p) => ({
-                              ...p,
-                              [row.siteName]: p[row.siteName] ?? row.siteName,
-                            }))
-                          }}
-                          onChange={(e) =>
-                            setSiteOverviewDraft((p) => ({
-                              ...p,
-                              [row.siteName]: e.target.value,
-                            }))
-                          }
-                          onBlur={(e) => {
-                            const anchor = siteOverviewRenameAnchorRef.current
-                            siteOverviewRenameAnchorRef.current = null
-                            if (anchor === null) return
-                            finishOverviewSiteRename(anchor, e.currentTarget.value)
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return
-                            e.preventDefault()
-                            ;(e.currentTarget as HTMLInputElement).blur()
-                          }}
-                        />
-                      )}
-                    </td>
-                    <td className="num">{row.isVirtualAdjustment ? '—' : row.blockCount}</td>
-                    <td>{row.isVirtualAdjustment ? '調工（月表專列，保留名稱）' : '案場區塊'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              <fieldset className="fieldworkQuick__fieldset">
+                <legend>加班費</legend>
+                <div className="fieldworkQuick__otRadios">
+                  <label>
+                    <input
+                      type="radio"
+                      name="ot-rate-line"
+                      checked={otRateLine === 'jun'}
+                      onChange={() => setOtRateLine('jun')}
+                    />
+                    鈞泩日薪
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="ot-rate-line"
+                      checked={otRateLine === 'tsai'}
+                      onChange={() => setOtRateLine('tsai')}
+                    />
+                    蔡董日薪
+                  </label>
+                </div>
+                <label className="fieldworkQuick__field" style={{ maxWidth: 220 }}>
+                  <span>每人加班時數</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="narrow"
+                    value={otHoursPerPerson}
+                    onFocus={(e) => clearSingleZeroOnFocus(e, setOtHoursPerPerson)}
+                    onChange={(e) => setOtHoursPerPerson(e.target.value)}
+                  />
+                </label>
+                <label className="fieldworkQuick__field" style={{ maxWidth: 300 }}>
+                  <span>手動加班費（僅在時數為 0 時入帳；可正負）</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    className="narrow"
+                    value={otManualAmount}
+                    onFocus={(e) => clearSingleZeroOnFocus(e, setOtManualAmount)}
+                    onChange={(e) => setOtManualAmount(e.target.value)}
+                    placeholder="0"
+                  />
+                </label>
+              </fieldset>
+            </div>
 
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border, #ddd)' }}>
-        <h4 style={{ margin: '0 0 8px', fontSize: '1.05rem' }}>工作內容選項（全站清單）</h4>
-        <p className="hint muted" style={{ marginTop: 0, marginBottom: 10, fontSize: 13 }}>
-          與「放樣估價」分開儲存；清單依字長排序。此處新增／更名／刪除後，工作日誌與本表單工作列的建議會一併更新。
-        </p>
-        <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 260px' }}>
-            <span>新增到選項清單</span>
-            <input
-              type="text"
-              value={globalPresetDraft}
-              onChange={(e) => setGlobalPresetDraft(e.target.value)}
-              list="fieldwork-workitem-preset-global-dl"
-              placeholder="輸入後按「新增」或 Enter"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  commitGlobalPresetDraft()
-                }
-              }}
-            />
-          </label>
-          <button type="button" className="btn secondary" onClick={commitGlobalPresetDraft}>
-            新增
+            <fieldset className="fieldworkQuick__fieldset">
+              <legend>工具（入公司損益表「工具」）</legend>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {toolRows.map((row, idx) => (
+                  <div key={row.id} className="fieldworkQuick__toolRow">
+                    <label className="fieldworkQuick__field" style={{ minWidth: 160 }}>
+                      <span>名稱</span>
+                      <input
+                        type="text"
+                        value={row.name}
+                        onChange={(e) =>
+                          setToolRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
+                          )
+                        }
+                        placeholder="選填"
+                      />
+                    </label>
+                    <label className="fieldworkQuick__field" style={{ minWidth: 72 }}>
+                      <span>數量</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="narrow"
+                        value={row.qty}
+                        onChange={(e) =>
+                          setToolRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, qty: e.target.value } : r)),
+                          )
+                        }
+                        placeholder="1"
+                        title="空白則視為 1"
+                      />
+                    </label>
+                    <label className="fieldworkQuick__field" style={{ minWidth: 72 }}>
+                      <span>單位</span>
+                      <input
+                        type="text"
+                        value={row.unit}
+                        onChange={(e) =>
+                          setToolRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, unit: e.target.value } : r)),
+                          )
+                        }
+                        placeholder="組"
+                      />
+                    </label>
+                    <label className="fieldworkQuick__field" style={{ maxWidth: 140 }}>
+                      <span>金額（元）</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="narrow"
+                        value={row.amount}
+                        onFocus={(e) =>
+                          clearSingleZeroOnFocus(e, (s) =>
+                            setToolRows((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...r, amount: s } : r)),
+                            ),
+                          )
+                        }
+                        onChange={(e) =>
+                          setToolRows((rows) =>
+                            rows.map((r, i) => (i === idx ? { ...r, amount: e.target.value } : r)),
+                          )
+                        }
+                        placeholder="0"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={toolRows.length <= 1}
+                      onClick={() =>
+                        setToolRows((rows) => {
+                          if (rows.length <= 1) return rows
+                          const docId = stableWorkLogDayDocBaseId(iso)
+                          return rows
+                            .filter((_, i) => i !== idx)
+                            .map((r, i) => ({ ...r, id: stableWorkLogToolLineId(docId, i) }))
+                        })
+                      }
+                    >
+                      移除此列
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() =>
+                    setToolRows((rows) => {
+                      const docId = stableWorkLogDayDocBaseId(iso)
+                      return [
+                        ...rows,
+                        {
+                          id: stableWorkLogToolLineId(docId, rows.length),
+                          name: '',
+                          qty: '',
+                          unit: '',
+                          amount: '',
+                        },
+                      ]
+                    })
+                  }
+                >
+                  新增工具列
+                </button>
+              </div>
+            </fieldset>
+          </div>
+        </section>
+
+        <div className="fieldworkQuick__submitBar">
+          <button type="button" className="btn" onClick={submit}>
+            登記到月表、公司損益表與工作日誌
           </button>
         </div>
-        <datalist id="fieldwork-workitem-preset-global-dl">
-          {workItemOptions.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
 
-        <div style={{ marginTop: 16 }}>
-          <h4 style={{ margin: '12px 0 8px', fontSize: '1rem', fontWeight: 600 }}>清單項目：更名與刪除</h4>
-          <p className="hint muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
-            下列為目前選單內全部項目（含舊版自訂）。已儲存日誌裡已寫入的同一串文字不會自動改寫。
-          </p>
-          <div
-            style={{
-              maxHeight: 'min(50vh, 22rem)',
-              overflowY: 'auto',
-              border: '1px solid var(--border, #e0e0e0)',
-              borderRadius: 8,
-              padding: 10,
-            }}
-          >
-            {workItemOptions.length === 0 ? (
-              <p className="hint muted" style={{ margin: 0 }}>
-                尚無項目，請先以「新增到選項清單」加入。
-              </p>
-            ) : (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
+        <div className="fieldworkQuick__aux">
+          <h4 className="fieldworkQuick__auxTitle">總案場整理</h4>
+          <div className="tableScrollSticky" style={{ overflowX: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">案名</th>
+                  <th scope="col" className="num" style={{ whiteSpace: 'nowrap' }}>
+                    區塊數
+                  </th>
+                  <th scope="col" style={{ whiteSpace: 'nowrap' }}>
+                    類型
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sitesOverviewRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      尚無案場資料。
+                    </td>
+                  </tr>
+                ) : (
+                  sitesOverviewRows.map((row, i) => (
+                    <tr key={`${row.siteName}-${row.isVirtualAdjustment ? 'v' : 'b'}`}>
+                      <td className="muted">{i + 1}</td>
+                      <td>
+                        {row.isVirtualAdjustment || !commitSiteRenameAcrossApp ? (
+                          <span>{row.siteName}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            className="titleInput"
+                            aria-label={`總案場：${row.siteName}`}
+                            value={siteOverviewDraft[row.siteName] ?? row.siteName}
+                            onFocus={() => {
+                              siteOverviewRenameAnchorRef.current = row.siteName
+                              setSiteOverviewDraft((p) => ({
+                                ...p,
+                                [row.siteName]: p[row.siteName] ?? row.siteName,
+                              }))
+                            }}
+                            onChange={(e) =>
+                              setSiteOverviewDraft((p) => ({
+                                ...p,
+                                [row.siteName]: e.target.value,
+                              }))
+                            }
+                            onBlur={(e) => {
+                              const anchor = siteOverviewRenameAnchorRef.current
+                              siteOverviewRenameAnchorRef.current = null
+                              if (anchor === null) return
+                              finishOverviewSiteRename(anchor, e.currentTarget.value)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return
+                              e.preventDefault()
+                              ;(e.currentTarget as HTMLInputElement).blur()
+                            }}
+                          />
+                        )}
+                      </td>
+                      <td className="num">{row.isVirtualAdjustment ? '—' : row.blockCount}</td>
+                      <td>{row.isVirtualAdjustment ? '調工（月表專列，保留名稱）' : '案場區塊'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="fieldworkQuick__aux">
+          <h4 className="fieldworkQuick__auxTitle">工作內容選項（全站清單）</h4>
+          <div className="fieldworkQuick__row">
+            <label className="fieldworkQuick__field" style={{ flex: '1 1 260px' }}>
+              <span>新增到選項清單</span>
+              <input
+                type="text"
+                value={globalPresetDraft}
+                onChange={(e) => setGlobalPresetDraft(e.target.value)}
+                list="fieldwork-workitem-preset-global-dl"
+                placeholder="輸入後按「新增」或 Enter"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commitGlobalPresetDraft()
+                  }
                 }}
-              >
-                {workItemOptions.map((label) => (
-                  <li
-                    key={label}
-                    className="btnRow"
-                    style={{ alignItems: 'center', flexWrap: 'wrap', gap: 8 }}
-                  >
-                    {presetEditKey === label ? (
-                      <>
-                        <input
-                          type="text"
-                          className="titleInput"
-                          style={{ flex: '1 1 220px', minWidth: 160 }}
-                          value={presetRenameDraft}
-                          onChange={(e) => setPresetRenameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              applyPresetRename(label)
-                            }
-                            if (e.key === 'Escape') {
-                              e.preventDefault()
-                              cancelPresetRename()
-                            }
-                          }}
-                          aria-label="新名稱"
-                        />
-                        <button type="button" className="btn secondary" onClick={() => applyPresetRename(label)}>
-                          套用
-                        </button>
-                        <button type="button" className="btn secondary ghost" onClick={cancelPresetRename}>
-                          取消
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span style={{ flex: '1 1 220px', minWidth: 120, wordBreak: 'break-word' }}>{label}</span>
-                        <button type="button" className="btn secondary" onClick={() => startPresetRename(label)}>
-                          改名
-                        </button>
-                        <button
-                          type="button"
-                          className="btn danger ghost"
-                          onClick={() => removePresetLabel(label)}
-                        >
-                          刪除
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+              />
+            </label>
+            <button type="button" className="btn secondary" onClick={commitGlobalPresetDraft}>
+              新增
+            </button>
+          </div>
+          <datalist id="fieldwork-workitem-preset-global-dl">
+            {workItemOptions.map((o) => (
+              <option key={o} value={o} />
+            ))}
+          </datalist>
+
+          <div style={{ marginTop: 16 }}>
+            <h4 className="fieldworkQuick__sectionTitle" style={{ marginTop: 12 }}>
+              清單項目：更名與刪除
+            </h4>
+            <div className="fieldworkQuick__presetList">
+              {workItemOptions.length === 0 ? (
+                <p className="hint muted" style={{ margin: 0 }}>
+                  尚無項目，請先以「新增到選項清單」加入。
+                </p>
+              ) : (
+                <ul>
+                  {workItemOptions.map((label) => (
+                    <li key={label} className="fieldworkQuick__presetListItem">
+                      {presetEditKey === label ? (
+                        <>
+                          <input
+                            type="text"
+                            className="titleInput"
+                            style={{ flex: '1 1 220px', minWidth: 160 }}
+                            value={presetRenameDraft}
+                            onChange={(e) => setPresetRenameDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                applyPresetRename(label)
+                              }
+                              if (e.key === 'Escape') {
+                                e.preventDefault()
+                                cancelPresetRename()
+                              }
+                            }}
+                            aria-label="新名稱"
+                          />
+                          <button type="button" className="btn secondary" onClick={() => applyPresetRename(label)}>
+                            套用
+                          </button>
+                          <button type="button" className="btn secondary ghost" onClick={cancelPresetRename}>
+                            取消
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ flex: '1 1 220px', minWidth: 120, wordBreak: 'break-word' }}>{label}</span>
+                          <button type="button" className="btn secondary" onClick={() => startPresetRename(label)}>
+                            改名
+                          </button>
+                          <button
+                            type="button"
+                            className="btn danger ghost"
+                            onClick={() => removePresetLabel(label)}
+                          >
+                            刪除
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       </div>

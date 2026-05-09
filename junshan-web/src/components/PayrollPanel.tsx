@@ -475,7 +475,7 @@ export function PayrollPanel({
 
   return (
     <div className="panel">
-      <h2>薪水統計（對齊 Excel 結構）</h2>
+      <h2>薪水統計</h2>
 
       <div className="btnRow payrollSubTabs" style={{ marginBottom: 12 }}>
         <button
@@ -685,7 +685,7 @@ export function PayrollPanel({
       {sub === 'month' && (
         <>
           <section className="card">
-            <h3>鈞泩／蔡董日薪（本表）</h3>
+            <h3>鈞泩／蔡董日薪</h3>
             <div className="tableScroll tableScrollSticky">
               <table className="data payrollRatesTable">
                 <thead>
@@ -875,12 +875,11 @@ export function PayrollPanel({
                 </button>
               </div>
               <div className="btnRow payrollBlockAddWorker" style={{ marginTop: 8 }}>
-                <label style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                <label className="payrollBlockAddWorkerField">
                   <span className="muted">本案場加人（僅本月）</span>
                   <input
                     type="text"
                     className="titleInput"
-                    style={{ maxWidth: '11rem' }}
                     placeholder="姓名"
                     value={siteBlockNewWorkerName[block.id] ?? ''}
                     onChange={(e) =>
@@ -911,12 +910,11 @@ export function PayrollPanel({
                   增加施工人員
                 </button>
               </div>
-              <p className="hint">
-                區塊合計(P)：{Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
-                ；數值大於 0 的出工／餐費格與該日欄標頭以紅字標示。
-                全月出工天數合計為 0 者，不顯示人員列；可從「快速登記」寫入格線後即出現。
-                案場名稱請在此欄編輯；<strong>點旁邊離開欄位</strong>或按 <strong>Enter</strong>
-                時，會寫回<strong>全書各月</strong>、<strong>放樣估價主案名</strong>、<strong>收帳案名</strong>、<strong>工作日誌（含整日文件）</strong>（以您<strong>第一次點進此欄位時的案名</strong>為舊名）。輸入時不即時寫入，可避免卡頓。
+              <p className="hint payrollBlockGrandPayHint">
+                區塊合計(P)：
+                <strong className="payrollBlockGrandPayValue">
+                  {Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
+                </strong>
               </p>
               <div className="tableScroll tableScrollSticky">
                 <table className="data tight payrollSiteBlockTable">
@@ -1054,7 +1052,7 @@ export function PayrollPanel({
               下列每日格為 1、0.5、0 等數字處：數值<strong>大於 0</strong>的欄位與日期標頭以<strong>紅字</strong>標示。
             </p>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthSummaryTable">
                 <thead>
                   <tr>
                     <th />
@@ -1151,7 +1149,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>預支（與日期欄同寬，金額）</h3>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthEditableTable payrollAdvanceTable">
                 <thead>
                   <tr>
                     <th />
@@ -1232,7 +1230,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>調工支援（天／日期欄，鈞泩日薪）</h3>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthEditableTable payrollJunAdjustTable">
                 <thead>
                   <tr>
                     <th />
@@ -1314,7 +1312,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>蔡董調工（天／日期欄，蔡董日薪）</h3>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthEditableTable payrollTsaiAdjustTable">
                 <thead>
                   <tr>
                     <th />
@@ -1396,7 +1394,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>鈞泩加班（時數／日期欄）</h3>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthEditableTable payrollJunOtTable">
                 <thead>
                   <tr>
                     <th />
@@ -1477,7 +1475,7 @@ export function PayrollPanel({
           <section className="card">
             <h3>蔡董加班（時數／日期欄）</h3>
             <div className="tableScroll tableScrollSticky">
-              <table className="data tight">
+              <table className="data tight payrollMonthEditableTable payrollTsaiOtTable">
                 <thead>
                   <tr>
                     <th />
