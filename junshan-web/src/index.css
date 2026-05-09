@@ -2788,6 +2788,16 @@ table.data.quoteFloorPricingTable tfoot tr.quoteFloorPricingTotalRow th {
   background: linear-gradient(180deg, rgba(61, 156, 245, 0.26), rgba(12, 18, 26, 0.98));
   box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
 }
+
+/** 樓層面積：表尾合計列 */
+table.data.quoteFloorTable tfoot tr.quoteFloorTableTotalRow td,
+table.data.quoteFloorTable tfoot tr.quoteFloorTableTotalRow th {
+  border-top: 2px solid rgba(90, 212, 168, 0.45);
+  background: linear-gradient(180deg, rgba(61, 156, 245, 0.2), rgba(12, 18, 26, 0.96));
+  font-weight: 700;
+  color: var(--head);
+  vertical-align: middle;
+}
 table.data {
   width: 100%;
   border-collapse: collapse;

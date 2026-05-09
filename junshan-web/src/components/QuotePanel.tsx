@@ -96,6 +96,14 @@ export function QuotePanel({
   const [quoteSiteRenameOldExact, setQuoteSiteRenameOldExact] = useState<string | null>(null)
   const result = useMemo(() => computeQuote(site, rows), [site, rows])
   const floorPricingRows = useMemo(() => computeFloorPricingTable(site, rows), [site, rows])
+  const floorAreaTotals = useMemo(() => {
+    let totalM2 = 0
+    for (const fl of site.floors) totalM2 += fl.m2
+    return {
+      totalM2,
+      totalPing: m2ToPing(totalM2),
+    }
+  }, [site.floors])
   const floorPricingTotals = useMemo(() => {
     let baseTotal = 0
     let pricingTotal = 0
@@ -587,6 +595,14 @@ export function QuotePanel({
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="quoteFloorTableTotalRow">
+                <td>合計</td>
+                <td className="num">{floorAreaTotals.totalM2.toFixed(2)}</td>
+                <td className="num">{floorAreaTotals.totalPing.toFixed(4)}</td>
+                <td>—</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </section>
