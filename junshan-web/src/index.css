@@ -1727,6 +1727,17 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   margin-bottom: var(--ui-card-gap);
 }
 
+/**
+ * 工作日誌：說明／提示段落一律淡灰（含內文 strong，避免與主內文同色搶眼）
+ */
+.worklogPanel .hint {
+  color: rgba(200, 210, 222, 0.52);
+}
+.worklogPanel .hint strong {
+  color: rgba(214, 220, 230, 0.72);
+  font-weight: 600;
+}
+
 /* 整日編輯：全螢幕 overlay */
 .worklogDayOverlay {
   position: fixed;
@@ -2011,16 +2022,12 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   margin-top: var(--ui-unit);
 }
 .worklogStaffLineTable {
-  width: 100%;
+  width: max-content;
   min-width: 320px;
 }
 .worklogStaffLineTable th,
 .worklogStaffLineTable td {
   vertical-align: middle;
-}
-.worklogStaffLineTable .titleInput {
-  min-width: 0;
-  width: 100%;
 }
 .worklogDayBlockActionsGlobal {
   margin-top: var(--ui-card-gap);
@@ -3317,6 +3324,30 @@ table.data.siteAnalysisContractTable td:nth-child(4) .titleInput {
   width: auto;
   min-width: 0;
   max-width: 100%;
+}
+
+/* 合約內容表：placeholder 淡灰；聚焦時隱藏避免誤以為仍占版面 */
+table.data.siteAnalysisContractTable td > input.titleInput::placeholder {
+  color: rgba(200, 208, 218, 0.45);
+  -webkit-text-fill-color: rgba(200, 208, 218, 0.45);
+}
+table.data.siteAnalysisContractTable td > input.titleInput:focus::placeholder {
+  opacity: 0;
+}
+
+/* 階段日期列寬度大時不擠壓後欄點擊；單位欄維持可點區域 */
+table.data.siteAnalysisContractTable td:nth-child(3) {
+  max-width: 22rem;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+table.data.siteAnalysisContractTable td.siteAnalysisContractTable__unitCell {
+  position: relative;
+  z-index: 1;
+  vertical-align: middle;
+}
+table.data.siteAnalysisContractTable .siteAnalysisContractTable__unitInput {
+  min-width: 4.25rem;
 }
 
 table.data.siteAnalysisContractTable {
@@ -5477,6 +5508,70 @@ table.data.payrollTsaiOtTable td > input.cellIn.cellIn--work {
   background: rgba(240, 113, 120, 0.1) !important;
   border-color: rgba(240, 113, 120, 0.55) !important;
   box-shadow: inset 0 0 0 1px rgba(240, 113, 120, 0.28) !important;
+}
+
+/*
+ * 工作日誌「案場資訊」人員表：比照月表案場區塊（payrollSiteBlockTable）
+ * — 欄寬依表頭與內容、輸入不強制撐滿、time 等維持深色外觀。
+ */
+table.data.worklogStaffLineTable {
+  width: max-content !important;
+  min-width: max(320px, max-content) !important;
+}
+
+table.data.worklogStaffLineTable td:has(input:not([type='checkbox']):not([type='radio'])),
+table.data.worklogStaffLineTable td:has(select),
+table.data.worklogStaffLineTable td:has(textarea),
+table.data.worklogStaffLineTable td:has(.titleInput) {
+  min-width: max-content !important;
+  width: max-content !important;
+  max-width: none !important;
+}
+
+table.data.worklogStaffLineTable td > input:not([type='checkbox']):not([type='radio']),
+table.data.worklogStaffLineTable td > select,
+table.data.worklogStaffLineTable td > textarea,
+table.data.worklogStaffLineTable td > .titleInput {
+  display: inline-block !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+  overflow-y: visible !important;
+  background-color: #0b0f14 !important;
+  color: var(--head) !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
+  border: 1px solid var(--border) !important;
+}
+
+table.data.worklogStaffLineTable td > input:not([type='checkbox']):not([type='radio']) {
+  min-inline-size: 2em;
+  color-scheme: dark;
+}
+
+@supports (field-sizing: content) {
+  table.data.worklogStaffLineTable td > input:not([type='checkbox']):not([type='radio']) {
+    field-sizing: content;
+  }
+}
+
+table.data.worklogStaffLineTable td > input[type='time']::-webkit-calendar-picker-indicator {
+  filter: invert(0.9);
+  opacity: 0.92;
+}
+
+table.data.worklogStaffLineTable td > input[type='time']:hover::-webkit-calendar-picker-indicator,
+table.data.worklogStaffLineTable td > input[type='time']:focus-visible::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+table.data.worklogStaffLineTable td > input:-webkit-autofill,
+table.data.worklogStaffLineTable td > input:-webkit-autofill:hover,
+table.data.worklogStaffLineTable td > input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0f14 inset !important;
+  -webkit-text-fill-color: var(--head) !important;
+  caret-color: var(--head);
 }
 
 

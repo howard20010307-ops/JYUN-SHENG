@@ -29,7 +29,6 @@ import {
   removeWorkerFromBook,
   reconcileSalaryBookPeriodColumns,
   type SiteRenameEditedRef,
-  renameSiteAcrossBook,
   payrollSummaryTooltipFooterTotals,
   pickActiveMonthIdForToday,
   inferYearFromMonthSheet,
@@ -64,13 +63,11 @@ type Props = {
    * 案場名稱：在欄位內編輯時僅暫存於本元件；**離開欄位**（點旁邊、Tab）或按 **Enter** 時才寫回月表並同步日誌、估價、收帳（以您第一次點進此欄位時的案名為舊名）。
    * 失敗時請還原該輸入框為 `oldExact`。
    */
-  commitSiteRenameAcrossApp?: (args: {
+  commitSiteRenameAcrossApp: (args: {
     oldExact: string
     newTrimmed: string
     edited?: SiteRenameEditedRef
   }) => { ok: boolean; message: string }
-  /** @deprecated 請改用 {@link commitSiteRenameAcrossApp}，由父層單一 setState 寫入全書 */
-  onSiteNameRenamed?: (oldExact: string, newNameTrimmed: string) => void
 }
 
 function sumRowCells(row: number[] | undefined, len: number): number {
@@ -190,7 +187,6 @@ export function PayrollPanel({
   fieldworkQuickResetKey = 0,
   onFieldworkQuickApplySuccess,
   commitSiteRenameAcrossApp,
-  onSiteNameRenamed,
 }: Props) {
   /** 各案場區塊更名錨點：第一次點進案名欄時記錄舊字串，供 blur／Enter 與全書同步比對 */
   const [siteRenameAnchorByBlockId, setSiteRenameAnchorByBlockId] = useState<
@@ -354,43 +350,13 @@ export function PayrollPanel({
         return
       }
 
-      if (commitSiteRenameAcrossApp) {
-        const res = commitSiteRenameAcrossApp({
-          oldExact: anchor.oldExact,
-          newTrimmed: newT,
-          edited: { monthId: anchor.monthId, blockIndex: bi },
-        })
-        if (!res.ok) {
-          queueMicrotask(() => alert(res.message))
-          patchMonth(anchor.monthId, (m) => ({
-            ...m,
-            blocks: m.blocks.map((b, j) =>
-              j === anchor.bi ? { ...b, siteName: anchor.oldExact } : b,
-            ),
-          }))
-          return
-        }
-        setSiteRenameAnchorByBlockId((p) => {
-          const n = { ...p }
-          delete n[blockId]
-          return n
-        })
-        if (
-          res.message &&
-          res.message !== '名稱相同，無需變更。' &&
-          res.message !== '無需變更。'
-        ) {
-          queueMicrotask(() => alert(res.message))
-        }
-        return
-      }
-
-      const r = renameSiteAcrossBook(salaryBook, anchor.oldExact, newT, {
-        monthId,
-        blockIndex: bi,
+      const res = commitSiteRenameAcrossApp({
+        oldExact: anchor.oldExact,
+        newTrimmed: newT,
+        edited: { monthId: anchor.monthId, blockIndex: bi },
       })
-      if (!r.ok) {
-        queueMicrotask(() => alert(r.message))
+      if (!res.ok) {
+        queueMicrotask(() => alert(res.message))
         patchMonth(anchor.monthId, (m) => ({
           ...m,
           blocks: m.blocks.map((b, j) =>
@@ -399,32 +365,20 @@ export function PayrollPanel({
         }))
         return
       }
-      if (r.message === '名稱相同，無需變更。' || r.message === '無需變更。') {
-        setSiteRenameAnchorByBlockId((p) => {
-          const n = { ...p }
-          delete n[blockId]
-          return n
-        })
-        return
-      }
-      setSalaryBook(() => r.book)
       setSiteRenameAnchorByBlockId((p) => {
         const n = { ...p }
         delete n[blockId]
         return n
       })
-      queueMicrotask(() => {
-        onSiteNameRenamed?.(anchor.oldExact, newT)
-      })
+      if (
+        res.message &&
+        res.message !== '名稱相同，無需變更。' &&
+        res.message !== '無需變更。'
+      ) {
+        queueMicrotask(() => alert(res.message))
+      }
     },
-    [
-      siteRenameAnchorByBlockId,
-      patchMonth,
-      commitSiteRenameAcrossApp,
-      salaryBook,
-      setSalaryBook,
-      onSiteNameRenamed,
-    ],
+    [siteRenameAnchorByBlockId, patchMonth, commitSiteRenameAcrossApp],
   )
 
   /** 必須在任一 early return 之前呼叫，否則會觸發「Rendered fewer hooks than expected」 */

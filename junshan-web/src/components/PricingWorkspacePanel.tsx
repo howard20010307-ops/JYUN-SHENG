@@ -565,7 +565,17 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                         className="titleInput"
                         placeholder="式"
                         value={viewUnit}
-                        readOnly
+                        readOnly={Boolean(linked)}
+                        title={
+                          linked
+                            ? '對照合約時單位與合約內容連動：請至「公司帳 → 案場分析 → 合約內容」修改。'
+                            : undefined
+                        }
+                        onChange={
+                          linked
+                            ? undefined
+                            : (e) => updateRow(row.id, { unit: e.target.value })
+                        }
                       />
                     </td>
                     <td className="num">

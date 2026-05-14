@@ -417,6 +417,7 @@ export function SiteAnalysisPanel({
                 value={activeSiteContractTargetNet}
                 onCommit={setActiveSiteContractTargetNet}
                 aria-label="案場合約總價（未稅）"
+                disabled={!canEdit}
               />
             </label>
             <span className="muted">
@@ -424,7 +425,7 @@ export function SiteAnalysisPanel({
               <strong>{fmtMoney(activeSiteContractGapNet)}</strong>
             </span>
           </div>
-          <fieldset className="tabFieldset" disabled={!canEdit}>
+          <div className="siteAnalysisContractEditScope">
             <div className="tableScroll">
               <table className="data tight siteAnalysisContractTable">
                 <thead>
@@ -450,7 +451,9 @@ export function SiteAnalysisPanel({
                       </td>
                     </tr>
                   ) : (
-                    contractRowsForSite.map((line) => (
+                    contractRowsForSite.map((line) => {
+                      const lineUnit = typeof line.unit === 'string' ? line.unit : String(line.unit ?? '')
+                      return (
                       <tr key={line.id}>
                         <td>
                           <input
@@ -460,6 +463,8 @@ export function SiteAnalysisPanel({
                             value={line.buildingLabel}
                             onChange={(e) => updateContractLine(line.id, { buildingLabel: e.target.value })}
                             placeholder="例：A棟"
+                            disabled={!canEdit}
+                            autoComplete="off"
                           />
                         </td>
                         <td>
@@ -470,6 +475,8 @@ export function SiteAnalysisPanel({
                             value={line.floorLabel}
                             onChange={(e) => updateContractLine(line.id, { floorLabel: e.target.value })}
                             placeholder="例：3F"
+                            disabled={!canEdit}
+                            autoComplete="off"
                           />
                         </td>
                         <td>
@@ -483,6 +490,7 @@ export function SiteAnalysisPanel({
                           <select
                             className="titleInput"
                             value={line.pricingMode}
+                            disabled={!canEdit}
                             onChange={(e) =>
                               updateContractLine(line.id, {
                                 pricingMode:
@@ -494,14 +502,17 @@ export function SiteAnalysisPanel({
                             <option value="manualWorkDays">手填工數</option>
                           </select>
                         </td>
-                        <td>
+                        <td className="siteAnalysisContractTable__unitCell">
                           <input
                             type="text"
-                            size={inputSizeByContent(line.unit, 2, 8)}
-                            className="titleInput"
-                            value={line.unit}
+                            size={inputSizeByContent(lineUnit, 4, 12)}
+                            className="titleInput siteAnalysisContractTable__unitInput"
+                            value={lineUnit}
                             onChange={(e) => updateContractLine(line.id, { unit: e.target.value })}
                             placeholder="式"
+                            disabled={!canEdit}
+                            autoComplete="off"
+                            aria-label="單位"
                           />
                         </td>
                         <td className="num">
@@ -510,6 +521,7 @@ export function SiteAnalysisPanel({
                             value={line.contractUnitPrice}
                             onCommit={(n) => updateContractLine(line.id, { contractUnitPrice: n })}
                             aria-label="合約單價"
+                            disabled={!canEdit}
                           />
                         </td>
                         <td className="num">
@@ -527,6 +539,7 @@ export function SiteAnalysisPanel({
                               value={line.contractQuantity}
                               onCommit={(n) => updateContractLine(line.id, { contractQuantity: n })}
                               aria-label="總數量"
+                              disabled={!canEdit}
                             />
                           )}
                         </td>
@@ -545,6 +558,7 @@ export function SiteAnalysisPanel({
                               value={line.manualWorkDays}
                               onCommit={(n) => updateContractLine(line.id, { manualWorkDays: n })}
                               aria-label="手填工數"
+                              disabled={!canEdit}
                             />
                           )}
                         </td>
@@ -557,25 +571,38 @@ export function SiteAnalysisPanel({
                             value={line.note}
                             onChange={(e) => updateContractLine(line.id, { note: e.target.value })}
                             placeholder="選填"
+                            disabled={!canEdit}
+                            autoComplete="off"
                           />
                         </td>
                         <td>
-                          <button type="button" className="btn danger ghost" onClick={() => removeContractLine(line.id)}>
+                          <button
+                            type="button"
+                            className="btn danger ghost"
+                            onClick={() => removeContractLine(line.id)}
+                            disabled={!canEdit}
+                          >
                             刪除
                           </button>
                         </td>
                       </tr>
-                    ))
+                      )
+                    })
                   )}
                 </tbody>
               </table>
             </div>
             <div className="btnRow" style={{ marginTop: 8 }}>
-              <button type="button" className="btn secondary" onClick={addContractLine} disabled={!activeSite}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={addContractLine}
+                disabled={!activeSite || !canEdit}
+              >
                 新增合約列
               </button>
             </div>
-          </fieldset>
+          </div>
 
           <h3 style={{ marginTop: 16 }}>合約對帳（未稅）</h3>
           {sortedContractRows.length === 0 ? (

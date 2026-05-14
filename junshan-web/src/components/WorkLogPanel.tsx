@@ -67,11 +67,13 @@ type Props = {
   salaryBook: SalaryBook
   /** 儲存整日日誌時，將「餐費」寫回薪水月表該日餐列（與月表連動） */
   setSalaryBook?: (fn: (prev: SalaryBook) => SalaryBook) => void
+  /** 訪客為 false；用於 overlay 提示（與 App `fieldset` 一致） */
+  canEdit: boolean
 }
 
 type StaffLineDraft = LinkedDayStaffLineDraft
 type BlockDraft = LinkedDayBlockDraft
-/** 表單狀態：餐費／整日工具為整日；工作內容／儀器台數與人員在案場區塊；儀器支出全日欄唯讀（依台數加總）；案場／人員與月表連動 */
+/** 表單狀態：餐費／整日工具為整日；工作內容／儀器台數與人員在案場區塊；儀器支出全日欄唯讀（依台數加總）；計工數唯讀（與月表同步）；案場／人員與月表連動 */
 type DayDraft = LinkedDayDraft
 
 function daysInMonth(year: number, month1to12: number): number {
@@ -290,6 +292,7 @@ export function WorkLogPanel({
   staffOptions,
   salaryBook,
   setSalaryBook,
+  canEdit,
 }: Props) {
   const today = todayYmdLocal()
   const [viewYear, setViewYear] = useState(() => {
@@ -460,9 +463,10 @@ export function WorkLogPanel({
     (ymdStr: string) => {
       dayEditSessionSourceYmdRef.current = ymdStr
       setDayDraft(buildLinkedDayDraftFromState(ymdStr, workLog, salaryBook, staffOptions))
-      setFormUnlocked(false)
+      /** 管理者：overlay 掛到 body 後須能編輯；訪客維持鎖定（欄位仍會 disabled） */
+      setFormUnlocked(canEdit)
     },
-    [workLog, salaryBook, staffOptions],
+    [workLog, salaryBook, staffOptions, canEdit],
   )
 
   const prevMonth = useCallback(() => {
@@ -899,7 +903,7 @@ export function WorkLogPanel({
   }, [])
 
   return (
-    <div className="panel">
+    <div className="panel worklogPanel">
       <h2>工作日誌</h2>
 
       <section
@@ -1065,18 +1069,44 @@ export function WorkLogPanel({
                 </p>
               </div>
               <div className="worklogMonthNavLock worklogDayOverlayLock">
-                <span
-                  className={`worklogLockPill${formUnlocked ? ' worklogLockPill--on' : ''}`}
-                  title={formUnlocked ? '可修改欄位與儲存' : '僅能檢視；請先解鎖再改'}
-                >
-                  {formUnlocked ? '已解鎖' : '已鎖定'}
-                </span>
-                <button type="button" className="btn secondary" onClick={() => setFormUnlocked((u) => !u)}>
-                  {formUnlocked ? '鎖定' : '解鎖編輯'}
-                </button>
+                {canEdit ? (
+                  <>
+                    <span
+                      className={`worklogLockPill${formUnlocked ? ' worklogLockPill--on' : ''}`}
+                      title={formUnlocked ? '可修改欄位與儲存' : '僅能檢視；請先解鎖再改'}
+                    >
+                      {formUnlocked ? '已解鎖' : '已鎖定'}
+                    </span>
+                    <button type="button" className="btn secondary" onClick={() => setFormUnlocked((u) => !u)}>
+                      {formUnlocked ? '鎖定' : '解鎖編輯'}
+                    </button>
+                  </>
+                ) : (
+                  <span
+                    className="readOnlyBadge"
+                    title="訪客登入無法改寫；請登出後以管理者帳號登入"
+                  >
+                    全站唯讀
+                  </span>
+                )}
               </div>
             </header>
             <div className="worklogDayOverlayScroll">
+              {!canEdit ? (
+                <section
+                  className="card"
+                  style={{
+                    marginBottom: 14,
+                    borderColor: 'rgba(232, 176, 96, 0.65)',
+                    background: 'rgba(255, 243, 224, 0.45)',
+                  }}
+                >
+                  <p className="hint" style={{ margin: 0, lineHeight: 1.6 }}>
+                    您目前為<strong>訪客登入</strong>（全站唯讀），無法修改欄位與儲存；這不是表單「鎖定」造成的。
+                    請按頁面上方<strong>登出</strong>後，改用<strong>管理者帳號</strong>登入（頁首不應再顯示「唯讀」徽章）。
+                  </p>
+                </section>
+              ) : null}
               <section className="card worklogForm worklogDayInfoCard worklogDayOverlayCard">
 
           <datalist id="worklog-workitem-list">
@@ -1417,6 +1447,9 @@ export function WorkLogPanel({
                   新增人員列
                 </button>
               </div>
+              <p className="hint muted" style={{ margin: '0 0 8px', fontSize: 12, lineHeight: 1.55 }}>
+                計工數與「薪水」月表同步，此處僅顯示；請至月表該案場當日之格線／調工欄修改，儲存後再開本日誌即可看到更新。
+              </p>
               <div className="worklogStaffLineTableWrap">
                 <table className="worklogStaffLineTable data tight">
                   <thead>
@@ -1520,24 +1553,11 @@ export function WorkLogPanel({
                             type="text"
                             inputMode="decimal"
                             className="titleInput"
+                            readOnly
                             disabled={!formUnlocked}
                             placeholder="1"
+                            title="計工數請至「薪水」月表該案場當日格線／調工欄修改；此欄僅顯示月表數值。"
                             value={ln.workDays}
-                            onChange={(e) =>
-                              setDayDraft((d) => ({
-                                ...d,
-                                blocks: d.blocks.map((b, i) =>
-                                  i !== bi
-                                    ? b
-                                    : {
-                                        ...b,
-                                        staffLines: b.staffLines.map((s, j) =>
-                                          j !== li ? s : { ...s, workDays: e.target.value },
-                                        ),
-                                      },
-                                ),
-                              }))
-                            }
                           />
                         </td>
                       </tr>

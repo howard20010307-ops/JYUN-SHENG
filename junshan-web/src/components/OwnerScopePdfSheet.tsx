@@ -18,7 +18,7 @@ export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
 /** `public/owner-scope-company-stamp.png`：承攬供述明細 PDF 左上角公司標章／圖示 */
 const OWNER_SCOPE_COMPANY_STAMP_SRC = `${import.meta.env.BASE_URL}owner-scope-company-stamp.png`
 
-/** 由估價列產生之業主工作內容，或「工作明細」自填列（後者不附製圖試算） */
+/** 由估價列產生之業主工作內容，或「工作明細」自填列 */
 export type OwnerScopePdfSheetProps =
   | {
       variant?: 'fromQuote'
@@ -27,9 +27,6 @@ export type OwnerScopePdfSheetProps =
       sections: OwnerWorkScopeSection[]
       modeLabel: string
       laborKind: OwnerWorkScopeLaborKind
-      drawingCost: number
-      sumPing: number
-      drawingPerPing: number
     }
   | {
       variant: 'customExplain'
@@ -95,8 +92,8 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
   const laborFootnote = isCustom
     ? '本附件係就表列品項之數量與說明之書面摘要（非完整報價單）；與估價成本表無自動連動。'
     : laborKind === 'pricing'
-      ? '本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算（含風險係數後，與「總結」之計價工數加總語意一致）；另列製圖成本試算（元）。'
-      : '本文件為承攬工作內容供述明細（非報價單）；基礎工數係內部試算（與「總結」之基礎總工數加總語意一致）；另列製圖成本試算（元）。'
+      ? '本文件為承攬工作內容供述明細（非報價單）；計價工數係內部試算（含風險係數後，與「總結」之計價工數加總語意一致）。'
+      : '本文件為承攬工作內容供述明細（非報價單）；基礎工數係內部試算（與「總結」之基礎總工數加總語意一致）。'
   const emptyTableHint = isCustom
     ? '（尚無自填列；請按「新增一列」）'
     : laborKind === 'pricing'
@@ -540,26 +537,6 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
         ) : null}
       </table>
 
-      {!isCustom ? (
-        <div
-          data-pdf-workspace="drawing"
-          style={{
-            marginTop: 10,
-            ...boxBorder,
-            padding: '10px 12px',
-            background: '#fff9ef',
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 11 }}>製圖成本（試算）</div>
-          <div style={{ fontSize: 11 }}>
-            <strong>{Math.round(props.drawingCost).toLocaleString()}</strong> 元
-          </div>
-          <div style={{ fontSize: 9.5, color: '#444', marginTop: 4, lineHeight: 1.5 }}>
-            總坪 {props.sumPing.toFixed(4)} 坪 × 作圖 {props.drawingPerPing.toLocaleString()} 元／坪（全樓層坪數含「基礎工程」列，與估價總結一致）。
-          </div>
-        </div>
-      ) : null}
-
       <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         <div data-pdf-workspace="clauses" style={{ flex: 1.1, ...boxBorder, padding: '8px 10px', fontSize: 9.5 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>備註與條款</div>
@@ -586,7 +563,6 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
                   坪數為面積表㎡換算；{termsLaborLineFromQuote}
                 </>
               </li>
-              <li>製圖成本為總坪×作圖單價之試算，實際以雙方約定為準。</li>
             </ol>
           )}
         </div>

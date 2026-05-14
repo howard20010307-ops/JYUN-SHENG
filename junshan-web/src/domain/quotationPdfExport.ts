@@ -8,6 +8,15 @@ import { jsPDF } from 'jspdf'
 const MARGIN = [6, 8, 10, 8] as [number, number, number, number]
 const JPEG_Q = 0.93
 const H2C_SCALE = 2
+/**
+ * 主表拆段：量測 offsetHeight 常略低於 html2canvas 實際高度；若用「整頁剩餘高度」當上限卻放寬過頭，
+ * 會誤以為第一段主表能接在 head 後面，貼圖時觸發換頁 → 第一頁底部大片空白、主表落到第二頁頂。
+ */
+const TABLE_REMAINDER_SAFETY_MM = 6
+/** 新頁頂（整欄可用高度）拆主表時之保守扣量，避免 canvas 略高於量測而溢出換頁 */
+const TABLE_PAGE_TOP_SAFETY_MM = 1
+/** yMm 在此範圍內視為新頁頂（與 {@link MARGIN} 上邊距對齊），接續切片應帶表頭 */
+const PAGE_TOP_Y_MM_EPS = 0.2
 
 export type PdfCaptureRootClass = 'quotationPdfRoot' | 'ownerScopePdfRoot'
 
@@ -28,7 +37,7 @@ const QUOTATION_WORKSPACE_SPEC: WorkspacePdfSpec = {
 const OWNER_SCOPE_WORKSPACE_SPEC: WorkspacePdfSpec = {
   captureRootClass: 'ownerScopePdfRoot',
   beforeTableWorkspaceKeys: ['head'],
-  afterTableWorkspaceKeys: ['drawing', 'clauses', 'sign'],
+  afterTableWorkspaceKeys: ['clauses', 'sign'],
 }
 
 function waitPaint(): Promise<void> {
@@ -97,6 +106,33 @@ function collectWorkspaceBlocks(root: HTMLElement, keys: readonly string[]): HTM
   return out
 }
 
+/**
+ * 接續切片不應再畫一條橘色表頭，但若直接 `removeChild(thead)`，欄寬會改由 tbody 重算，
+ * 長欄位換行變多 → 實際 canvas 高於量測 → 誤判塞不下而整段換頁，上一頁底部留白。
+ * 改為保留 thead、列設為 collapse，以維持與完整表相同的欄寬且不占垂直空間。
+ */
+function collapseTheadForPdfSliceLayout(table: HTMLTableElement) {
+  const thead = table.querySelector('thead')
+  if (!thead) return
+  for (const tr of thead.querySelectorAll('tr')) {
+    const row = tr as HTMLElement
+    row.style.visibility = 'collapse'
+    row.style.height = '0'
+    row.style.lineHeight = '0'
+    row.style.fontSize = '0'
+    row.style.padding = '0'
+    row.style.border = 'none'
+  }
+  for (const cell of thead.querySelectorAll('th')) {
+    const th = cell as HTMLElement
+    th.style.padding = '0'
+    th.style.border = 'none'
+    th.style.fontSize = '0'
+    th.style.lineHeight = '0'
+    th.style.height = '0'
+  }
+}
+
 /** 回傳 slice 的 offsetHeight（CSS px），不含 scale */
 function measureTableSliceCssPx(
   host: HTMLElement,
@@ -105,8 +141,12 @@ function measureTableSliceCssPx(
   rowEndExclusive: number,
   includeFooter: boolean,
   captureRootClass: PdfCaptureRootClass,
+  includeThead: boolean,
 ): number {
   const tbl = tableSource.cloneNode(true) as HTMLTableElement
+  if (!includeThead) {
+    collapseTheadForPdfSliceLayout(tbl)
+  }
   const tb = tbl.querySelector('tbody')
   const tf0 = tbl.querySelector('tfoot')
   if (tf0) tf0.remove()
@@ -215,15 +255,30 @@ async function renderSheetPdfByWorkspaces(
           if (yMm >= MARGIN[0] + innerH - 0.02) {
             newPage()
           }
+          /** 首段或換頁後頂端須帶表頭；同頁接續段省略表頭，避免「一列一圖」時重複橘色表列 */
+          let includeThead = start === 0 || yMm <= MARGIN[0] + PAGE_TOP_Y_MM_EPS
           const availMm = MARGIN[0] + innerH - yMm
+          const atPageTop = yMm <= MARGIN[0] + PAGE_TOP_Y_MM_EPS
+          const fitBudgetMm = Math.max(
+            0,
+            availMm - (atPageTop ? TABLE_PAGE_TOP_SAFETY_MM : TABLE_REMAINDER_SAFETY_MM),
+          )
           let lo = start + 1
           let hi = n
           let best = start
           while (lo <= hi) {
             const mid = (lo + hi) >> 1
-            const hCss = measureTableSliceCssPx(host, tableEl, start, mid, mid >= n, captureRootClass)
+            const hCss = measureTableSliceCssPx(
+              host,
+              tableEl,
+              start,
+              mid,
+              mid >= n,
+              captureRootClass,
+              includeThead,
+            )
             const hCanvas = Math.ceil(hCss * H2C_SCALE)
-            if (hCanvas * k <= availMm + 0.02) {
+            if (hCanvas * k <= fitBudgetMm) {
               best = mid
               lo = mid + 1
             } else {
@@ -232,8 +287,17 @@ async function renderSheetPdfByWorkspaces(
           }
           if (best <= start) {
             newPage()
+            includeThead = start === 0 || yMm <= MARGIN[0] + PAGE_TOP_Y_MM_EPS
             best = start + 1
-            const hCss1 = measureTableSliceCssPx(host, tableEl, start, best, best >= n, captureRootClass)
+            const hCss1 = measureTableSliceCssPx(
+              host,
+              tableEl,
+              start,
+              best,
+              best >= n,
+              captureRootClass,
+              includeThead,
+            )
             let hCanvas1 = Math.ceil(hCss1 * H2C_SCALE)
             while (hCanvas1 * k > innerH + 0.02 && k > 1e-6) {
               k = (innerH / hCanvas1) * 0.998
@@ -241,6 +305,9 @@ async function renderSheetPdfByWorkspaces(
           }
           host.innerHTML = ''
           const tbl = tableEl.cloneNode(true) as HTMLTableElement
+          if (!includeThead) {
+            collapseTheadForPdfSliceLayout(tbl)
+          }
           const tb = tbl.querySelector('tbody')!
           const tf = tbl.querySelector('tfoot')
           if (tf) tf.remove()

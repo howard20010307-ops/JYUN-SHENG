@@ -14,6 +14,7 @@ type Props = {
   /** 穩定 HTML id（本機／雲端同一格同一值） */
   domId?: string
   'aria-label'?: string
+  disabled?: boolean
 }
 
 /**
@@ -29,14 +30,16 @@ export function PayrollNumberInput({
   className,
   domId,
   'aria-label': ariaLabel,
+  disabled = false,
 }: Props) {
   const [draft, setDraft] = useState<string | null>(null)
 
   const display = draft !== null ? draft : stringifyNumber(value)
 
   const onFocus = useCallback(() => {
+    if (disabled) return
     setDraft(value === 0 ? '' : stringifyNumber(value))
-  }, [value])
+  }, [value, disabled])
 
   const flush = useCallback(
     (text: string) => {
@@ -77,6 +80,7 @@ export function PayrollNumberInput({
       className={className}
       size={1}
       aria-label={ariaLabel}
+      disabled={disabled}
       value={display}
       onFocus={onFocus}
       onChange={onChange}

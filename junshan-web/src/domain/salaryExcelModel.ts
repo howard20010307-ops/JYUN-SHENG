@@ -1745,8 +1745,6 @@ export const PAYROLL_SUMMARY_SHEET_SECTION_TITLES = [
   '鈞泩加班費',
   '調工',
   '調工薪水',
-  '蔡董出工數',
-  '蔡董薪水(未扣預支)',
   '蔡董調工',
   '蔡董調工薪水',
   '蔡董加班時數',
@@ -1763,8 +1761,6 @@ const SUMMARY_ROW_PREFIXES = [
   'jop',
   'jad',
   'jap',
-  'td',
-  'tg',
   'tad',
   'tap',
   'tot',
@@ -1871,13 +1867,9 @@ function valueForSummaryPrefix(
 ): number {
   switch (prefix) {
     case 'jd':
-    case 'td':
       return junWorkDaysInPeriod(book, staffName, period)
     case 'jg':
       return junGridSalaryTotalInPeriod(book, staffName, period)
-    case 'tg':
-      /** 總表列「蔡董薪水(未扣預支)」：格線不計蔡董薪，固定 0（蔡董日薪僅用於調工薪水與加班費） */
-      return 0
     case 'adv':
       return advanceSumInPeriod(book, staffName, period)
     case 'jot':
@@ -2246,8 +2238,7 @@ export function computeStaffSummaryCellBreakdowns(
     }
 
     switch (pr) {
-      case 'jd':
-      case 'td': {
+      case 'jd': {
         const chunks = collectGridSiteDayChunks(book, name, period)
         const lines = chunks.flatMap((c) =>
           gridSiteChunkDayDetailLines(c, name, period, 'gridDays'),
@@ -2267,14 +2258,6 @@ export function computeStaffSummaryCellBreakdowns(
       }
       case 'jg': {
         return finish(junGridSalaryPopoverLines(book, name, period))
-      }
-      case 'tg': {
-        return finish([
-          {
-            label: '蔡董格線不計入本列（實領僅計蔡董調工薪水＋蔡董加班費）',
-            amount: 0,
-          },
-        ])
       }
       case 'adv': {
         const lines = staffPerDateColumnLines(
@@ -2560,35 +2543,6 @@ export function buildStaffSummaryRows(
     cols: pc.map((p) =>
       staff.reduce((s, name) => s + junAdjustPayInPeriod(book, name, p), 0),
     ),
-  })
-
-  /** 與「鈞泩出工數」同源：案場格線天數（Excel 另列蔡董出工數時數值與此一致） */
-  for (const name of staff) {
-    rows.push({
-      key: `td-${name}`,
-      label: `蔡董出工數·${name}`,
-      cols: pc.map((p) => junWorkDaysInPeriod(book, name, p)),
-    })
-  }
-  rows.push({
-    key: 'td-total',
-    label: '蔡董出工數·總計',
-    cols: pc.map((p) =>
-      staff.reduce((s, name) => s + junWorkDaysInPeriod(book, name, p), 0),
-    ),
-  })
-
-  for (const name of staff) {
-    rows.push({
-      key: `tg-${name}`,
-      label: `蔡董薪水(未扣預支)·${name}`,
-      cols: pc.map(() => 0),
-    })
-  }
-  rows.push({
-    key: 'tg-total',
-    label: '蔡董薪水(未扣預支)·總計',
-    cols: pc.map(() => 0),
   })
 
   for (const name of staff) {

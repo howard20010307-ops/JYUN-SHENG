@@ -616,6 +616,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
         {state.tab === 'worklog' && (
           <fieldset className="tabFieldset" disabled={!canEdit}>
             <WorkLogPanel
+              canEdit={canEdit}
               workLog={state.workLog}
               setWorkLog={(fn) =>
                 setState((s) => ({

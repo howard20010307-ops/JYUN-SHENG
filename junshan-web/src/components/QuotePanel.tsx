@@ -1156,7 +1156,7 @@ export function QuotePanel({
           <p className="hint">
             依「成本估算列」計算：可選擇顯示<strong>基礎工數</strong>（E 欄，總結「基礎總工數加總」與之對應）或
             <strong>計價工數</strong>（H 欄，含風險係數；總結「計價工數加總」與之對應）。<strong>坪數</strong>為
-            ㎡ 換算。僅列出所選工數 &gt; 0 之細項。下方<strong>製圖成本</strong>與「總結」相同，為<strong>全樓層總坪</strong>×作圖單價（含「基礎工程」列面積）。
+            ㎡ 換算。僅列出所選工數 &gt; 0 之細項。
           </p>
           <fieldset className="ownerClientFieldset">
             <legend>業主／發包方（甲方）</legend>
@@ -1323,23 +1323,6 @@ export function QuotePanel({
               </div>
             ))
           )}
-          <div
-            style={{
-              marginTop: 16,
-              padding: '12px 14px',
-              border: '1px solid rgba(232, 176, 96, 0.55)',
-              borderRadius: 8,
-              background: 'rgba(255, 245, 228, 0.35)',
-            }}
-          >
-            <h4 style={{ margin: '0 0 8px', fontSize: '1rem' }}>製圖成本（試算）</h4>
-            <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>
-              {Math.round(result.drawingCost).toLocaleString()} 元
-            </p>
-            <p className="muted" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: 1.55 }}>
-              總坪 {result.ping.toFixed(4)} 坪 × 作圖 {site.fees.drawingPerPing.toLocaleString()} 元／坪（全樓層坪數含「基礎工程」列，與「總結」之作圖成本一致）。
-            </p>
-          </div>
         </section>
       )}
 
@@ -1549,9 +1532,6 @@ export function QuotePanel({
                   modeLabel={ownerScopeMode === 'module' ? '模組版' : '逐層版'}
                   laborKind={ownerScopeLaborKind}
                   docDateLabel={ownerScopeDocDateLabel}
-                  drawingCost={result.drawingCost}
-                  sumPing={result.ping}
-                  drawingPerPing={site.fees.drawingPerPing}
                 />
               </div>
             </div>
