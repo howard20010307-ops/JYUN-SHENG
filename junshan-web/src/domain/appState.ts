@@ -124,15 +124,69 @@ const APP_STATE_FIELD_GUARD: Record<keyof AppState, true> = {
 }
 void APP_STATE_FIELD_GUARD
 
+/** 放樣估價持久化切片（案場＋估價列＋列結構版本） */
+export type QuotePersistSlice = {
+  site: QuoteSite
+  quoteRows: QuoteRow[]
+  quoteRowsSchemaVersion: number
+}
+
+export function defaultQuotePersistSlice(): QuotePersistSlice {
+  return {
+    site: migrateQuoteSite({}),
+    quoteRows: [],
+    quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
+  }
+}
+
+/**
+ * 與 {@link migrateAppState} 內估價區塊相同：遷移 site／quoteRows，必要時依 layout 重建列。
+ * 專案庫、專案 JSON 匯入亦應經此函式。
+ */
+export function migrateQuotePersistSlice(
+  d: Partial<{ site: unknown; quoteRows: unknown; quoteRowsSchemaVersion: unknown }> | null | undefined,
+): QuotePersistSlice {
+  const base = defaultQuotePersistSlice()
+  if (!d || typeof d !== 'object') return base
+
+  let siteOut: QuoteSite =
+    d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : base.site
+
+  const storedSchema =
+    typeof d.quoteRowsSchemaVersion === 'number' &&
+    Number.isFinite(d.quoteRowsSchemaVersion)
+      ? Math.trunc(d.quoteRowsSchemaVersion)
+      : 0
+
+  let quoteRows: QuoteRow[] = Array.isArray(d.quoteRows) ? (d.quoteRows as QuoteRow[]) : base.quoteRows
+  let quoteRowsSchemaVersion = storedSchema
+  if (storedSchema < QUOTE_ROWS_SCHEMA_VERSION) {
+    quoteRowsSchemaVersion = QUOTE_ROWS_SCHEMA_VERSION
+    const layoutEff = normalizeQuoteLayout(siteOut.layout)
+    if (isFlatQuoteLayout(layoutEff)) {
+      const nextLayout = exampleQuoteLayout()
+      siteOut = {
+        ...siteOut,
+        layout: nextLayout,
+        floors: syncFloorsWithLayout(siteOut.floors, nextLayout),
+      }
+      quoteRows = buildQuoteRowsFromLayout(nextLayout)
+    }
+  }
+
+  return { site: siteOut, quoteRows, quoteRowsSchemaVersion }
+}
+
 export function initialAppState(): AppState {
   const salaryBook = defaultSalaryBook()
+  const q0 = defaultQuotePersistSlice()
   return {
     tab: 'payroll',
     clientDocsSheet: 'workDetail',
     salaryBook,
-    site: migrateQuoteSite({}),
-    quoteRows: [],
-    quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION,
+    site: q0.site,
+    quoteRows: q0.quoteRows,
+    quoteRowsSchemaVersion: q0.quoteRowsSchemaVersion,
     months: defaultLedger(),
     ledgerYear: inferPayrollYearFromBook(salaryBook),
     workItemPresetLabels: initialSortedWorkItemPresetLabels(),
@@ -184,8 +238,6 @@ export function migrateAppState(loaded: unknown): AppState {
       ? migrateWorkLogState(d.workLog)
       : init.workLog
   const workItemPresetLabels = migrateWorkItemPresetLabels(d.workItemPresetLabels, workLog)
-  let siteOut: QuoteSite =
-    d.site && typeof d.site === 'object' ? migrateQuoteSite(d.site) : init.site
 
   const rawSiteLegacy =
     d.site && typeof d.site === 'object' ? (d.site as Record<string, unknown>) : null
@@ -205,27 +257,15 @@ export function migrateAppState(loaded: unknown): AppState {
   const quotationWorkspace = migrateQuotationWorkspace(d.quotationWorkspace)
   const contractContents = migrateContractContentState(d.contractContents)
   const pricingWorkspace = migratePricingWorkspace(d.pricingWorkspace)
-  const storedSchema =
-    typeof d.quoteRowsSchemaVersion === 'number' &&
-    Number.isFinite(d.quoteRowsSchemaVersion)
-      ? Math.trunc(d.quoteRowsSchemaVersion)
-      : 0
 
-  let quoteRows: QuoteRow[] = Array.isArray(d.quoteRows) ? (d.quoteRows as QuoteRow[]) : init.quoteRows
-  let quoteRowsSchemaVersion = storedSchema
-  if (storedSchema < QUOTE_ROWS_SCHEMA_VERSION) {
-    quoteRowsSchemaVersion = QUOTE_ROWS_SCHEMA_VERSION
-    const layoutEff = normalizeQuoteLayout(siteOut.layout)
-    if (isFlatQuoteLayout(layoutEff)) {
-      const nextLayout = exampleQuoteLayout()
-      siteOut = {
-        ...siteOut,
-        layout: nextLayout,
-        floors: syncFloorsWithLayout(siteOut.floors, nextLayout),
-      }
-      quoteRows = buildQuoteRowsFromLayout(nextLayout)
-    }
-  }
+  const quoteM = migrateQuotePersistSlice({
+    site: d.site,
+    quoteRows: d.quoteRows,
+    quoteRowsSchemaVersion: d.quoteRowsSchemaVersion,
+  })
+  const siteOut = quoteM.site
+  const quoteRows = quoteM.quoteRows
+  const quoteRowsSchemaVersion = quoteM.quoteRowsSchemaVersion
 
   let salaryBook = init.salaryBook
   let payrollIdRemap = { monthByOldId: {} as Record<string, string>, blockByOldId: {} as Record<string, string> }

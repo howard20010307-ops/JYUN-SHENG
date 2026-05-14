@@ -1541,6 +1541,32 @@ export function netTakeHomePayInPeriod(
   return junSalary - adv + jOt + tOt + junAdjustPay + tsaiAdjustPay
 }
 
+/**
+ * 實領薪水（未扣預支，分期間）：**鈞泩薪水 + 鈞泩加班費 + 蔡董加班費 + 調工薪水 + 蔡董調工薪水**（不減預支）。
+ * 與 {@link netTakeHomePayInPeriod} 差額即為該期 {@link advanceSumInPeriod}。
+ */
+export function netTakeHomePayBeforeAdvanceInPeriod(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    netTakeHomePayBeforeAdvanceInPeriod,
+  )
+  if (bulk !== undefined) return bulk
+  const rt = rateTsaiForStaff(book, staffName, period)
+  const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
+  const jOt = junOtPayInPeriod(book, staffName, period)
+  const tOt = tsaiOtPayInPeriod(book, staffName, period)
+  const junSalary = junGridSalaryTotalInPeriod(book, staffName, period)
+  const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
+  const tsaiAdjustPay = tAdj * rt
+  return junSalary + jOt + tOt + junAdjustPay + tsaiAdjustPay
+}
+
 /** 總表儲存格 hover 拆解：標籤＋金額（實領列之預支項為負值，與加總一致） */
 export type SummaryCellBreakdownLine = {
   label: string
@@ -1639,6 +1665,59 @@ export function netTakeHomeBreakdownLines(
   ]
 }
 
+/**
+ * 與 {@link netTakeHomePayBeforeAdvanceInPeriod} 對應之 hover 拆解（不含扣預支項；註記預支見上方區塊）。
+ */
+export function netTakeHomeBeforeAdvanceBreakdownLines(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): SummaryCellBreakdownLine[] {
+  const rt = rateTsaiForStaff(book, staffName, period)
+  const gridDays = junWorkDaysInPeriod(book, staffName, period)
+  const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
+  const jOt = junOtPayInPeriod(book, staffName, period)
+  const tOt = tsaiOtPayInPeriod(book, staffName, period)
+  const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
+  const tsaiAdjustPay = tAdj * rt
+
+  const junSalaryLines = withNetIncomePlusOnFirstLine(
+    junGridSalaryPopoverLines(book, staffName, period),
+  )
+
+  const tsaiAdjDetail = staffPerDateTsaiAdjustMoneyLines(book, staffName, period)
+  const tsaiAdjLines: SummaryCellBreakdownLine[] =
+    tsaiAdjDetail.length > 0
+      ? [
+          { label: '＋ 蔡董調工薪水（蔡董調工×蔡董日薪）', amount: tsaiAdjustPay },
+          ...tsaiAdjDetail,
+        ]
+      : [{ label: '＋ 蔡董調工薪水（蔡董調工×蔡董日薪）', amount: tsaiAdjustPay }]
+
+  const junAdjDetail = staffPerDateJunAdjustPayLines(book, staffName, period)
+  const junAdjHead: SummaryCellBreakdownLine = {
+    label:
+      gridDays > 0
+        ? '＋ 調工薪水（調工天數×鈞泩格線薪水÷格線天數）'
+        : '＋ 調工薪水（調工天數×鈞泩日薪）',
+    amount: junAdjustPay,
+  }
+  const junAdjLines: SummaryCellBreakdownLine[] =
+    junAdjDetail.length > 0 ? [junAdjHead, ...junAdjDetail] : [junAdjHead]
+
+  return [
+    ...junSalaryLines,
+    {
+      label: '（本列未扣預支；預支見上方「預支」區塊）',
+      amount: 0,
+    },
+    { label: '＋ 鈞泩加班費', amount: jOt },
+    { label: '＋ 蔡董加班費（蔡董加班時數×蔡董日薪÷8）', amount: tOt },
+    ...junAdjLines,
+    ...tsaiAdjLines,
+  ]
+}
+
 export type SummaryBlockRow = {
   key: string
   label: string
@@ -1647,6 +1726,9 @@ export type SummaryBlockRow = {
   /** 各分期欄 hover 拆解（與 cols 等長；缺則畫面以單行帶過） */
   cellBreakdowns?: (SummaryCellBreakdownLine[] | undefined)[]
 }
+
+/** 總表實領列（未扣預支）；與 {@link netTakeHomePayBeforeAdvanceInPeriod} 一致。 */
+export const NET_TAKE_HOME_BEFORE_ADV_ROW_PREFIX = '實領薪水（未扣預支）'
 
 /** 總表實領列區塊名稱；與 {@link netTakeHomePayInPeriod} 一致（鈞泩薪水等 − 本分期預支 ＋ 加班與調工等）。 */
 export const NET_TAKE_HOME_ROW_PREFIX = '實領薪水（已扣預支）'
@@ -1669,6 +1751,7 @@ export const PAYROLL_SUMMARY_SHEET_SECTION_TITLES = [
   '蔡董調工薪水',
   '蔡董加班時數',
   '蔡董加班費',
+  NET_TAKE_HOME_BEFORE_ADV_ROW_PREFIX,
   NET_TAKE_HOME_ROW_PREFIX,
 ] as const
 
@@ -1687,6 +1770,7 @@ const SUMMARY_ROW_PREFIXES = [
   'tot',
   'top',
   'net',
+  'xnet',
 ] as const
 
 type SummaryRowPrefix = (typeof SUMMARY_ROW_PREFIXES)[number]
@@ -1814,6 +1898,8 @@ function valueForSummaryPrefix(
       return tapRowCellAmount(book, staffName, period)
     case 'net':
       return netTakeHomePayInPeriod(book, staffName, period)
+    case 'xnet':
+      return netTakeHomePayBeforeAdvanceInPeriod(book, staffName, period)
     default:
       return 0
   }
@@ -2355,6 +2441,8 @@ export function computeStaffSummaryCellBreakdowns(
       }
       case 'net':
         return finish(netTakeHomeBreakdownLines(book, name, period))
+      case 'xnet':
+        return finish(netTakeHomeBeforeAdvanceBreakdownLines(book, name, period))
     }
   })
 }
@@ -2560,6 +2648,21 @@ export function buildStaffSummaryRows(
     label: '蔡董加班費·總計',
     cols: pc.map((p) =>
       staff.reduce((s, name) => s + tsaiOtPayInPeriod(book, name, p), 0),
+    ),
+  })
+
+  for (const name of staff) {
+    rows.push({
+      key: `xnet-${name}`,
+      label: `${NET_TAKE_HOME_BEFORE_ADV_ROW_PREFIX}·${name}`,
+      cols: pc.map((p) => netTakeHomePayBeforeAdvanceInPeriod(book, name, p)),
+    })
+  }
+  rows.push({
+    key: 'xnet-total',
+    label: `${NET_TAKE_HOME_BEFORE_ADV_ROW_PREFIX}·總計`,
+    cols: pc.map((p) =>
+      staff.reduce((s, name) => s + netTakeHomePayBeforeAdvanceInPeriod(book, name, p), 0),
     ),
   })
 

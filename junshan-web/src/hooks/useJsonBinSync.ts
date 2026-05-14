@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { AppState } from '../domain/appState'
 import { downloadAppBackup } from '../domain/appStateBackup'
 import {
@@ -25,7 +26,14 @@ export type JsonBinLine = { text: string; isError: boolean } | null
 
 const SAVE_MS = 700
 
-function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppState) {
+function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppState): {
+  salaryBook: AppState['salaryBook']
+  receivables: AppState['receivables']
+  /** 合併前本機收帳列數／合併後結果列數（變化來自與 JSONBin 依 id 聯集或雲端專有列併入） */
+  receivablesCountBefore: number
+  receivablesCountAfter: number
+} {
+  const receivablesCountBefore = prev.receivables.entries.length
   const prevFin = finalizeSalaryBookPayroll(prev.salaryBook)
   const cloudFin = finalizeSalaryBookPayroll(fromCloud.salaryBook)
   const recvPrev = remapReceivablePayrollBindings(
@@ -44,7 +52,12 @@ function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppS
     ex.remap.monthByOldId,
     ex.remap.blockByOldId,
   )
-  return { salaryBook: ex.book, receivables }
+  return {
+    salaryBook: ex.book,
+    receivables,
+    receivablesCountBefore,
+    receivablesCountAfter: receivables.entries.length,
+  }
 }
 
 /**
@@ -54,7 +67,7 @@ function mergeSalaryBookAndReceivablesForJsonBin(prev: AppState, fromCloud: AppS
  * 上傳內容為完整 {@link AppState}（與「匯出備份」相同）；上傳前校驗備份線路 JSON。
  * 以備份指紋（不含 exportedAt）之 SHA-256 比對上次成功上傳：相同則略過 PUT，減少 JSONBin 請求。
  *
- * 首載合併：**收帳**（同 id 本機優先，且**同指紋不同 id 只留一筆並優先本機**）、**工作日誌**（`entries` 同指紋去重；`dayDocuments` 仍依日期）、**薪水月表**（同月月內**同案名區塊**合併、格線／餐列逐日取 max）、**公司損益月列**（`month` 對位本機優先）與本機做鍵級合併；**其餘頂層欄位以雲端為準**（禁止整包本機 `prev` 蓋回，以免舊裝置 localStorage 污染）。
+ * 首載合併：**收帳**（僅依「列 id」聯集，同 id 本機優先；見 {@link mergeReceivablesPreferLocal}）、**工作日誌**（`entries` 同指紋去重；`dayDocuments` 仍依日期）、**薪水月表**（同月月內**同案名區塊**合併、格線／餐列逐日取 max）、**公司損益月列**（`month` 對位本機優先）與本機做鍵級合併；**其餘頂層欄位以雲端為準**（禁止整包本機 `prev` 蓋回，以免舊裝置 localStorage 污染）。
  *
  * **從雲端還原**：使用者明確觸發時，先下載本機備份再將 JSONBin 資料**完整取代**本機（語意等同「匯入雲端備份」），不經首載合併。
  */
@@ -216,36 +229,49 @@ export function useJsonBinSync(
         if (dl) {
           const { state: fromCloud } = dl
           skipNextUpload.current = true
-          setState((prev) => {
-            /**
-             * 首載一律以雲端為「非合併欄位」之底稿；**禁止** `{ ...fromCloud, ...prev }` 整包本機蓋回，
-             * 否則舊手機／舊 localStorage 會把估價、損益表、分頁等全換成古早本機，看起來既非雲端又錯亂。
-             * 手輸保護僅發生在已實作鍵級合併之子域（薪水、收帳、工作日誌、預設項標籤）。
-             */
-            const { salaryBook, receivables } = mergeSalaryBookAndReceivablesForJsonBin(prev, fromCloud)
-            const months = mergeLedgerMonthLinesPreferLocal(prev.months, fromCloud.months)
-            return {
-              ...fromCloud,
-              months,
-              receivables,
-              workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
-              salaryBook,
-              contractContents: mergeContractContentPreferLocal(
-                prev.contractContents,
-                fromCloud.contractContents,
-              ),
-              pricingWorkspace: mergePricingWorkspacePreferLocal(
-                prev.pricingWorkspace,
-                fromCloud.pricingWorkspace,
-              ),
-              workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
-                prev.workItemPresetLabels,
-                fromCloud.workItemPresetLabels,
-              ),
-            }
+          let receivablesCountBefore = 0
+          let receivablesCountAfter = 0
+          flushSync(() => {
+            setState((prev) => {
+              /**
+               * 首載一律以雲端為「非合併欄位」之底稿；**禁止** `{ ...fromCloud, ...prev }` 整包本機蓋回，
+               * 否則舊手機／舊 localStorage 會把估價、損益表、分頁等全換成古早本機，看起來既非雲端又錯亂。
+               * 手輸保護僅發生在已實作鍵級合併之子域（薪水、收帳、工作日誌、預設項標籤）。
+               */
+              const merged = mergeSalaryBookAndReceivablesForJsonBin(prev, fromCloud)
+              receivablesCountBefore = merged.receivablesCountBefore
+              receivablesCountAfter = merged.receivablesCountAfter
+              const months = mergeLedgerMonthLinesPreferLocal(prev.months, fromCloud.months)
+              return {
+                ...fromCloud,
+                months,
+                receivables: merged.receivables,
+                workLog: mergeWorkLogPreferLocal(prev.workLog, fromCloud.workLog),
+                salaryBook: merged.salaryBook,
+                contractContents: mergeContractContentPreferLocal(
+                  prev.contractContents,
+                  fromCloud.contractContents,
+                ),
+                pricingWorkspace: mergePricingWorkspacePreferLocal(
+                  prev.pricingWorkspace,
+                  fromCloud.pricingWorkspace,
+                ),
+                workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
+                  prev.workItemPresetLabels,
+                  fromCloud.workItemPresetLabels,
+                ),
+              }
+            })
           })
-          setLine({ text: '已從 JSONBin 載入（收帳、工作日誌、薪水月表已與本機合併）。', isError: false })
-          window.setTimeout(() => setLine(null), 3200)
+          const recPart =
+            receivablesCountBefore !== receivablesCountAfter
+              ? ` 收帳列：本機合併前 ${receivablesCountBefore} 列 → 合併後 ${receivablesCountAfter} 列（與 JSONBin 依 id 聯集所致，非「新增一列」按鈕）。`
+              : ''
+          setLine({
+            text: `已從 JSONBin 載入（薪水、收帳、工作日誌等已與本機合併）。${recPart}`,
+            isError: false,
+          })
+          window.setTimeout(() => setLine(null), recPart ? 5200 : 3200)
         }
       } catch (e) {
         if (dead) return

@@ -20,6 +20,7 @@ import {
 import { sortWorkItemLabelsList } from './domain/workLogModel'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
+import { TableArrowNavigation } from './components/TableArrowNavigation'
 import { AppLoginGate } from './components/AppLoginGate'
 import { useAppGateAuth } from './context/AppGateAuthContext'
 import { useJsonBinSync } from './hooks/useJsonBinSync'
@@ -407,6 +408,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
 
         <div className="appLayout__content">
           <main className="main">
+            <TableArrowNavigation />
         {state.tab === 'payroll' && (
           <fieldset className="tabFieldset" disabled={!canEdit}>
             <PayrollPanel
@@ -468,6 +470,19 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               setRows={(quoteRows) =>
                 patch({ quoteRows, quoteRowsSchemaVersion: QUOTE_ROWS_SCHEMA_VERSION })
               }
+              persistSlice={{
+                site: state.site,
+                quoteRows: state.quoteRows,
+                quoteRowsSchemaVersion: state.quoteRowsSchemaVersion,
+              }}
+              onApplyPersistSlice={(slice) =>
+                patch({
+                  site: slice.site,
+                  quoteRows: slice.quoteRows,
+                  quoteRowsSchemaVersion: slice.quoteRowsSchemaVersion,
+                })
+              }
+              quoteLibraryDisabled={!canEdit}
               commitSiteRenameFromQuoteNameBlur={
                 canEdit
                   ? (oldEx, newT) => {

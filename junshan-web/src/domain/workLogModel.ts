@@ -616,7 +616,7 @@ function dedupeWorkLogEntriesAfterIdMerge(
 }
 
 /**
- * 與收帳 `mergeReceivablesPreferLocal` 同策略：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先；
+ * **收帳**僅依 `id` 聯集（見 {@link mergeReceivablesPreferLocal}）；**工作日誌**此處：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先；
  * `entries` 再依**業務指紋**去重（同內容不同 id 只留一筆，優先本機 id）。
  * 供 JSONBin 首載等，避免整包覆寫抹掉本機手輸之日誌。
  */

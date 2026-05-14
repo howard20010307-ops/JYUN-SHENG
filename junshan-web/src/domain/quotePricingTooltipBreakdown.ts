@@ -147,6 +147,12 @@ export function floorPricingNumericBreakdown(
   }
 
   if (col === 'miscCost') {
+    if (row.baseTotal <= 1e-9) {
+      return [
+        { label: `「${zone}」模組雜項成本合計`, amount: agg.misc },
+        { label: '本層基礎總工數為 0，雜項不列入本層與合計', amount: row.miscCost },
+      ]
+    }
     return [
       { label: `「${zone}」模組雜項成本合計`, amount: agg.misc },
       { label: `本層攤提（合計÷${n} 列）`, amount: row.miscCost },
@@ -154,6 +160,16 @@ export function floorPricingNumericBreakdown(
   }
 
   if (col === 'costExDrawing') {
+    const regionShare = agg.region / n
+    const miscShare = agg.misc / n
+    if (row.baseTotal <= 1e-9 && agg.misc > 0) {
+      return [
+        { label: `「${zone}」區域細項合計（攤前）`, amount: agg.region },
+        { label: `一般每列攤提（合計÷${n}）`, amount: regionShare },
+        { label: '本層基礎總工數為 0，自攤提扣除應攤雜項', amount: -miscShare },
+        { label: '本列工序＋儀器（未含作圖；本列不計雜項）', amount: row.costExDrawing },
+      ]
+    }
     return [
       { label: `「${zone}」區域細項合計（攤前）`, amount: agg.region },
       { label: `本層攤提（合計÷${n} 列）`, amount: row.costExDrawing },

@@ -982,6 +982,63 @@ table.data.tight.payrollSitesPivotTable thead th.payrollSitesPivotStickyCol {
   border-color: rgba(90, 212, 168, 0.45);
 }
 
+.payrollSummaryTooltip__resizeEdge {
+  display: none;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge {
+  display: block;
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+  box-sizing: border-box;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--left,
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--right {
+  /* 自內容區頂端起算；底部縮短避免與下緣拖曳條重疊 */
+  top: 61px;
+  bottom: 12px;
+  width: 12px;
+  cursor: ew-resize;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--left {
+  left: -4px;
+  padding-left: 4px;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--right {
+  right: -4px;
+  padding-right: 4px;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--top {
+  /* 貼在拖曳列與內容區交界，盡量少覆蓋拖曳列 */
+  top: 56px;
+  left: 14px;
+  right: 14px;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.payrollSummaryTooltip--pinned .payrollSummaryTooltip__resizeEdge--bottom {
+  bottom: -4px;
+  left: 14px;
+  right: 14px;
+  height: 12px;
+  padding-bottom: 4px;
+  cursor: ns-resize;
+}
+
+.payrollSummaryTooltip--pinned.payrollSummaryTooltip--widthUser {
+  max-width: none;
+}
+
+.payrollSummaryTooltip--pinned.payrollSummaryTooltip--heightUser {
+  max-height: none;
+}
+
 .payrollSummaryTooltip__dragBar {
   flex-shrink: 0;
   cursor: grab;
@@ -2305,7 +2362,13 @@ table.data.quoteCostTableExcel thead tr:first-child th.quoteExcelTH .excelLbl {
   width: max-content;
   max-width: none;
   background: var(--card);
-  box-shadow: 6px 0 14px -6px rgba(0, 0, 0, 0.75);
+  /**
+   * sticky 欄在 border-collapse: collapse 下常吞掉與下列之共用橫線；用 inset 陰影補一條底線（畫在底色之上）。
+   * 色值與 table.data 格線一致，見上方 quoteCostTableExcel 之 border-color。
+   */
+  box-shadow:
+    6px 0 14px -6px rgba(0, 0, 0, 0.75),
+    inset 0 -1px 0 rgba(147, 173, 204, 0.55);
   vertical-align: middle;
   padding: 2px 4px !important;
 }
@@ -3736,8 +3799,16 @@ table.data.ledgerCompanyTable tfoot th.num {
     line-height: 1.5;
   }
 
+  .payrollSummaryTooltip--pinned {
+    max-width: calc(100vw - 16px);
+    max-height: min(88vh, 720px);
+  }
+
   .payrollSummaryTooltip {
     font-size: 0.88rem;
+  }
+
+  .payrollSummaryTooltip:not(.payrollSummaryTooltip--pinned) {
     max-width: min(24rem, calc(100vw - 20px));
   }
 

@@ -298,7 +298,15 @@ export function renameQuoteSiteIfProjectNameMatches(
 }
 
 /**
- * 總坪數（用於作圖總額、每坪成本）：樓層㎡換算後加總，**不含**名稱為「基礎工程」之列（該列不計入坪數）。
+ * 成本試算用之總坪：**全樓層**㎡換算後加總（**含**名稱為「基礎工程」之列）。
+ * 「總結」之作圖、每坪、`computeQuote().ping` 均使用此坪數。
+ */
+export function sumPingCostBasis(site: QuoteSite): number {
+  return site.floors.reduce((s, f) => s + m2ToPing(f.m2), 0)
+}
+
+/**
+ * 「請款」等對外語境：總坪**不含**「基礎工程」樓層列（與 {@link sumPingCostBasis} 不同）。
  */
 export function sumPing(site: QuoteSite): number {
   return site.floors.reduce((s, f) => {
@@ -311,21 +319,35 @@ export function computeQuote(site: QuoteSite, rows: QuoteRow[]) {
   const computed = rows.map((r) => computeRow(r, site.fees))
   const totalBase = computed.reduce((s, r) => s + r.baseTotal, 0)
   const totalPricingDays = computed.reduce((s, r) => s + r.pricingTotal, 0)
+  /** 細項區域（Q）全表加總；細項％分母亦用此 */
   const totalRegion = computed.reduce((s, r) => s + r.regionCost, 0)
-  const ping = sumPing(site)
+  /** 全樓層坪（含「基礎工程」列）：作圖金額＝此坪×單價 */
+  const ping = sumPingCostBasis(site)
+  /** 請款範圍坪：不含「基礎工程」樓層列；總結「每坪成本」以此為分母 */
+  const pingBilling = sumPing(site)
   const drawingCost = ping * site.fees.drawingPerPing
-  const totalCost = totalRegion + drawingCost
-  const costPerPing = ping > 0 ? totalCost / ping : 0
+
+  /** 與「每層計價工數」一致：無基礎工數該列不計入應攤雜項之後，再累加各行「扣除作圖」 */
+  const floorRows = computeFloorPricingTable(site, rows)
+  const costExDrawingFloorsSum = floorRows.reduce((s, r) => s + r.costExDrawing, 0)
+
+  const totalCost = costExDrawingFloorsSum + drawingCost
+  const costPerPing = pingBilling > 0 ? totalCost / pingBilling : 0
   const costPerPingExDrawing =
-    ping > 0 ? (totalCost - drawingCost) / ping : 0
+    pingBilling > 0 ? costExDrawingFloorsSum / pingBilling : 0
   return {
     computed,
     totalBase,
     totalPricingDays,
     totalRegion,
+    /** 總結「工序＋儀器＋雜項」與 Σ 每層「該層成本（扣除作圖）」；可能小於 {@link totalRegion}（無工數該列已扣應攤雜項） */
+    costExDrawingFloorsSum,
     drawingCost,
     totalCost,
+    /** 全樓層坪（含基礎工程），作圖試算用 */
     ping,
+    /** 請款總坪（不含基礎工程樓層列） */
+    pingBilling,
     costPerPing,
     costPerPingExDrawing,
   }
@@ -467,8 +489,12 @@ export function computeFloorPricingTable(site: QuoteSite, rows: QuoteRow[]): Flo
     const base = agg.base / n
     const pricing = agg.pricing / n
     const instr = agg.instr / n
-    const misc = agg.misc / n
-    const costExDrawing = agg.region / n
+    const miscShare = agg.misc / n
+    const regionShare = agg.region / n
+    /** 該層「基礎總工數」為 0 時不列入雜項（避免無工數仍攤到雜項金額）。工序／儀器仍按原攤提。 */
+    const hasBaseLabor = base > 1e-9
+    const miscCost = hasBaseLabor ? miscShare : 0
+    const costExDrawing = hasBaseLabor ? regionShare : regionShare - miscShare
     const costTotal = costExDrawing + drawing
     return {
       floorLabel: floor.name,
@@ -477,7 +503,7 @@ export function computeFloorPricingTable(site: QuoteSite, rows: QuoteRow[]): Flo
       pricingTotal: pricing,
       ping,
       instrumentCost: instr,
-      miscCost: misc,
+      miscCost,
       drawingCost: drawing,
       costExDrawing,
       costTotal,

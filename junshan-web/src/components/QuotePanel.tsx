@@ -30,8 +30,10 @@ import {
 } from '../domain/quoteOwnerScope'
 import { buildOwnerScopePdfFilename, downloadOwnerScopePdf } from '../domain/ownerScopePdfExport'
 import { OwnerScopePdfSheet } from './OwnerScopePdfSheet'
+import { QuoteProjectLibrary } from './QuoteProjectLibrary'
 import { PayrollSummaryPopoverCell } from './PayrollSummaryPopoverCell'
 import { useLooseNumericDrafts } from '../hooks/useLooseNumericDrafts'
+import type { QuotePersistSlice } from '../domain/appState'
 
 function allocManualQuoteRowId(rows: readonly QuoteRow[], seed: string): string {
   const base = `q--${stableHash16(`manual\0${seed}`)}`
@@ -51,6 +53,10 @@ type Props = {
     oldExact: string,
     newTrimmed: string,
   ) => { ok: boolean; message: string }
+  /** 本機專案庫與估價 JSON 匯入／匯出（僅案場＋估價列＋版本） */
+  persistSlice: QuotePersistSlice
+  onApplyPersistSlice: (slice: QuotePersistSlice) => void
+  quoteLibraryDisabled?: boolean
 }
 
 const QUOTE_DATA_COLS = QUOTE_TABLE_COLUMNS.length + 1
@@ -84,12 +90,51 @@ function lastIndexForZone(rows: readonly QuoteRow[], zone: string): number {
   return -1
 }
 
+/** 成本加成％ → 毛利率％（賣價上） */
+function quoteProfitMarginFromMarkup(cost: number, markupPct: number): number {
+  if (!(cost > 0) || !Number.isFinite(markupPct)) return 0
+  const price = cost * (1 + markupPct / 100)
+  if (!(price > 0)) return 0
+  return ((price - cost) / price) * 100
+}
+
+/** 毛利率％ → 成本加成％；`marginPct >= 100` 時無法由成本反推賣價 */
+function quoteProfitMarkupFromMargin(cost: number, marginPct: number): number | null {
+  if (!(cost > 0) || !Number.isFinite(marginPct)) return 0
+  if (marginPct >= 100) return null
+  const price = cost / (1 - marginPct / 100)
+  if (!(price > 0) || !Number.isFinite(price)) return null
+  return ((price - cost) / cost) * 100
+}
+
+function quoteProfitRoundPct(n: number, decimals = 2): number {
+  const x = 10 ** decimals
+  return Math.round(n * x) / x
+}
+
+/** 已知單坪報價與總坪時，換算總報價、加成、毛利率（總成本為含製圖之 totalCost） */
+function quoteProfitFromPerPingAndTotalPing(
+  cost: number,
+  totalPing: number,
+  pricePerPing: number,
+): { price: number; markupPct: number; marginPct: number } | null {
+  if (!(cost > 0) || !(totalPing > 0) || !Number.isFinite(pricePerPing)) return null
+  const price = pricePerPing * totalPing
+  if (!(price > 0) || !Number.isFinite(price)) return null
+  const markupPct = ((price - cost) / cost) * 100
+  const marginPct = ((price - cost) / price) * 100
+  return { price, markupPct, marginPct }
+}
+
 export function QuotePanel({
   site,
   setSite,
   rows,
   setRows,
   commitSiteRenameFromQuoteNameBlur,
+  persistSlice,
+  onApplyPersistSlice,
+  quoteLibraryDisabled = false,
 }: Props) {
   const { bindDecimal, bindInt } = useLooseNumericDrafts()
   /** 第一次點進案名欄時的舊字串；按「同步全書」前不寫回月表／日誌等 */
@@ -147,6 +192,71 @@ export function QuotePanel({
     return { totalBaseLabor, cost }
   }, [itemPricingRows])
   const zoneOptions = useMemo(() => uniqueZonesInOrder(rows), [rows])
+
+  /** 總結：利潤試算（成本＝totalCost，含製圖）；最後編輯的欄位決定總成本／總坪變動時要跟著算哪一邊 */
+  const [profitMarkupDraft, setProfitMarkupDraft] = useState('0')
+  const [profitMarginDraft, setProfitMarginDraft] = useState('0')
+  const [profitPerPingDraft, setProfitPerPingDraft] = useState('0')
+  const profitAnchorRef = useRef<'markup' | 'margin' | 'perPing'>('markup')
+  const profitMarkupDraftRef = useRef(profitMarkupDraft)
+  const profitMarginDraftRef = useRef(profitMarginDraft)
+  const profitPerPingDraftRef = useRef(profitPerPingDraft)
+  profitMarkupDraftRef.current = profitMarkupDraft
+  profitMarginDraftRef.current = profitMarginDraft
+  profitPerPingDraftRef.current = profitPerPingDraft
+
+  useEffect(() => {
+    const C = result.totalCost
+    const T = result.pingBilling
+    if (!(C > 0)) return
+    if (profitAnchorRef.current === 'markup') {
+      const m = parseFloat(profitMarkupDraftRef.current.replace(/,/g, ''))
+      const mm = Number.isFinite(m) ? m : 0
+      setProfitMarginDraft(String(quoteProfitRoundPct(quoteProfitMarginFromMarkup(C, mm))))
+      if (T > 0) {
+        const P = C * (1 + mm / 100)
+        setProfitPerPingDraft(String(quoteProfitRoundPct(P / T)))
+      }
+    } else if (profitAnchorRef.current === 'margin') {
+      const g = parseFloat(profitMarginDraftRef.current.replace(/,/g, ''))
+      let gg = Number.isFinite(g) ? g : 0
+      if (gg >= 100) gg = 99.99
+      const mk = quoteProfitMarkupFromMargin(C, gg)
+      if (mk !== null) {
+        setProfitMarkupDraft(String(quoteProfitRoundPct(mk)))
+        if (T > 0) {
+          const P = C / (1 - gg / 100)
+          setProfitPerPingDraft(String(quoteProfitRoundPct(P / T)))
+        }
+      }
+    } else {
+      const pp = parseFloat(profitPerPingDraftRef.current.replace(/,/g, ''))
+      const ppr = Number.isFinite(pp) ? pp : 0
+      const r = quoteProfitFromPerPingAndTotalPing(C, T, ppr)
+      if (r !== null) {
+        setProfitMarkupDraft(String(quoteProfitRoundPct(r.markupPct)))
+        setProfitMarginDraft(String(quoteProfitRoundPct(r.marginPct)))
+      }
+    }
+  }, [result.totalCost, result.pingBilling])
+
+  const quoteProfitTrial = useMemo(() => {
+    const C = result.totalCost
+    const m = parseFloat(profitMarkupDraft.replace(/,/g, ''))
+    const markupEff = Number.isFinite(m) ? m : 0
+    if (!(C > 0)) {
+      return {
+        price: 0,
+        profitAmt: 0,
+        pricePerPing: 0,
+        markupEff: 0,
+      }
+    }
+    const price = C * (1 + markupEff / 100)
+    const profitAmt = price - C
+    const pricePerPing = result.pingBilling > 0 ? price / result.pingBilling : 0
+    return { price, profitAmt, pricePerPing, markupEff }
+  }, [result.totalCost, result.pingBilling, profitMarkupDraft])
 
   const [quickAddOpen, setQuickAddOpen] = useState(false)
   const [quickAddZone, setQuickAddZone] = useState('')
@@ -354,6 +464,11 @@ export function QuotePanel({
           載入範例（估價結構）
         </button>
       </div>
+      <QuoteProjectLibrary
+        persistSlice={persistSlice}
+        onApplyPersistSlice={onApplyPersistSlice}
+        disabled={quoteLibraryDisabled}
+      />
       <div className="btnRow quoteSheetTabs" style={{ marginBottom: 12 }} role="tablist" aria-label="放樣估價工作表">
         <button
           type="button"
@@ -529,8 +644,12 @@ export function QuotePanel({
             </div>
           </label>
           <div className="stat">
-            <span>總坪數（㎡換算；不含「基礎工程」列）</span>
+            <span>全樓層坪（㎡換算；含「基礎工程」列，作圖試算用）</span>
             <strong>{result.ping.toFixed(4)} 坪</strong>
+          </div>
+          <div className="stat">
+            <span>請款總坪（不含「基礎工程」列；總結每坪、利潤試算用）</span>
+            <strong>{result.pingBilling.toFixed(4)} 坪</strong>
           </div>
         </div>
         <div className="feeGrid">
@@ -788,6 +907,9 @@ export function QuotePanel({
           <div className="panelHead">
             <h3>每層計價工數</h3>
           </div>
+          <p className="hint muted" style={{ marginTop: 0, marginBottom: 12 }}>
+            備註：本作表「合計」列之每坪係<strong>全樓層坪加總</strong>為分母；「總結」之<strong>每坪成本</strong>係以<strong>請款總坪（不含「基礎工程」列）</strong>為分母，兩處數字可能不同。作圖試算仍為全樓層坪×單價（與總結作圖成本一致）。
+          </p>
           <div className="tableScroll tableScrollSticky">
             <table className="data quoteFloorPricingTable">
               <thead>
@@ -1034,7 +1156,7 @@ export function QuotePanel({
           <p className="hint">
             依「成本估算列」計算：可選擇顯示<strong>基礎工數</strong>（E 欄，總結「基礎總工數加總」與之對應）或
             <strong>計價工數</strong>（H 欄，含風險係數；總結「計價工數加總」與之對應）。<strong>坪數</strong>為
-            ㎡ 換算。僅列出所選工數 &gt; 0 之細項。下方<strong>製圖成本</strong>與「總結」相同，為總坪×作圖單價（總坪不含「基礎工程」列）。
+            ㎡ 換算。僅列出所選工數 &gt; 0 之細項。下方<strong>製圖成本</strong>與「總結」相同，為<strong>全樓層總坪</strong>×作圖單價（含「基礎工程」列面積）。
           </p>
           <fieldset className="ownerClientFieldset">
             <legend>業主／發包方（甲方）</legend>
@@ -1215,7 +1337,7 @@ export function QuotePanel({
               {Math.round(result.drawingCost).toLocaleString()} 元
             </p>
             <p className="muted" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: 1.55 }}>
-              總坪 {result.ping.toFixed(4)} 坪 × 作圖 {site.fees.drawingPerPing.toLocaleString()} 元／坪（總坪不含「基礎工程」列，與「總結」之作圖成本一致）。
+              總坪 {result.ping.toFixed(4)} 坪 × 作圖 {site.fees.drawingPerPing.toLocaleString()} 元／坪（全樓層坪數含「基礎工程」列，與「總結」之作圖成本一致）。
             </p>
           </div>
         </section>
@@ -1224,6 +1346,9 @@ export function QuotePanel({
       {quoteSheet === 'summary' && (
       <section className="card summary">
         <h3>總結</h3>
+        <p className="hint muted" style={{ marginTop: 0, marginBottom: 14 }}>
+          備註：<strong>作圖成本</strong>＝作圖單價×<strong>全樓層坪</strong>（含「基礎工程」列）。<strong>每坪成本</strong>、「每坪（扣除作圖）」及下方利潤試算之單坪，係以<strong>請款總坪</strong>（<strong>不含</strong>「基礎工程」樓層列）為分母，因該列<strong>不屬請款範圍</strong>。
+        </p>
         <dl className="dl">
           <div>
             <dt>基礎總工數加總</dt>
@@ -1235,11 +1360,17 @@ export function QuotePanel({
           </div>
           <div>
             <dt>工序＋儀器＋雜項（未含作圖）</dt>
-            <dd>{Math.round(result.totalRegion).toLocaleString()} 元</dd>
+            <dd>{Math.round(result.costExDrawingFloorsSum).toLocaleString()} 元</dd>
+            <dd className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              備註：為「每層計價工數」各行<strong>該層成本（扣除作圖）</strong>加總，與該表合計一致；「每項細項％」仍以<strong>區域細項（Q）全表加總</strong>為分母。
+            </dd>
           </div>
           <div>
             <dt>作圖成本</dt>
             <dd>{Math.round(result.drawingCost).toLocaleString()} 元</dd>
+            <dd className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              備註：作圖＝作圖單價×<strong>全樓層總坪</strong>（含「基礎工程」列面積），與上欄區域細項並入<strong>總成本</strong>。
+            </dd>
           </div>
           <div>
             <dt>總成本</dt>
@@ -1248,12 +1379,150 @@ export function QuotePanel({
           <div>
             <dt>每坪成本</dt>
             <dd>{result.costPerPing.toFixed(2)} 元／坪</dd>
+            <dd className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              分母：請款總坪 {result.pingBilling.toFixed(4)} 坪（不含基礎工程列）
+            </dd>
           </div>
           <div>
             <dt>每坪（扣除作圖）</dt>
             <dd>{result.costPerPingExDrawing.toFixed(2)} 元／坪</dd>
+            <dd className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              分母同上（請款總坪）
+            </dd>
           </div>
         </dl>
+
+        <div
+          style={{
+            marginTop: '1.25rem',
+            paddingTop: '1rem',
+            borderTop: '1px solid var(--border, #243041)',
+          }}
+        >
+          <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: 'var(--head)' }}>報價／利潤試算</h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', lineHeight: 1.55 }}>
+            成本基礎＝上方<strong>總成本</strong>（含工序、儀器、雜項與<strong>作圖</strong>）。試算之<strong>單坪報價</strong>＝試算報價總額÷<strong>請款總坪</strong>（不含「基礎工程」列），與總結<strong>每坪成本</strong>之分母相同。可輸入<strong>成本加成</strong>、<strong>毛利率</strong>或<strong>單坪報價</strong>，離開欄位後會互換算。下方<strong>試算利潤</strong>＝試算報價減總成本。
+          </p>
+          <div className="btnRow" style={{ flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 10 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span>成本加成（Markup，％）</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="narrow"
+                value={profitMarkupDraft}
+                onChange={(e) => setProfitMarkupDraft(e.target.value)}
+                onBlur={() => {
+                  profitAnchorRef.current = 'markup'
+                  const C = result.totalCost
+                  const T = result.pingBilling
+                  const raw = parseFloat(profitMarkupDraft.replace(/,/g, ''))
+                  const mm = Number.isFinite(raw) ? raw : 0
+                  setProfitMarkupDraft(String(quoteProfitRoundPct(mm)))
+                  if (C > 0) {
+                    setProfitMarginDraft(
+                      String(quoteProfitRoundPct(quoteProfitMarginFromMarkup(C, mm))),
+                    )
+                    if (T > 0) {
+                      const P = C * (1 + mm / 100)
+                      setProfitPerPingDraft(String(quoteProfitRoundPct(P / T)))
+                    }
+                  }
+                }}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span>毛利率（Margin，占賣價，％）</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="narrow"
+                value={profitMarginDraft}
+                onChange={(e) => setProfitMarginDraft(e.target.value)}
+                onBlur={() => {
+                  profitAnchorRef.current = 'margin'
+                  const C = result.totalCost
+                  const T = result.pingBilling
+                  const raw = parseFloat(profitMarginDraft.replace(/,/g, ''))
+                  let gg = Number.isFinite(raw) ? raw : 0
+                  if (gg >= 100) {
+                    queueMicrotask(() =>
+                      alert('毛利率須小於 100%，請重新輸入。（100% 表示賣價無限大，無法由成本反推）'),
+                    )
+                    gg = 99.99
+                  }
+                  const roundedG = quoteProfitRoundPct(gg)
+                  setProfitMarginDraft(String(roundedG))
+                  if (C > 0) {
+                    const mk = quoteProfitMarkupFromMargin(C, roundedG)
+                    if (mk !== null) {
+                      setProfitMarkupDraft(String(quoteProfitRoundPct(mk)))
+                      if (T > 0) {
+                        const P = C / (1 - roundedG / 100)
+                        setProfitPerPingDraft(String(quoteProfitRoundPct(P / T)))
+                      }
+                    }
+                  }
+                }}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span>單坪報價（元／坪）</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="narrow"
+                value={profitPerPingDraft}
+                onChange={(e) => setProfitPerPingDraft(e.target.value)}
+                onBlur={() => {
+                  profitAnchorRef.current = 'perPing'
+                  const C = result.totalCost
+                  const T = result.pingBilling
+                  const raw = parseFloat(profitPerPingDraft.replace(/,/g, ''))
+                  const ppr = Number.isFinite(raw) ? raw : 0
+                  setProfitPerPingDraft(String(quoteProfitRoundPct(ppr)))
+                  const r = quoteProfitFromPerPingAndTotalPing(C, T, quoteProfitRoundPct(ppr))
+                  if (r === null) {
+                    if (!(T > 0)) {
+                      queueMicrotask(() =>
+                        alert('請款總坪為 0，請先於「案場與樓層」建立面積後，再以單坪報價反算。'),
+                      )
+                    } else if (!(C > 0)) {
+                      /* 總結列已提示 */
+                    } else {
+                      queueMicrotask(() =>
+                        alert('單坪報價須為有效數字，且試算總報價（單坪×總坪）須大於 0。'),
+                      )
+                    }
+                    return
+                  }
+                  setProfitMarkupDraft(String(quoteProfitRoundPct(r.markupPct)))
+                  setProfitMarginDraft(String(quoteProfitRoundPct(r.marginPct)))
+                }}
+              />
+            </label>
+          </div>
+          {result.totalCost > 0 ? (
+            <dl className="dl" style={{ marginTop: 8 }}>
+              <div>
+                <dt>試算報價（總額）</dt>
+                <dd>{Math.round(quoteProfitTrial.price).toLocaleString()} 元</dd>
+              </div>
+              <div>
+                <dt>試算利潤（報價−總成本）</dt>
+                <dd>{Math.round(quoteProfitTrial.profitAmt).toLocaleString()} 元</dd>
+              </div>
+              <div>
+                <dt>試算每坪報價</dt>
+                <dd>{quoteProfitTrial.pricePerPing.toFixed(2)} 元／坪</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+              總成本為 0 時無法試算報價。
+            </p>
+          )}
+        </div>
       </section>
       )}
 

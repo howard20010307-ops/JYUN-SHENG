@@ -15,8 +15,8 @@ function ownerFieldDisplay(v: string): string {
 
 export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
 
-/** `public/company-invoice-stamp.png`：統一發票專用章（RGBA，黑底已去背；替換檔案時建議同為透明底 PNG） */
-const COMPANY_INVOICE_STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
+/** `public/owner-scope-company-stamp.png`：承攬供述明細 PDF 左上角公司標章／圖示 */
+const OWNER_SCOPE_COMPANY_STAMP_SRC = `${import.meta.env.BASE_URL}owner-scope-company-stamp.png`
 
 /** 由估價列產生之業主工作內容，或「工作明細」自填列（後者不附製圖試算） */
 export type OwnerScopePdfSheetProps =
@@ -193,8 +193,8 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
           }}
         >
           <img
-            src={COMPANY_INVOICE_STAMP_SRC}
-            alt={`${COMPANY_CONTRACTOR.name} 統一發票專用章`}
+            src={OWNER_SCOPE_COMPANY_STAMP_SRC}
+            alt={`${COMPANY_CONTRACTOR.name} 公司標章`}
             style={{
               maxWidth: '100%',
               maxHeight: '100%',
@@ -555,7 +555,7 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
             <strong>{Math.round(props.drawingCost).toLocaleString()}</strong> 元
           </div>
           <div style={{ fontSize: 9.5, color: '#444', marginTop: 4, lineHeight: 1.5 }}>
-            總坪 {props.sumPing.toFixed(4)} 坪 × 作圖 {props.drawingPerPing.toLocaleString()} 元／坪（總坪不含「基礎工程」列，與估價總結一致）。
+            總坪 {props.sumPing.toFixed(4)} 坪 × 作圖 {props.drawingPerPing.toLocaleString()} 元／坪（全樓層坪數含「基礎工程」列，與估價總結一致）。
           </div>
         </div>
       ) : null}

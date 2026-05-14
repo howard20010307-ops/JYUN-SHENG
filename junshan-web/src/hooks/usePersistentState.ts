@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const KEY = 'junshan-web-v1'
 
+/** 其他資料鍵：估價專案列表為 `QUOTE_PROJECT_LOCAL_STORAGE_KEY`（見 quoteProjectStorage），與本鍵分開存放。 */
+
 /** 減少 JSON.stringify 全量寫入 localStorage 的頻率。 */
 const PERSIST_DEBOUNCE_MS = 500
 

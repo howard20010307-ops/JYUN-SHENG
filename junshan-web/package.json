@@ -13,6 +13,7 @@
     "build": "tsc --noEmit && vite build",
     "check:stable-ids": "node scripts/check-stable-ids.mjs",
     "check:persistence": "node scripts/check-persistence-patterns.mjs",
+    "test:receivables": "tsx scripts/test-receivables-contract-merge.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "preview:lan": "vite preview",
@@ -36,6 +37,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "serve": "^14.2.6",
+    "tsx": "^4.19.4",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10"

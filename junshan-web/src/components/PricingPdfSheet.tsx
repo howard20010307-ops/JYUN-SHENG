@@ -3,7 +3,8 @@ import { COMPANY_CONTRACTOR } from '../domain/companyContact'
 import { pricingLineSubtotalNet, type PricingRow } from '../domain/pricingWorkspace'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
 
-const STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
+/** `public/pricing-stamp.png`：計價單 PDF 用「計價專用章」圖檔（白底見腳本 stamp-black-to-white.py） */
+const STAMP_SRC = `${import.meta.env.BASE_URL}pricing-stamp.png`
 
 const EMPTY_CONTRACT_LINE_BY_ID = new Map<string, ContractContentLine>()
 
@@ -164,6 +165,7 @@ export function PricingPdfSheet({
             minHeight: 92,
             flexShrink: 0,
             ...box,
+            background: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -171,7 +173,11 @@ export function PricingPdfSheet({
             boxSizing: 'border-box',
           }}
         >
-          <img src={STAMP_SRC} alt={`${COMPANY_CONTRACTOR.name} 章`} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+          <img
+            src={STAMP_SRC}
+            alt={`${COMPANY_CONTRACTOR.name} 計價專用章`}
+            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+          />
         </div>
         <div style={{ flex: 1, ...box, padding: 0, overflow: 'hidden' }}>
           <div style={{ ...bar, padding: '6px 10px', fontWeight: 700, fontSize: 11, margin: 0, borderLeft: 'none', borderRight: 'none', borderTop: 'none', borderRadius: 0 }}>

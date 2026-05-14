@@ -1,8 +1,16 @@
-/** 收帳：每列一筆實際入帳（案名、階段、未稅；預設 5% 稅，可改 0 稅） */
+/** 收帳：每列一筆實際入帳（案名、階段、未稅；預設 5% 稅，可改 0 稅）
+ *
+ * **列 id**：與欄位內容**解耦**。新列使用 {@link allocateReceivableEntryId}（遞增 `nextEntrySeq`），使用者改樓層／階段／備註後 **id 不變**。
+ * 載入 JSON 僅在 **id 空白**或**列層級 id 重複**時重新配發，已存在之 `rcv--…` 一律沿用。
+ *
+ * **不**以「同一天／同金額／同案場…」等業務指紋把兩列併成一列；**同一筆入帳**僅以 **`id` 相同**認定。JSONBin 合併為 **依 id 聯集**（同 id 本機優先），真重複列應手動刪。
+ *
+ * **合約連結**（`contractLineId`）僅對帳／顯示；同 id 合併時若本機未填合約 id 而雲端有唯一值會帶上（見 {@link mergeReceivablesPreferLocal}）。
+ */
 
 import type { SalaryBook } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
-import { allocateWithSuffix, stableHash16 } from './stableIds'
+import { stableHash16 } from './stableIds'
 import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
 import { normalizePhasePeriodLabel } from './receivablePhaseRange'
 
@@ -69,6 +77,11 @@ export function grossFromNet(net: number): number {
 
 export type ReceivablesState = {
   entries: ReceivableEntry[]
+  /**
+   * 下一個可用序號（僅遞增），供 {@link allocateReceivableEntryId}；舊存檔無此欄時於載入後補上。
+   * 兩裝置離線各自新增列時可能仍出現序號碰撞，合併後 {@link finalizeReceivableEntryIds} 會拆開重複 id。
+   */
+  nextEntrySeq?: number
 }
 
 function isBookedDateYmd(s: string): boolean {
@@ -119,7 +132,78 @@ function syncEntriesTax(entries: ReceivableEntry[]): ReceivableEntry[] {
 }
 
 export function initialReceivablesState(): ReceivablesState {
-  return { entries: [] }
+  return { entries: [], nextEntrySeq: 1 }
+}
+
+/**
+ * 載入／合併後：保留有效且不重複之 id；空白或與前列重複者改配 `rcv--`+序號雜湊（見 stable-ids）。
+ */
+export function finalizeReceivableEntryIds(
+  entries: ReceivableEntry[],
+  nextSeqHint: number | undefined,
+): ReceivablesState {
+  let seq =
+    typeof nextSeqHint === 'number' && Number.isFinite(nextSeqHint) && nextSeqHint >= 1
+      ? Math.floor(nextSeqHint)
+      : 1
+  /**
+   * 處理順序：**已有 id 的列優先**（仍依入帳日／id 次序），再處理 id 空白列。
+   * 否則空白列先 `allocId()` 可能得到與「後面已存檔列」相同的 `rcv--…`，導致已持久化 id 被當成重複而改配，看起來像 id 一直變。
+   */
+  function compareForFinalize(a: ReceivableEntry, b: ReceivableEntry): number {
+    const at = typeof a.id === 'string' ? a.id.trim() : ''
+    const bt = typeof b.id === 'string' ? b.id.trim() : ''
+    const aHas = at !== ''
+    const bHas = bt !== ''
+    if (aHas !== bHas) return aHas ? -1 : 1
+    return compareReceivableEntriesByBookedDate(a, b)
+  }
+  const sorted = entries.slice().sort(compareForFinalize)
+  const used = new Set<string>()
+
+  function allocId(): string {
+    while (true) {
+      const cand = `rcv--${stableHash16(['receivable-entry', String(seq)].join('\0'))}`
+      seq++
+      if (!used.has(cand)) {
+        used.add(cand)
+        return cand
+      }
+    }
+  }
+
+  const out: ReceivableEntry[] = []
+  for (const e of sorted) {
+    let id = typeof e.id === 'string' ? e.id.trim() : ''
+    if (!id || used.has(id)) {
+      id = allocId()
+    } else {
+      used.add(id)
+    }
+    out.push({ ...e, id })
+  }
+  return { entries: sortReceivableEntriesByBookedDate(out), nextEntrySeq: seq }
+}
+
+/**
+ * 新增一列時配發 id，並遞增 {@link ReceivablesState.nextEntrySeq}（與列內容無關）。
+ */
+export function allocateReceivableEntryId(state: ReceivablesState): {
+  id: string
+  nextEntrySeq: number
+} {
+  const start = state.nextEntrySeq ?? 1
+  const used = new Set(
+    state.entries.map((e) => (typeof e.id === 'string' ? e.id.trim() : '')).filter(Boolean),
+  )
+  let seq = start
+  while (true) {
+    const cand = `rcv--${stableHash16(['receivable-entry', String(seq)].join('\0'))}`
+    seq++
+    if (!used.has(cand)) {
+      return { id: cand, nextEntrySeq: seq }
+    }
+  }
 }
 
 function receivableHasPayrollSiteBinding(e: ReceivableEntry): boolean {
@@ -189,12 +273,6 @@ export function resolvedReceivableProjectName(book: SalaryBook, e: ReceivableEnt
   return typeof e.projectName === 'string' ? e.projectName.trim() : ''
 }
 
-/** 與案名選單一致：調工為 `v:`，其餘以儲存案名字串指認（雲端合併無 SalaryBook 時）。 */
-function payrollSiteKeyForMerge(e: ReceivableEntry): string {
-  if (e.monthSheetId === '' && e.siteBlockId) return `v:${e.siteBlockId}`
-  return `p:${e.projectName.trim()}`
-}
-
 /** 薪水月表／區塊 id 載入正規化後，同步舊的收帳綁定欄位 */
 export function remapReceivablePayrollBindings(
   state: ReceivablesState,
@@ -208,6 +286,7 @@ export function remapReceivablePayrollBindings(
     return state
   }
   return {
+    ...state,
     entries: state.entries.map((e) => {
       let next = e
       const mo = e.monthSheetId
@@ -237,6 +316,7 @@ export function renameReceivableProjectNames(
   const newT = newNameTrimmed.trim()
   const oldTrim = oldExact.trim()
   return {
+    ...state,
     entries: sortReceivableEntriesByBookedDate(
       state.entries.map((e) => {
         if (receivableHasPayrollSiteBinding(e)) return e
@@ -291,68 +371,6 @@ export function normalizeReceivableNote(s: string): string {
   return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
-const FP_SEP_SANS_PROJECT = '\u001f'
-
-/** 不含案名：雲端與本機「同筆款、不同案名字串」時收斂用 */
-function receivableMergeSansProjectFingerprint(e: ReceivableEntry): string {
-  const net = safeNet(e.net)
-  return [
-    e.bookedDate.trim(),
-    String(net),
-    normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
-    collapseSiteDimensionWhitespace(e.buildingLabel),
-    collapseSiteDimensionWhitespace(e.floorLabel),
-    e.taxZero ? '1' : '0',
-    normalizeReceivableNote(e.note).trim(),
-    (e.contractLineId ?? '').trim(),
-  ].join(FP_SEP_SANS_PROJECT)
-}
-
-function pickBestReceivableSansProjectGroup(
-  group: ReceivableEntry[],
-  localIds: Set<string>,
-): ReceivableEntry {
-  const score = (e: ReceivableEntry) => {
-    let s = 0
-    if (localIds.has(e.id)) s += 1000
-    if (receivableHasPayrollSiteBinding(e)) s += 200
-    if ((e.contractLineId ?? '').trim() !== '') s += 80
-    return s
-  }
-  return group.slice().sort((a, b) => {
-    const ds = score(b) - score(a)
-    if (ds !== 0) return ds
-    return compareReceivableEntriesByBookedDate(a, b)
-  })[0]
-}
-
-/**
- * 載入與 JSONBin 合併後：若入帳日、未稅、階段、棟、樓層、稅別、備註皆相同，僅案名／綁定表示不同，收斂為一列。
- * 優先：本機 id → 已綁定月表區塊者 → 早／小 id。
- * 若同一天同金額確為兩筆不同收款，請用備註區分。
- */
-function dedupeReceivablesSansProjectFingerprints(
-  entries: ReceivableEntry[],
-  localIds: Set<string>,
-): ReceivableEntry[] {
-  const byFp = new Map<string, ReceivableEntry[]>()
-  for (const e of entries) {
-    const fp = receivableMergeSansProjectFingerprint(e)
-    const arr = byFp.get(fp)
-    if (arr) arr.push(e)
-    else byFp.set(fp, [e])
-  }
-  const out: ReceivableEntry[] = []
-  for (const group of byFp.values()) {
-    if (group.length === 1) {
-      out.push(group[0])
-    } else {
-      out.push(pickBestReceivableSansProjectGroup(group, localIds))
-    }
-  }
-  return sortReceivableEntriesByBookedDate(out)
-}
-
 /** 舊 JSON 可能將 id 存成數字；略過會導致整批收帳消失 */
 function entryIdFromRaw(id: unknown): string {
   if (typeof id === 'string') {
@@ -371,9 +389,14 @@ function migrateEntriesArray(raw: unknown[]): ReceivableEntry[] {
   for (const row of raw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
-    const id = entryIdFromRaw(r.id)
-    if (!id || seen.has(id)) continue
-    seen.add(id)
+    const idRaw = entryIdFromRaw(r.id)
+    let id = idRaw
+    if (!idRaw) continue
+    if (seen.has(idRaw)) {
+      id = ''
+    } else {
+      seen.add(idRaw)
+    }
     const bookedDate = str(r.bookedDate, str(r.receivedDate, ''))
     const net = num(r.net, 0)
     const storedTax = num(r.tax, 0)
@@ -445,10 +468,15 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
   for (const row of receiptsRaw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
-    const id = entryIdFromRaw(r.id)
+    const idRaw = entryIdFromRaw(r.id)
     const phaseId = str(r.phaseId, '').trim()
-    if (!id || seen.has(id)) continue
-    seen.add(id)
+    if (!idRaw) continue
+    let id = idRaw
+    if (seen.has(idRaw)) {
+      id = ''
+    } else {
+      seen.add(idRaw)
+    }
     const info = phaseInfo.get(phaseId)
     const net = num(r.net, 0)
     const storedTax = num(r.tax, 0)
@@ -472,31 +500,31 @@ function migrateLegacyNested(o: Record<string, unknown>): ReceivablesState {
   return { entries }
 }
 
+function readNextEntrySeqHint(o: Record<string, unknown>): number | undefined {
+  const n = o.nextEntrySeq
+  if (typeof n !== 'number' || !Number.isFinite(n)) return undefined
+  const f = Math.floor(n)
+  return f >= 1 ? f : undefined
+}
+
 export function migrateReceivablesState(loaded: unknown): ReceivablesState {
   const init = initialReceivablesState()
   if (!loaded || typeof loaded !== 'object') return init
   const o = loaded as Record<string, unknown>
+  const seqHint = readNextEntrySeqHint(o)
 
   if (Array.isArray(o.entries)) {
-    const raw = sortReceivableEntriesByBookedDate(
+    const entries = sortReceivableEntriesByBookedDate(
       syncEntriesTax(migrateEntriesArray(o.entries)),
     )
-    return {
-      entries: assignStableReceivableIds(
-        dedupeReceivablesSansProjectFingerprints(raw, new Set()),
-      ),
-    }
+    return finalizeReceivableEntryIds(entries, seqHint)
   }
 
   if (Array.isArray(o.receipts) && (o.receipts as unknown[]).length > 0) {
-    const raw = sortReceivableEntriesByBookedDate(
+    const entries = sortReceivableEntriesByBookedDate(
       syncEntriesTax(migrateLegacyNested(o).entries),
     )
-    return {
-      entries: assignStableReceivableIds(
-        dedupeReceivablesSansProjectFingerprints(raw, new Set()),
-      ),
-    }
+    return finalizeReceivableEntryIds(entries, seqHint)
   }
 
   return init
@@ -547,86 +575,14 @@ export function sumEntriesInYear(
   return sumEntriesNetTaxGross(inYear)
 }
 
-function assignStableReceivableIds(entries: ReceivableEntry[]): ReceivableEntry[] {
-  const sorted = sortReceivableEntriesByBookedDate(entries)
-  const used = new Set<string>()
-  return sorted.map((e) => {
-    const base = `rcv--${stableHash16(receivableCloudMergeFingerprint(e))}`
-    const id = allocateWithSuffix(base, used)
-    used.add(id)
-    return { ...e, id }
-  })
-}
-
-/**
- * 新列 id：由與 {@link receivableCloudMergeFingerprint} 相同之業務欄位導出，兩端內容一致則 id 相同便於合併。
- * @param entry 已填妥將存檔之欄位（至少含預設之入帳日等）
- * @param existingIds 已有列 id，供同指紋時加 `~2` 後綴
- */
-export function newReceivableId(entry: ReceivableEntry, existingIds: ReadonlySet<string>): string {
-  const base = `rcv--${stableHash16(receivableCloudMergeFingerprint(entry))}`
-  return allocateWithSuffix(base, existingIds)
-}
-
-const FP_SEP = '\u001f'
-
-/**
- * 雲端／本機合併時辨識「同一筆入帳」用（非 id）。
- * 欄位皆 trim／正規化後串接；若實際有兩筆完全相同的付款，可改備註區分以免被併成一筆。
- */
-function receivableCloudMergeFingerprint(e: ReceivableEntry): string {
-  const net = safeNet(e.net)
-  const parts = [
-    e.bookedDate.trim(),
-    payrollSiteKeyForMerge(e),
-    String(net),
-    normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
-    collapseSiteDimensionWhitespace(e.buildingLabel),
-    collapseSiteDimensionWhitespace(e.floorLabel),
-    e.taxZero ? '1' : '0',
-    normalizeReceivableNote(e.note).trim(),
-    (e.contractLineId ?? '').trim(),
-  ]
-  return parts.join(FP_SEP)
-}
-
-/** 指紋相同且 id 不同時只留一筆：優先保留原屬本機之列，否則保留 id 字順最小者 */
-function dedupeReceivablesAfterIdMerge(
-  entries: ReceivableEntry[],
-  localIds: Set<string>,
-): ReceivableEntry[] {
-  const byFp = new Map<string, ReceivableEntry[]>()
-  for (const e of entries) {
-    const fp = receivableCloudMergeFingerprint(e)
-    const arr = byFp.get(fp)
-    if (arr) arr.push(e)
-    else byFp.set(fp, [e])
-  }
-  const out: ReceivableEntry[] = []
-  for (const group of byFp.values()) {
-    if (group.length === 1) {
-      out.push(group[0])
-      continue
-    }
-    const fromLocal = group.filter((e) => localIds.has(e.id))
-    const pick =
-      fromLocal.length > 0
-        ? fromLocal.slice().sort(compareReceivableEntriesByBookedDate)[0]
-        : group.slice().sort((a, b) => a.id.localeCompare(b.id))[0]
-    out.push(pick)
-  }
-  return out
-}
-
 /**
  * JSONBin 下載套用時合併收帳：
- * 1. 同 `id` 以**本機**為準，其餘 id 併入（雲端舊備份常不含收帳，避免整包覆寫後收帳消失）。
- * 2. **再依業務指紋去重**：入帳日、案場（`v:`／`p:` 與選單一致之鍵）、未稅、階段、棟、樓層、是否零稅、備註皆相同則視為同一筆；
- *    僅保留一列，且**優先保留本機原列**（避免雲端／本機各登記一次變成兩筆不同 id 的重複）。
+ * 1. 兩邊皆先 {@link migrateReceivablesState}（稅／正規化／id 唯一化）。
+ * 2. **僅依 `id` 聯集**：雲端有、本機沒有的 id 併入；**同 id 以本機為準**。
+ * 3. 同 id 且本機未填 {@link ReceivableEntry.contractLineId}、雲端有唯一合約 id 時寫入，避免對帳遺失。
+ * 4. {@link finalizeReceivableEntryIds} 收尾（一般不應改動已穩定 id）。
  *
- * 3. **不含案名**之第二層：同入帳日、未稅、階段、棟、樓、稅別、備註亦視為同一筆（可避免本機「新案名」與雲端「舊案名＋註記」兩列並存）；優先本機 id 與已綁定月表區塊之列。
- *
- * 注意：若同一天同金額確實有兩筆，請在**備註**區分，否則合併後只會剩一筆。
+ * **不**依「同一天／同金額／案場…」併列；不同 id 即不同列。
  */
 export function mergeReceivablesPreferLocal(
   local: ReceivablesState,
@@ -634,15 +590,21 @@ export function mergeReceivablesPreferLocal(
 ): ReceivablesState {
   const l = migrateReceivablesState(local)
   const r = migrateReceivablesState(remote)
-  const localIds = new Set(l.entries.map((e) => e.id))
   const byId = new Map<string, ReceivableEntry>()
   for (const e of r.entries) byId.set(e.id, e)
-  for (const e of l.entries) byId.set(e.id, e)
-  const merged = dedupeReceivablesSansProjectFingerprints(
-    dedupeReceivablesAfterIdMerge([...byId.values()], localIds),
-    localIds,
-  )
-  return {
-    entries: sortReceivableEntriesByBookedDate(merged),
+  for (const e of l.entries) {
+    const prev = byId.get(e.id)
+    if (!prev) {
+      byId.set(e.id, e)
+      continue
+    }
+    const prevC = (prev.contractLineId ?? '').trim()
+    const eC = (e.contractLineId ?? '').trim()
+    /** 本機優先；穩定 id 相同時若本機未填合約連結，沿用雲端唯一掛鉤以免同步後對帳遺失。 */
+    const merged = !eC && prevC ? { ...e, contractLineId: prevC } : e
+    byId.set(e.id, merged)
   }
+  const merged = sortReceivableEntriesByBookedDate([...byId.values()])
+  const seqHint = Math.max(l.nextEntrySeq ?? 1, r.nextEntrySeq ?? 1)
+  return finalizeReceivableEntryIds(merged, seqHint)
 }

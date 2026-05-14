@@ -266,7 +266,7 @@ export function PayrollPanel({
 
   const [showDailyMoney, setShowDailyMoney] = usePayrollSummaryShowDailyMoney()
 
-  /** 總表可收合區塊；預設只展開實領列（與 {@link NET_TAKE_HOME_ROW_PREFIX} 同字串） */
+  /** 總表可收合區塊：預設僅展開「實領薪水（已扣預支）」；「實領薪水（未扣預支）」預設收合。 */
   const [openSummarySections, setOpenSummarySections] = useState<Set<string>>(
     () => new Set([NET_TAKE_HOME_ROW_PREFIX]),
   )
@@ -658,7 +658,8 @@ export function PayrollPanel({
                                   summaryAmount={rounded}
                                   breakdownLines={r.cellBreakdowns?.[i]}
                                   footerTotalsLines={
-                                    r.key.startsWith('net-') && period
+                                    (r.key.startsWith('net-') || r.key.startsWith('xnet-')) &&
+                                    period
                                       ? payrollSummaryTooltipFooterTotals(
                                           salaryBook,
                                           period,

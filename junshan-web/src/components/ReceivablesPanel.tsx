@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ContractContentState } from '../domain/contractContentModel'
 import type { ReceivablesState } from '../domain/receivablesModel'
 import {
+  allocateReceivableEntryId,
   entryGross,
   entryTax,
-  newReceivableId,
   normalizeReceivableNote,
   parseReceivableSiteSelectValue,
   receivableSiteSelectValue,
@@ -280,8 +280,9 @@ export function ReceivablesPanel({
     }
     setReceivables((prev) => {
       const p = prev
+      const { id, nextEntrySeq } = allocateReceivableEntryId(p)
       const draft: ReceivableEntry = {
-        id: '',
+        id,
         bookedDate: booked,
         projectName: '',
         buildingLabel: '',
@@ -292,15 +293,10 @@ export function ReceivablesPanel({
         tax: 0,
         note: '',
       }
-      const id = newReceivableId(draft, new Set(p.entries.map((e) => e.id)))
       return {
-        entries: sortReceivableEntriesByBookedDate([
-          ...p.entries,
-          {
-            ...draft,
-            id,
-          },
-        ]),
+        ...p,
+        nextEntrySeq,
+        entries: sortReceivableEntriesByBookedDate([...p.entries, draft]),
       }
     })
   }, [canEdit, setReceivables, rangeMode, monthFilter, yearFilter])
@@ -311,6 +307,7 @@ export function ReceivablesPanel({
       setReceivables((prev) => {
         const p = prev
         return {
+          ...p,
           entries: sortReceivableEntriesByBookedDate(
             p.entries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
           ),
@@ -361,6 +358,7 @@ export function ReceivablesPanel({
       setReceivables((prev) => {
         const p = prev
         return {
+          ...p,
           entries: sortReceivableEntriesByBookedDate(p.entries.filter((x) => x.id !== id)),
         }
       })

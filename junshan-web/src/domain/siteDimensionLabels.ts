@@ -1,5 +1,5 @@
 /**
- * 棟／樓層／階段：全形空白與連續空白壓成單一空白後 trim（不變更空字串，利於收帳／合約指紋與穩定 id）。
+ * 棟／樓層／階段：全形空白與連續空白壓成單一空白後 trim（不變更空字串，利於收帳與合約欄位一致）。
  */
 export function collapseSiteDimensionWhitespace(raw: string): string {
   return (raw ?? '').replace(/\u3000/g, ' ').replace(/\s+/g, ' ').trim()

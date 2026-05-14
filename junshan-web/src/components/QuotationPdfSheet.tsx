@@ -10,7 +10,8 @@ import {
   type QuotationSupplier,
 } from '../domain/quotationWorkspace'
 
-const STAMP_SRC = `${import.meta.env.BASE_URL}company-invoice-stamp.png`
+/** `public/quotation-stamp.png`：報價單 PDF 用「報價專用章」圖檔 */
+const STAMP_SRC = `${import.meta.env.BASE_URL}quotation-stamp.png`
 
 function dashEmpty(v: string): string {
   const t = v.trim()
@@ -131,6 +132,7 @@ export function QuotationPdfSheet(props: QuotationPdfSheetProps) {
             minHeight: 92,
             flexShrink: 0,
             ...box,
+            background: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -140,7 +142,7 @@ export function QuotationPdfSheet(props: QuotationPdfSheetProps) {
         >
           <img
             src={STAMP_SRC}
-            alt={`${COMPANY_CONTRACTOR.name} 章`}
+            alt={`${COMPANY_CONTRACTOR.name} 報價專用章`}
             style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
           />
         </div>
