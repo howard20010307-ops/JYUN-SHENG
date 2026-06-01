@@ -7,8 +7,16 @@ import {
   type ContractContentState,
 } from '../domain/contractContentModel'
 import type { ReceivablesState } from '../domain/receivablesModel'
+import { resolvedReceivableProjectName } from '../domain/receivablesModel'
 import type { SalaryBook } from '../domain/salaryExcelModel'
-import { buildSiteAnalysis, compareFloorLevelAsc } from '../domain/siteAnalysis'
+import {
+  buildSiteAnalysis,
+  buildSitePhaseAnalysisRows,
+  compareFloorLevelAsc,
+  matchContractPhaseLabelByReceivableNet,
+} from '../domain/siteAnalysis'
+import { parseReceivablePhasePeriodRange } from '../domain/receivablePhaseRange'
+import { normalizeSiteDimensionLabel } from '../domain/siteDimensionLabels'
 import type { WorkLogState } from '../domain/workLogModel'
 import { PhasePeriodRangeInputs } from './PhasePeriodRangeInputs'
 import { PayrollNumberInput } from './PayrollNumberInput'
@@ -207,48 +215,49 @@ export function SiteAnalysisPanel({
       })
       .sort((a, b) => compareFloorLevelAsc(a.floorLevel, b.floorLevel))
   }, [data])
+  const receivablesForActiveSite = useMemo(() => {
+    if (!activeSite) return []
+    const siteTrim = activeSite.trim()
+    const lineById = new Map(
+      contractContents.lines.map((line) => [(line.id ?? '').trim(), line] as const),
+    )
+    return receivables.entries.filter((e) => {
+      const cid = (e.contractLineId ?? '').trim()
+      const linked = cid ? lineById.get(cid) : undefined
+      const rawSite =
+        (linked?.siteName ?? '').trim() ||
+        resolvedReceivableProjectName(salaryBook, e).trim() ||
+        (e.siteBlockId ?? '').trim()
+      return rawSite === siteTrim
+    })
+  }, [activeSite, receivables.entries, salaryBook, contractContents.lines])
+
   const phaseAnalysisRows = useMemo(() => {
     if (!data) return []
-    const byPhase = new Map<string, typeof data.totals>()
-    for (const g of data.groups) {
-      const key = g.workPhase
-      const got = byPhase.get(key) ?? {
-        siteName: data.totals.siteName,
-        dong: '全部',
-        floorLevel: '全部',
-        workPhase: key,
-        revenueNet: 0,
-        salaryCost: 0,
-        mealCost: 0,
-        instrumentCost: 0,
-        directCost: 0,
-        grossProfit: 0,
-        grossMargin: 0,
-        operatingExpenseAllocated: 0,
-        netProfit: 0,
-        netMargin: 0,
-        workDays: 0,
-        grossPerWorkDay: 0,
+    const lineById = new Map(
+      contractContents.lines.map((line) => [(line.id ?? '').trim(), line] as const),
+    )
+    const contractRowsForMatch = data.contractRows.map((row) => ({
+      contractAmount: row.contractAmount,
+      phaseLabel: row.workPhase,
+    }))
+    const receivableInputs = receivablesForActiveSite.map((e) => {
+      const linked = lineById.get((e.contractLineId ?? '').trim())
+      const contractPhaseLabel =
+        (linked?.phaseLabel ?? '').trim() ||
+        matchContractPhaseLabelByReceivableNet(e.net, contractRowsForMatch)
+      return {
+        phaseLabel: e.phaseLabel ?? '',
+        contractPhaseLabel,
+        net: e.net,
+        bookedDate: e.bookedDate,
       }
-      got.revenueNet += g.revenueNet
-      got.salaryCost += g.salaryCost
-      got.mealCost += g.mealCost
-      got.operatingExpenseAllocated += g.operatingExpenseAllocated
-      got.workDays += g.workDays
-      byPhase.set(key, got)
-    }
-    return [...byPhase.values()]
-      .map((row) => {
-        const directCost = row.salaryCost + row.mealCost
-        const grossProfit = row.revenueNet - directCost
-        const grossMargin = row.revenueNet !== 0 ? grossProfit / row.revenueNet : 0
-        const netProfit = grossProfit - row.operatingExpenseAllocated
-        const netMargin = row.revenueNet !== 0 ? netProfit / row.revenueNet : 0
-        const grossPerWorkDay = row.workDays !== 0 ? grossProfit / row.workDays : 0
-        return { ...row, directCost, grossProfit, grossMargin, netProfit, netMargin, grossPerWorkDay }
-      })
-      .sort((a, b) => a.workPhase.localeCompare(b.workPhase, 'zh-Hant'))
-  }, [data])
+    })
+    const supplementalPhaseLabels = data.contractRows
+      .map((row) => row.workPhase)
+      .filter((label) => parseReceivablePhasePeriodRange(label) !== null)
+    return buildSitePhaseAnalysisRows(data.details, receivableInputs, supplementalPhaseLabels)
+  }, [data, receivablesForActiveSite, contractContents.lines])
   function normalizeDateForSort(raw: string): string {
     const t = (raw ?? '').trim()
     if (!t) return ''
@@ -389,7 +398,7 @@ export function SiteAnalysisPanel({
       <p className="hint">
         僅供分析，唯讀不回寫。資料來源：工作日誌＋收帳＋薪水月表。收入以收帳掛載；
         棟/樓層/階段以工作日誌分類；合約／收帳／日誌之棟樓階段會折疊全形與多餘空白；空欄在損益分組時與「未填」相同。薪資與工數依月表同日同案場人員資料計算；儀器成本列入營業費用（儀器）。
-        「未對應收帳」且階段為日期區間時，會依下方出工明細對齊：薪資／餐費／工數以棟樓階段皆未填者為準；儀器與工作日誌各案場區塊台數一致（有台數依單價；無台數則依工天分攤當日儀器支出），併入請款列時自對應明細扣回。
+        「每階段分析」：請款區間依收帳「階段（期間）」（未填時用合約綁定或金額對上合約列）；營收加總同區間收帳；成本為出工日落在該區間之出工紀錄加總（不以入帳日推營收）。
       </p>
       <div className="btnRow" style={{ marginBottom: 10 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

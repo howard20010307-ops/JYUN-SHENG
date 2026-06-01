@@ -67,3 +67,29 @@ export function parsePhasePeriodRangeStrict(raw: string): { start: string; end: 
   if (!a || !b) return null
   return a <= b ? { start: a, end: b } : { start: b, end: a }
 }
+
+/**
+ * 收帳「階段（期間）」→ 起迄 ISO；`M/D ~ M/D` 無年份時借入帳日之年補齊。
+ */
+export function parseReceivablePhasePeriodRange(
+  phaseLabel: string,
+  bookedDate?: string,
+): { start: string; end: string } | null {
+  const strict = parsePhasePeriodRangeStrict(phaseLabel)
+  if (strict) return strict
+  const norm = normalizePhasePeriodLabel(phaseLabel)
+  if (!norm || norm === '未填') return null
+  const m = /^(\d{1,2})\/(\d{1,2})\s*~\s*(\d{1,2})\/(\d{1,2})$/.exec(norm)
+  const yy = /^(\d{4})-/.exec((bookedDate ?? '').trim())?.[1]
+  if (!m || !yy) return null
+  const sm = m[1]!.padStart(2, '0')
+  const sd = m[2]!.padStart(2, '0')
+  const em = m[3]!.padStart(2, '0')
+  const ed = m[4]!.padStart(2, '0')
+  const start = `${yy}-${sm}-${sd}`
+  let end = `${yy}-${em}-${ed}`
+  if (Number(sm) > Number(em) || (sm === em && Number(sd) > Number(ed))) {
+    end = `${Number(yy) + 1}-${em}-${ed}`
+  }
+  return start <= end ? { start, end } : { start: end, end: start }
+}

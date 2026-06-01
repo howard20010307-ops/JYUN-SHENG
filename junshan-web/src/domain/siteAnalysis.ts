@@ -9,7 +9,12 @@ import {
   instrumentQtyAnyPositive,
 } from './workLogModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
-import { parsePhaseDateFragmentToIso, parsePhasePeriodRangeStrict } from './receivablePhaseRange'
+import {
+  normalizePhasePeriodLabel,
+  parsePhaseDateFragmentToIso,
+  parsePhasePeriodRangeStrict,
+  parseReceivablePhasePeriodRange,
+} from './receivablePhaseRange'
 import { normalizeSiteDimensionLabel } from './siteDimensionLabels'
 
 export type SiteAnalysisGroup = {
@@ -61,6 +66,244 @@ export type SiteAnalysisContractRow = {
   receivableProgress: number
   receivableRemaining: number
   note: string
+}
+
+/** 「每階段分析」一列：營收與請款區間皆來自收帳階段；成本為出工日落在該區間之出工紀錄加總。 */
+export type SitePhaseAnalysisRow = {
+  workPhase: string
+  revenueNet: number
+  salaryCost: number
+  mealCost: number
+  instrumentCost: number
+  operatingExpenseAllocated: number
+  directCost: number
+  grossProfit: number
+  grossMargin: number
+  netProfit: number
+  netMargin: number
+  workDays: number
+  grossPerWorkDay: number
+}
+
+type PhaseCostBucket = {
+  salaryCost: number
+  mealCost: number
+  instrumentCost: number
+  workDays: number
+}
+
+function phaseKeyFromReceivablePhaseLabel(phaseLabel: string): string {
+  const t = normalizePhasePeriodLabel(phaseLabel)
+  return t === '' ? '未填' : normalizeSiteDimensionLabel(t)
+}
+
+/** 收帳列上可解析之階段（期間）；空白時用合約連結列之階段。 */
+export function effectiveReceivablePhaseLabel(r: PhaseAnalysisReceivableInput): string {
+  for (const candidate of [r.phaseLabel, r.contractPhaseLabel ?? '']) {
+    const t = (candidate ?? '').trim()
+    if (!t || t === '未填') continue
+    if (parseReceivablePhasePeriodRange(t, r.bookedDate)) return t
+  }
+  return (r.phaseLabel ?? '').trim()
+}
+
+function registerReceivablePhaseRange(
+  phaseLabel: string,
+  bookedDate: string | undefined,
+  phaseRanges: { phaseKey: string; range: { start: string; end: string } }[],
+  rangePhaseSeen: Set<string>,
+): void {
+  const pk = phaseKeyFromReceivablePhaseLabel(phaseLabel)
+  const range = parseReceivablePhasePeriodRange(phaseLabel, bookedDate)
+  if (!range || rangePhaseSeen.has(pk)) return
+  rangePhaseSeen.add(pk)
+  phaseRanges.push({ phaseKey: pk, range })
+}
+
+/**
+ * 依請款區間將出工明細成本歸期（與 {@link reallocateUnfilledDetailCostsToUnmatchedReceivablePhases} 同日邏輯）：
+ * 薪資／餐費／工天按日出工加總；儀器以該日出工明細儀器合計併入（同日僅計入一期）。
+ */
+function allocateWorkLogCostsByPhaseRanges(
+  details: readonly SiteAnalysisDetail[],
+  phaseRanges: readonly { phaseKey: string; range: { start: string; end: string } }[],
+): Map<string, PhaseCostBucket> {
+  const costsByPhase = new Map<string, PhaseCostBucket>()
+  const addCost = (phase: string, partial: PhaseCostBucket): void => {
+    const got = costsByPhase.get(phase) ?? {
+      salaryCost: 0,
+      mealCost: 0,
+      instrumentCost: 0,
+      workDays: 0,
+    }
+    got.salaryCost += partial.salaryCost
+    got.mealCost += partial.mealCost
+    got.instrumentCost += partial.instrumentCost
+    got.workDays += partial.workDays
+    costsByPhase.set(phase, got)
+  }
+
+  const instrumentTotalByDate = new Map<string, number>()
+  const byDate = new Map<string, CostBucket>()
+  for (const d of details) {
+    const dk = normalizeDetailDateKey(d.date)
+    if (!dk) continue
+    instrumentTotalByDate.set(dk, (instrumentTotalByDate.get(dk) ?? 0) + nz(d.instrumentCost))
+    addToBucket(byDate, dk, {
+      salaryCost: nz(d.salaryCost),
+      mealCost: nz(d.mealCost),
+      workDays: nz(d.workDays),
+      instrumentCost: nz(d.instrumentCost),
+    })
+  }
+
+  const sortedRanges = [...phaseRanges].sort((a, b) => {
+    const c = a.range.start.localeCompare(b.range.start)
+    return c !== 0 ? c : a.range.end.localeCompare(b.range.end)
+  })
+  const claimed = new Set<string>()
+
+  for (const { phaseKey, range } of sortedRanges) {
+    for (const dateKey of eachDateKeyInclusive(range.start, range.end)) {
+      const b = byDate.get(dateKey)
+      const instAll = nz(instrumentTotalByDate.get(dateKey) ?? 0)
+      if (!b && instAll === 0) continue
+      if (claimed.has(dateKey)) continue
+      claimed.add(dateKey)
+      addCost(phaseKey, {
+        salaryCost: b?.salaryCost ?? 0,
+        mealCost: b?.mealCost ?? 0,
+        workDays: b?.workDays ?? 0,
+        instrumentCost: instAll,
+      })
+    }
+  }
+
+  for (const [dateKey, b] of byDate) {
+    if (claimed.has(dateKey)) continue
+    const instAll = nz(instrumentTotalByDate.get(dateKey) ?? 0)
+    if (b.salaryCost === 0 && b.mealCost === 0 && b.workDays === 0 && instAll === 0) continue
+    addCost('未填', {
+      salaryCost: b.salaryCost,
+      mealCost: b.mealCost,
+      workDays: b.workDays,
+      instrumentCost: instAll,
+    })
+  }
+  for (const [dateKey, instAll] of instrumentTotalByDate) {
+    if (claimed.has(dateKey) || byDate.has(dateKey)) continue
+    if (instAll > 0) {
+      addCost('未填', { salaryCost: 0, mealCost: 0, workDays: 0, instrumentCost: instAll })
+    }
+  }
+
+  return costsByPhase
+}
+
+export type PhaseAnalysisReceivableInput = {
+  phaseLabel: string
+  /** 收帳未填階段時，由合約連結列帶入之階段（期間） */
+  contractPhaseLabel?: string
+  net: number
+  bookedDate?: string
+}
+
+/** 收帳未填階段、未綁合約時，以未稅金額唯一對上合約列之請款區間。 */
+export function matchContractPhaseLabelByReceivableNet(
+  net: number,
+  contractRows: readonly { contractAmount: number; phaseLabel: string }[],
+): string {
+  const amount = nz(net)
+  if (amount <= 0) return ''
+  const hits = contractRows.filter((row) => Math.abs(nz(row.contractAmount) - amount) < 1)
+  return hits.length === 1 ? (hits[0]!.phaseLabel ?? '').trim() : ''
+}
+
+/**
+ * 每階段分析：
+ * 1. 先讀收帳「階段（期間）」定請款起迄日，加總該期營收（未稅）。
+ * 2. 再從出工紀錄找出出工日落在該區間之明細，加總薪資／餐費／儀器／工天（不看日誌區塊階段欄）。
+ *
+ * `supplementalPhaseLabels`：收帳未寫階段但合約對帳已有請款區間時，仍用該區間切分出工成本。
+ */
+export function buildSitePhaseAnalysisRows(
+  details: readonly SiteAnalysisDetail[],
+  receivableEntries: readonly PhaseAnalysisReceivableInput[],
+  supplementalPhaseLabels: readonly string[] = [],
+): SitePhaseAnalysisRow[] {
+  const phaseRanges: { phaseKey: string; range: { start: string; end: string } }[] = []
+  const rangePhaseSeen = new Set<string>()
+
+  for (const r of receivableEntries) {
+    const phaseText = effectiveReceivablePhaseLabel(r)
+    registerReceivablePhaseRange(phaseText, r.bookedDate, phaseRanges, rangePhaseSeen)
+  }
+  for (const label of supplementalPhaseLabels) {
+    registerReceivablePhaseRange(label, undefined, phaseRanges, rangePhaseSeen)
+  }
+
+  phaseRanges.sort((a, b) => {
+    const c = a.range.start.localeCompare(b.range.start)
+    return c !== 0 ? c : a.range.end.localeCompare(b.range.end)
+  })
+
+  const revenueByPhase = new Map<string, number>()
+  for (const r of receivableEntries) {
+    const phaseText = effectiveReceivablePhaseLabel(r)
+    const pk = phaseKeyFromReceivablePhaseLabel(phaseText)
+    revenueByPhase.set(pk, (revenueByPhase.get(pk) ?? 0) + nz(r.net))
+  }
+
+  const costsByPhase = allocateWorkLogCostsByPhaseRanges(details, phaseRanges)
+
+  const phaseKeys = new Set<string>([
+    ...phaseRanges.map((p) => p.phaseKey),
+    ...revenueByPhase.keys(),
+    ...costsByPhase.keys(),
+  ])
+  const rows: SitePhaseAnalysisRow[] = []
+  for (const workPhase of phaseKeys) {
+    const c = costsByPhase.get(workPhase) ?? {
+      salaryCost: 0,
+      mealCost: 0,
+      instrumentCost: 0,
+      workDays: 0,
+    }
+    const revenueNet = revenueByPhase.get(workPhase) ?? 0
+    const instrumentCost = c.instrumentCost
+    const directCost = c.salaryCost + c.mealCost
+    const grossProfit = revenueNet - directCost
+    const grossMargin = revenueNet !== 0 ? grossProfit / revenueNet : 0
+    const netProfit = grossProfit - instrumentCost
+    const netMargin = revenueNet !== 0 ? netProfit / revenueNet : 0
+    const grossPerWorkDay = c.workDays !== 0 ? grossProfit / c.workDays : 0
+    rows.push({
+      workPhase,
+      revenueNet,
+      salaryCost: c.salaryCost,
+      mealCost: c.mealCost,
+      instrumentCost,
+      operatingExpenseAllocated: instrumentCost,
+      directCost,
+      grossProfit,
+      grossMargin,
+      netProfit,
+      netMargin,
+      workDays: c.workDays,
+      grossPerWorkDay,
+    })
+  }
+  const phaseStartOrder = new Map(
+    phaseRanges.map((p, i) => [p.phaseKey, p.range.start || String(i).padStart(8, '0')] as const),
+  )
+  return rows.sort((a, b) => {
+    const oa = phaseStartOrder.get(a.workPhase)
+    const ob = phaseStartOrder.get(b.workPhase)
+    if (oa && ob) return oa.localeCompare(ob)
+    if (oa) return -1
+    if (ob) return 1
+    return a.workPhase.localeCompare(b.workPhase, 'zh-Hant')
+  })
 }
 
 export type SiteAnalysisSnapshot = {
@@ -343,10 +586,12 @@ function reallocateUnfilledDetailCostsToUnmatchedReceivablePhases(
   }
 
   const targets: { key: string; siteKey: string; range: { start: string; end: string } }[] = []
-  for (const [key, g] of groupMap) {
+  for (const [key] of groupMap) {
     const p = splitGroupKey(key)
-    if (p.dong !== UNMATCHED_RECEIVABLE_DONG) continue
-    const range = parsePhasePeriodRangeStrict(g.workPhase)
+    const isPhaseCostTarget =
+      p.dong === UNMATCHED_RECEIVABLE_DONG || (p.dong === '未填' && p.floorLevel === '未填')
+    if (!isPhaseCostTarget) continue
+    const range = parsePhasePeriodRangeStrict(p.workPhase)
     if (!range) continue
     targets.push({ key, siteKey: p.siteKey, range })
   }
