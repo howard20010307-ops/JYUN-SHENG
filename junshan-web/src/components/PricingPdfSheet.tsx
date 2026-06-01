@@ -3,6 +3,8 @@ import { COMPANY_CONTRACTOR } from '../domain/companyContact'
 import { pricingLineSubtotalNet, type PricingRow } from '../domain/pricingWorkspace'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
 
+/** `public/pricing-company-logo.png`：計價單 PDF 抬頭公司 logo */
+const COMPANY_LOGO_SRC = `${import.meta.env.BASE_URL}pricing-company-logo.png`
 /** `public/pricing-stamp.png`：計價單 PDF 用「計價專用章」圖檔（白底見腳本 stamp-black-to-white.py） */
 const STAMP_SRC = `${import.meta.env.BASE_URL}pricing-stamp.png`
 
@@ -152,9 +154,38 @@ export function PricingPdfSheet({
         lineHeight: 1.45,
       }}
     >
-      <div data-pdf-workspace="head" style={{ ...bar, padding: '12px 14px', textAlign: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 19, fontWeight: 900, letterSpacing: '0.08em' }}>計價單</span>
-        <span style={{ marginLeft: 14, fontSize: 14, fontWeight: 700, color: '#333' }}>Pricing Sheet</span>
+      <div
+        data-pdf-workspace="head"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 88,
+            height: 88,
+            flexShrink: 0,
+            borderRadius: 2,
+            overflow: 'hidden',
+            background: '#0a0a0a',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <img
+            src={COMPANY_LOGO_SRC}
+            alt={`${COMPANY_CONTRACTOR.name} logo`}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+        </div>
+        <div style={{ flex: 1, ...bar, padding: '12px 14px', textAlign: 'center' }}>
+          <span style={{ fontSize: 19, fontWeight: 900, letterSpacing: '0.08em' }}>計價單</span>
+          <span style={{ marginLeft: 14, fontSize: 14, fontWeight: 700, color: '#333' }}>Pricing Sheet</span>
+        </div>
       </div>
 
       <div data-pdf-workspace="case">

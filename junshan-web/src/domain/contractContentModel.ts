@@ -1,6 +1,13 @@
 import { allocateWithSuffix, stableHash16 } from './stableIds'
 import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
 import { normalizePhasePeriodLabel } from './receivablePhaseRange'
+import {
+  appendTombstone,
+  applyTombstonesById,
+  mergeTombstones,
+  normalizeTombstones,
+  type Tombstone,
+} from './tombstones'
 
 export type ContractContentLine = {
   id: string
@@ -20,6 +27,11 @@ export type ContractContentState = {
   lines: ContractContentLine[]
   /** 案場級合約總價（未稅）目標值；key 為 siteName.trim() */
   siteTotalNetBySite: Record<string, number>
+  /**
+   * 已刪除之合約列 id 墓碑：阻止下次同步把已刪列從雲端帶回。
+   * 詳見 `tombstones.ts`。id 來自 {@link ensureStableIds} 之內容雜湊，跨裝置一致。
+   */
+  deletedLineIds?: Tombstone[]
 }
 
 function safeNum(v: unknown): number {
@@ -94,10 +106,15 @@ export function initialContractContentState(): ContractContentState {
 
 export function migrateContractContentState(raw: unknown): ContractContentState {
   if (!raw || typeof raw !== 'object') return initialContractContentState()
-  const o = raw as { lines?: unknown; siteTotalNetBySite?: unknown }
+  const o = raw as { lines?: unknown; siteTotalNetBySite?: unknown; deletedLineIds?: unknown }
+  const tombstones = normalizeTombstones(o.deletedLineIds)
   if (!Array.isArray(o.lines)) {
     const bySite = migrateSiteTotalNetBySite(o.siteTotalNetBySite)
-    return { lines: [], siteTotalNetBySite: bySite }
+    return {
+      lines: [],
+      siteTotalNetBySite: bySite,
+      deletedLineIds: tombstones.length > 0 ? tombstones : undefined,
+    }
   }
   const tmp: ContractContentLine[] = []
   for (let i = 0; i < o.lines.length; i++) {
@@ -121,7 +138,12 @@ export function migrateContractContentState(raw: unknown): ContractContentState 
     )
   }
   const bySite = migrateSiteTotalNetBySite(o.siteTotalNetBySite)
-  return { lines: ensureStableIds(tmp), siteTotalNetBySite: bySite }
+  const stable = ensureStableIds(tmp)
+  return {
+    lines: applyTombstonesById(stable, tombstones),
+    siteTotalNetBySite: bySite,
+    deletedLineIds: tombstones.length > 0 ? tombstones : undefined,
+  }
 }
 
 function migrateSiteTotalNetBySite(raw: unknown): Record<string, number> {
@@ -183,17 +205,39 @@ export function taiwanVatFivePercentTaxFromRoundedGross(net: number): number {
   return taiwanGrossInclusiveFivePercentRoundedFromNet(n) - n
 }
 
-/** 鍵級聯集：同 id 本機優先，避免手輸合約內容被雲端覆蓋。 */
+/**
+ * 鍵級聯集：同 id 本機優先，避免手輸合約內容被雲端覆蓋。
+ *
+ * 墓碑：本機與雲端各自之 `deletedLineIds` 取聯集；任一邊已記下「刪除某 id」，合併後該列即排除，
+ * 避免雲端把已刪合約列帶回。
+ */
 export function mergeContractContentPreferLocal(
   local: ContractContentState,
   remote: ContractContentState,
 ): ContractContentState {
   const l = migrateContractContentState(local)
   const r = migrateContractContentState(remote)
+  const tombstones = mergeTombstones(l.deletedLineIds, r.deletedLineIds)
+  const dead = new Set(tombstones.map((t) => t.id))
   const byId = new Map<string, ContractContentLine>()
-  for (const x of r.lines) byId.set(x.id, x)
-  for (const x of l.lines) byId.set(x.id, x)
+  for (const x of r.lines) if (!dead.has(x.id)) byId.set(x.id, x)
+  for (const x of l.lines) if (!dead.has(x.id)) byId.set(x.id, x)
   const siteTotalNetBySite: Record<string, number> = { ...r.siteTotalNetBySite, ...l.siteTotalNetBySite }
-  return { lines: ensureStableIds([...byId.values()].map(normalizeLine)), siteTotalNetBySite }
+  return {
+    lines: ensureStableIds([...byId.values()].map(normalizeLine)),
+    siteTotalNetBySite,
+    deletedLineIds: tombstones.length > 0 ? tombstones : undefined,
+  }
+}
+
+/** UI 刪除合約列時呼叫：把 id 寫入墓碑，避免下次同步從雲端帶回。 */
+export function tombstoneContractContentLineId(
+  state: ContractContentState,
+  id: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = id.trim()
+  if (!t) return state.deletedLineIds ?? []
+  return appendTombstone(state.deletedLineIds, t, deletedAt)
 }
 

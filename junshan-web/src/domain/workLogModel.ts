@@ -13,6 +13,15 @@ import {
 import { allocateWithSuffix, stableHash16 } from './stableIds'
 import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
 import { normalizePhasePeriodLabel } from './receivablePhaseRange'
+import {
+  appendTombstone,
+  appendTombstones,
+  applyTombstonesById,
+  applyTombstonesByValue,
+  mergeTombstones,
+  normalizeTombstones,
+  type Tombstone,
+} from './tombstones'
 
 /** 整日文件根 id（同_finalize_首段；重複同日由 {@link finalizeWorkLogStableIds} 加 `~2`）。 */
 export function stableWorkLogDayDocBaseId(logDate: string): string {
@@ -108,6 +117,21 @@ export type WorkLogState = {
   dayDocuments?: WorkLogDayDocument[]
   /** 舊版自訂字串；升級時會併入全站 `workItemPresetLabels`，保留欄位以相容舊檔 */
   customWorkItemLabels: string[]
+  /**
+   * 已刪除之 entry id 墓碑：阻止下次同步把已刪 entry 從雲端帶回。
+   * 詳見 `tombstones.ts`。
+   */
+  deletedEntryIds?: Tombstone[]
+  /**
+   * 已刪除之整日文件 logDate 墓碑：阻止下次同步把已刪整日文件從雲端帶回。
+   * 注意鍵以 `logDate`（YYYY-MM-DD），與 dayDocuments 合併鍵一致。
+   */
+  deletedDayDocLogDates?: Tombstone[]
+  /**
+   * 已刪除之自訂工作項目（舊版欄位）墓碑；鍵為字串本身。
+   * 通常透過全站 `workItemPresetLabelsDeleted` 同步刪除；保留此欄是為了相容舊資料。
+   */
+  deletedCustomWorkItemLabels?: Tombstone[]
 }
 
 /** 單一施工人員於某案場之上下班 */
@@ -482,31 +506,90 @@ export function initialWorkLogState(): WorkLogState {
   return { entries: [], dayDocuments: [], customWorkItemLabels: [] }
 }
 
+function readWorkLogTombstones(raw: unknown): {
+  deletedEntryIds: Tombstone[]
+  deletedDayDocLogDates: Tombstone[]
+  deletedCustomWorkItemLabels: Tombstone[]
+} {
+  if (!raw || typeof raw !== 'object') {
+    return { deletedEntryIds: [], deletedDayDocLogDates: [], deletedCustomWorkItemLabels: [] }
+  }
+  const w = raw as Record<string, unknown>
+  return {
+    deletedEntryIds: normalizeTombstones(w.deletedEntryIds),
+    deletedDayDocLogDates: normalizeTombstones(w.deletedDayDocLogDates),
+    deletedCustomWorkItemLabels: normalizeTombstones(w.deletedCustomWorkItemLabels),
+  }
+}
+
+function applyWorkLogTombstones(
+  state: WorkLogState,
+  t: {
+    deletedEntryIds: Tombstone[]
+    deletedDayDocLogDates: Tombstone[]
+    deletedCustomWorkItemLabels: Tombstone[]
+  },
+): WorkLogState {
+  return {
+    ...state,
+    entries: applyTombstonesById(state.entries, t.deletedEntryIds),
+    dayDocuments: applyTombstonesByLogDate(state.dayDocuments ?? [], t.deletedDayDocLogDates),
+    customWorkItemLabels: applyTombstonesByValue(
+      state.customWorkItemLabels,
+      t.deletedCustomWorkItemLabels,
+    ),
+    deletedEntryIds: t.deletedEntryIds.length > 0 ? t.deletedEntryIds : undefined,
+    deletedDayDocLogDates:
+      t.deletedDayDocLogDates.length > 0 ? t.deletedDayDocLogDates : undefined,
+    deletedCustomWorkItemLabels:
+      t.deletedCustomWorkItemLabels.length > 0 ? t.deletedCustomWorkItemLabels : undefined,
+  }
+}
+
+function applyTombstonesByLogDate(
+  docs: readonly WorkLogDayDocument[],
+  tombstones: Tombstone[] | undefined,
+): WorkLogDayDocument[] {
+  if (!tombstones || tombstones.length === 0) return docs.slice()
+  const dead = new Set(tombstones.map((t) => t.id))
+  return docs.filter((d) => !dead.has(d.logDate))
+}
+
 export function migrateWorkLogState(raw: unknown): WorkLogState {
   const customWorkItemLabels = migrateCustomLabels(raw)
+  const tombstones = readWorkLogTombstones(raw)
   if (!raw || typeof raw !== 'object') {
-    return finalizeWorkLogStableIds({
-      entries: [],
-      dayDocuments: [],
-      customWorkItemLabels,
-    })
+    return applyWorkLogTombstones(
+      finalizeWorkLogStableIds({
+        entries: [],
+        dayDocuments: [],
+        customWorkItemLabels,
+      }),
+      tombstones,
+    )
   }
   const w = raw as { entries?: unknown; dayDocuments?: unknown }
   if (!Array.isArray(w.entries)) {
-    return finalizeWorkLogStableIds({
-      entries: [],
-      dayDocuments: migrateDayDocuments(w.dayDocuments),
-      customWorkItemLabels,
-    })
+    return applyWorkLogTombstones(
+      finalizeWorkLogStableIds({
+        entries: [],
+        dayDocuments: migrateDayDocuments(w.dayDocuments),
+        customWorkItemLabels,
+      }),
+      tombstones,
+    )
   }
   const entries = w.entries
     .map(migrateOne)
     .filter((x): x is WorkLogEntry => x !== null)
-  return finalizeWorkLogStableIds({
-    entries,
-    dayDocuments: migrateDayDocuments(w.dayDocuments),
-    customWorkItemLabels,
-  })
+  return applyWorkLogTombstones(
+    finalizeWorkLogStableIds({
+      entries,
+      dayDocuments: migrateDayDocuments(w.dayDocuments),
+      customWorkItemLabels,
+    }),
+    tombstones,
+  )
 }
 
 function compareWorkLogEntryByDateId(a: WorkLogEntry, b: WorkLogEntry): number {
@@ -619,6 +702,9 @@ function dedupeWorkLogEntriesAfterIdMerge(
  * **收帳**僅依 `id` 聯集（見 {@link mergeReceivablesPreferLocal}）；**工作日誌**此處：`entries` 以 `id`、整日文件以 `logDate` 聯集，同鍵本機優先；
  * `entries` 再依**業務指紋**去重（同內容不同 id 只留一筆，優先本機 id）。
  * 供 JSONBin 首載等，避免整包覆寫抹掉本機手輸之日誌。
+ *
+ * 墓碑：本機與雲端各自之 `deleted*` 取聯集；任一邊已記下「刪除某 id／某 logDate／某自訂選項」，
+ * 合併後該紀錄即排除，避免雲端把已刪資料帶回。
  */
 export function mergeWorkLogPreferLocal(
   local: WorkLogState,
@@ -627,29 +713,45 @@ export function mergeWorkLogPreferLocal(
   const l = migrateWorkLogState(local)
   const r = migrateWorkLogState(remote)
 
+  const deletedEntryIds = mergeTombstones(l.deletedEntryIds, r.deletedEntryIds)
+  const deletedDayDocLogDates = mergeTombstones(l.deletedDayDocLogDates, r.deletedDayDocLogDates)
+  const deletedCustomWorkItemLabels = mergeTombstones(
+    l.deletedCustomWorkItemLabels,
+    r.deletedCustomWorkItemLabels,
+  )
+  const deadEntry = new Set(deletedEntryIds.map((t) => t.id))
+  const deadDoc = new Set(deletedDayDocLogDates.map((t) => t.id))
+  const deadLabel = new Set(deletedCustomWorkItemLabels.map((t) => t.id))
+
   const localEntryIds = new Set(l.entries.map((e) => e.id))
 
   const byEntryId = new Map<string, WorkLogEntry>()
-  for (const e of r.entries) byEntryId.set(e.id, e)
-  for (const e of l.entries) byEntryId.set(e.id, e)
+  for (const e of r.entries) if (!deadEntry.has(e.id)) byEntryId.set(e.id, e)
+  for (const e of l.entries) if (!deadEntry.has(e.id)) byEntryId.set(e.id, e)
   const entries = dedupeWorkLogEntriesAfterIdMerge([...byEntryId.values()], localEntryIds)
 
   const byLogDate = new Map<string, WorkLogDayDocument>()
-  for (const d of r.dayDocuments ?? []) byLogDate.set(d.logDate, d)
-  for (const d of l.dayDocuments ?? []) byLogDate.set(d.logDate, d)
+  for (const d of r.dayDocuments ?? []) if (!deadDoc.has(d.logDate)) byLogDate.set(d.logDate, d)
+  for (const d of l.dayDocuments ?? []) if (!deadDoc.has(d.logDate)) byLogDate.set(d.logDate, d)
   const dayDocuments = [...byLogDate.values()].sort((a, b) => a.logDate.localeCompare(b.logDate))
 
   const mergedLabels = sortWorkItemLabelsList(
-    [...new Set([...(r.customWorkItemLabels ?? []), ...(l.customWorkItemLabels ?? [])])].map((x) =>
-      String(x),
-    ),
+    [...new Set([...(r.customWorkItemLabels ?? []), ...(l.customWorkItemLabels ?? [])])]
+      .map((x) => String(x))
+      .filter((s) => !deadLabel.has(s)),
   )
 
-  return finalizeWorkLogStableIds({
-    entries,
-    dayDocuments,
-    customWorkItemLabels: mergedLabels,
-  })
+  return {
+    ...finalizeWorkLogStableIds({
+      entries,
+      dayDocuments,
+      customWorkItemLabels: mergedLabels,
+    }),
+    deletedEntryIds: deletedEntryIds.length > 0 ? deletedEntryIds : undefined,
+    deletedDayDocLogDates: deletedDayDocLogDates.length > 0 ? deletedDayDocLogDates : undefined,
+    deletedCustomWorkItemLabels:
+      deletedCustomWorkItemLabels.length > 0 ? deletedCustomWorkItemLabels : undefined,
+  }
 }
 
 function migrateWorkLine(
@@ -971,12 +1073,60 @@ export function removeDayDocument(state: WorkLogState, logDate: string): WorkLog
 /**
  * 刪除某日整日文件，並一併移除該日 {@link WorkLogEntry}。
  * 用於「整日改存到其他日」後清掉舊日，避免月曆仍顯示舊日有紀錄。
+ *
+ * 同時為被移除的整日文件（依 `logDate`）與同日舊筆 entries（依 `id`）寫入墓碑，
+ * 確保下次同步不會把雲端尚未刪除版本的整日文件或舊筆帶回（見 `tombstones.ts`）。
  */
 export function removeDayDocumentAndEntries(state: WorkLogState, logDate: string): WorkLogState {
+  const now = Date.now()
+  const removedEntryIds = (state.entries ?? [])
+    .filter((e) => e.logDate === logDate)
+    .map((e) => e.id)
+  const removedDayDocs = (state.dayDocuments ?? []).filter((d) => d.logDate === logDate)
   return {
     ...state,
     dayDocuments: (state.dayDocuments ?? []).filter((d) => d.logDate !== logDate),
     entries: (state.entries ?? []).filter((e) => e.logDate !== logDate),
+    deletedEntryIds:
+      removedEntryIds.length > 0
+        ? appendTombstones(state.deletedEntryIds, removedEntryIds, now)
+        : state.deletedEntryIds,
+    deletedDayDocLogDates:
+      removedDayDocs.length > 0
+        ? appendTombstone(state.deletedDayDocLogDates, logDate, now)
+        : state.deletedDayDocLogDates,
+  }
+}
+
+/**
+ * 刪除單筆舊式 entry：同步寫入墓碑，避免下次同步把它從雲端帶回。
+ */
+export function removeWorkLogEntryById(state: WorkLogState, entryId: string): WorkLogState {
+  const has = (state.entries ?? []).some((e) => e.id === entryId)
+  if (!has) return state
+  return {
+    ...state,
+    entries: (state.entries ?? []).filter((e) => e.id !== entryId),
+    deletedEntryIds: appendTombstone(state.deletedEntryIds, entryId),
+  }
+}
+
+/**
+ * 刪除自訂工作項目（舊版欄位）：同步寫入墓碑。
+ * 通常由全站 `removeWorkItemPresetLabel` 同步觸發。
+ */
+export function removeCustomWorkItemLabel(state: WorkLogState, label: string): WorkLogState {
+  const t = label.trim()
+  if (!t) return state
+  const has = (state.customWorkItemLabels ?? []).includes(t)
+  return {
+    ...state,
+    customWorkItemLabels: sortWorkItemLabelsList(
+      (state.customWorkItemLabels ?? []).filter((x) => x !== t),
+    ),
+    deletedCustomWorkItemLabels: has
+      ? appendTombstone(state.deletedCustomWorkItemLabels, t)
+      : state.deletedCustomWorkItemLabels,
   }
 }
 

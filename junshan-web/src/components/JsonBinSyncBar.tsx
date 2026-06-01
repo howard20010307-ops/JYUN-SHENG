@@ -42,6 +42,10 @@ export function JsonBinSyncBar({
         <strong>JSONBin</strong>
         {!ready ? (
           <span className="jsonbinSyncBar__msg">讀取雲端中…</span>
+        ) : cloudUploadSuspended ? (
+          <span className="jsonbinSyncBar__warn">
+            雲端自動上傳已暫停：在此所做的編輯與<strong>刪除</strong>只會留在本瀏覽器，不會寫回 JSONBin；請先恢復上傳或匯出備份。
+          </span>
         ) : (
           <span className="jsonbinSyncBar__ok">變更會自動同步至雲端（約 1 秒防抖）。</span>
         )}

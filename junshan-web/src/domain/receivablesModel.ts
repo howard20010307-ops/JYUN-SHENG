@@ -3,7 +3,14 @@
  * **列 id**：與欄位內容**解耦**。新列使用 {@link allocateReceivableEntryId}（遞增 `nextEntrySeq`），使用者改樓層／階段／備註後 **id 不變**。
  * 載入 JSON 僅在 **id 空白**或**列層級 id 重複**時重新配發，已存在之 `rcv--…` 一律沿用。
  *
- * **不**以「同一天／同金額／同案場…」等業務指紋把兩列併成一列；**同一筆入帳**僅以 **`id` 相同**認定。JSONBin 合併為 **依 id 聯集**（同 id 本機優先），真重複列應手動刪。
+ * **id 為主、內容為輔**：JSONBin 合併與 JSON 載入皆先依 `id` 聯集（同 id 本機優先），
+ * 接著由 {@link dedupReceivableEntriesByContent} 用業務指紋（入帳日／案場／棟樓／未稅／稅別／月表綁定／備註）做去重；
+ * `phaseLabel` 為 `''`／`未填` 視為通配，可解析為日期區間者以 ISO 起迄為準（避免 `1/21 ~ 2/20` 與 `2026/01/21 ~ 2026/02/20` 殘留兩列）。
+ * 多裝置離線各自輸入「邏輯上同一筆」造成 id 不同的近重複，將自動收斂為一列。
+ *
+ * **刪除墓碑**（{@link ReceivablesState.deletedEntryIds}）：刪除一列時除了從 `entries` 移除，亦把 `id` 連同
+ * 刪除時刻寫入墓碑，跟著 JSONBin / 備份一起同步；任何裝置之後再合併到含此 id 的雲端／其他備份，皆會被墓碑壓掉，
+ * 不會「刪了又長回來」。墓碑於合併時雙邊聯集（同 id 取較新 `deletedAt`），超過 1 年自動 GC。
  *
  * **合約連結**（`contractLineId`）僅對帳／顯示；同 id 合併時若本機未填合約 id 而雲端有唯一值會帶上（見 {@link mergeReceivablesPreferLocal}）。
  */
@@ -12,7 +19,11 @@ import type { SalaryBook } from './salaryExcelModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 import { stableHash16 } from './stableIds'
 import { collapseSiteDimensionWhitespace } from './siteDimensionLabels'
-import { normalizePhasePeriodLabel } from './receivablePhaseRange'
+import {
+  normalizePhasePeriodLabel,
+  parsePhasePeriodRangeStrict,
+} from './receivablePhaseRange'
+import { DEFAULT_TOMBSTONE_TTL_MS } from './tombstones'
 
 export type ReceivableEntryId = string
 
@@ -75,6 +86,14 @@ export function grossFromNet(net: number): number {
   return safeNet(net) + taxFromNet(net)
 }
 
+/** 已刪除收帳列墓碑：避免雲端／其他裝置帶舊資料下來時自動「復活」。 */
+export type ReceivableEntryTombstone = {
+  /** 對應已刪除之 {@link ReceivableEntry.id} */
+  id: string
+  /** 刪除時刻（毫秒，{@link Date.now}）；同 id 合併取較大值 */
+  deletedAt: number
+}
+
 export type ReceivablesState = {
   entries: ReceivableEntry[]
   /**
@@ -82,7 +101,16 @@ export type ReceivablesState = {
    * 兩裝置離線各自新增列時可能仍出現序號碰撞，合併後 {@link finalizeReceivableEntryIds} 會拆開重複 id。
    */
   nextEntrySeq?: number
+  /**
+   * 墓碑：使用者主動刪除過之列 id 與刪除時刻。寫入時與 `entries` 一同被序列化到 localStorage／JSONBin／備份檔，
+   * 合併時雙邊聯集；任何 `id` 在墓碑名單中之列在 {@link migrateReceivablesState}／{@link mergeReceivablesPreferLocal}
+   * 一律壓掉。逾 1 年由合併程序自動清除（避免無限累積）。
+   */
+  deletedEntryIds?: ReceivableEntryTombstone[]
 }
+
+/** 墓碑保留期：與全站共用之 `DEFAULT_TOMBSTONE_TTL_MS`（見 `tombstones.ts`）；30 天到期未復活之 id 視為各裝置已吸收，可丟。 */
+const RECEIVABLE_TOMBSTONE_TTL_MS = DEFAULT_TOMBSTONE_TTL_MS
 
 function isBookedDateYmd(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s)
@@ -136,6 +164,59 @@ export function initialReceivablesState(): ReceivablesState {
 }
 
 /**
+ * 將墓碑陣列正規化：保留有效字串 id；同 id 取較大之 `deletedAt`；不合法值丟棄；超過保留期者於 `now` 切除。
+ */
+export function normalizeReceivableTombstones(
+  list: unknown,
+  now: number = Date.now(),
+): ReceivableEntryTombstone[] {
+  if (!Array.isArray(list)) return []
+  const map = new Map<string, number>()
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue
+    const r = raw as { id?: unknown; deletedAt?: unknown }
+    const id = typeof r.id === 'string' ? r.id.trim() : ''
+    if (!id) continue
+    const t =
+      typeof r.deletedAt === 'number' && Number.isFinite(r.deletedAt) ? Math.floor(r.deletedAt) : 0
+    if (now - t > RECEIVABLE_TOMBSTONE_TTL_MS) continue
+    const prev = map.get(id)
+    if (prev === undefined || t > prev) map.set(id, t)
+  }
+  return [...map.entries()]
+    .map(([id, deletedAt]) => ({ id, deletedAt }))
+    .sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** 兩邊墓碑聯集；同 id 取較新之刪除時刻 */
+export function mergeReceivableTombstones(
+  a: ReceivableEntryTombstone[] | undefined,
+  b: ReceivableEntryTombstone[] | undefined,
+  now: number = Date.now(),
+): ReceivableEntryTombstone[] {
+  return normalizeReceivableTombstones([...(a ?? []), ...(b ?? [])], now)
+}
+
+/** 在 state 上記下「現在刪除某 id」；若已在墓碑只更新 deletedAt（取較新者） */
+export function tombstoneReceivableEntryId(
+  state: ReceivablesState,
+  id: string,
+  deletedAt: number = Date.now(),
+): ReceivableEntryTombstone[] {
+  return mergeReceivableTombstones(state.deletedEntryIds, [{ id, deletedAt }], deletedAt)
+}
+
+/** 將墓碑套用到一組列：丟掉任何 id 在墓碑名單中之列。 */
+function applyReceivableTombstones(
+  entries: ReceivableEntry[],
+  tombstones: ReceivableEntryTombstone[] | undefined,
+): ReceivableEntry[] {
+  if (!tombstones || tombstones.length === 0) return entries
+  const dead = new Set(tombstones.map((t) => t.id))
+  return entries.filter((e) => !dead.has(e.id))
+}
+
+/**
  * 載入／合併後：保留有效且不重複之 id；空白或與前列重複者改配 `rcv--`+序號雜湊（見 stable-ids）。
  */
 export function finalizeReceivableEntryIds(
@@ -183,6 +264,131 @@ export function finalizeReceivableEntryIds(
     out.push({ ...e, id })
   }
   return { entries: sortReceivableEntriesByBookedDate(out), nextEntrySeq: seq }
+}
+
+/**
+ * 內容指紋去重：把「邏輯上同一筆」（同入帳日／案名／棟樓／未稅／稅別／月表綁定／備註）的多列收斂為一列。
+ *
+ * `phaseLabel` 比對採三層優先：
+ * 1. 可解析為日期區間者以 ISO 起迄做鍵（如 `2026/01/21 ~ 2026/02/20` 與 `1/21 ~ 2/20` 視為同一筆）。
+ * 2. 不可解析的純文字以 {@link normalizePhasePeriodLabel} 後字串為鍵。
+ * 3. 空字串／`未填`（占位）視為「未指定」通配；同一基底群只有「一種」非空 phase 時，會把通配列吸收到該唯一非空列。
+ *
+ * 同群內挑代表：`preferIds` 中之 id 優先（用於合併保住本機 id），其次階段資訊較完整者（ISO ＞ 純文字 ＞ 空），
+ * 同分時取字典序最小之 id；最後仍把保留下來之 `phaseLabel` 為 `未填` 一律改為 `''`。
+ *
+ * **保守原則**：基底欄位只要任一不同（含 `note`、`buildingLabel`／`floorLabel`、`monthSheetId`／`siteBlockId`、`net`、`taxZero`）即視為不同筆，
+ * 不會把真實兩筆同金額不同備註的入帳併成一筆。
+ */
+export function dedupReceivableEntriesByContent(
+  entries: ReceivableEntry[],
+  preferIds: ReadonlySet<string> = new Set(),
+): { entries: ReceivableEntry[]; removedCount: number } {
+  const baseFingerprint = (e: ReceivableEntry): string => {
+    const ms = typeof e.monthSheetId === 'string' ? e.monthSheetId : '<undef>'
+    const sb = typeof e.siteBlockId === 'string' ? e.siteBlockId : '<undef>'
+    return [
+      (e.bookedDate ?? '').trim(),
+      (e.projectName ?? '').trim(),
+      collapseSiteDimensionWhitespace(e.buildingLabel ?? ''),
+      collapseSiteDimensionWhitespace(e.floorLabel ?? ''),
+      String(safeNet(e.net)),
+      e.taxZero ? '1' : '0',
+      ms,
+      sb,
+      (e.note ?? '').trim(),
+    ].join('\u0001')
+  }
+  const phaseKey = (e: ReceivableEntry): string => {
+    const raw = e.phaseLabel ?? ''
+    const strict = parsePhasePeriodRangeStrict(raw)
+    if (strict) return `iso:${strict.start}|${strict.end}`
+    const norm = normalizePhasePeriodLabel(raw)
+    if (norm === '' || norm === '未填') return 'empty'
+    /**
+     * 寬鬆解析：階段為 `M/D ~ M/D`（沒寫年份）時，借 {@link ReceivableEntry.bookedDate}
+     * 之年份補上；若起始月日大於結束月日，視為跨年（結束加一年）。
+     * 用於去重時把 `1/21 ~ 2/20` 與 `2026/01/21 ~ 2026/02/20` 收斂為同一筆。
+     */
+    const m = /^(\d{1,2})\/(\d{1,2})\s*~\s*(\d{1,2})\/(\d{1,2})$/.exec(norm)
+    const yy = /^(\d{4})-/.exec(e.bookedDate ?? '')?.[1]
+    if (m && yy) {
+      const sm = m[1]!.padStart(2, '0')
+      const sd = m[2]!.padStart(2, '0')
+      const em = m[3]!.padStart(2, '0')
+      const ed = m[4]!.padStart(2, '0')
+      const startIso = `${yy}-${sm}-${sd}`
+      let endIso = `${yy}-${em}-${ed}`
+      if (Number(sm) > Number(em) || (sm === em && Number(sd) > Number(ed))) {
+        endIso = `${Number(yy) + 1}-${em}-${ed}`
+      }
+      return `iso:${startIso}|${endIso}`
+    }
+    return `text:${norm}`
+  }
+  const phaseRank = (k: string): number => {
+    if (k.startsWith('iso:')) return 3
+    if (k.startsWith('text:')) return 2
+    return 0
+  }
+  const pickBest = (arr: ReceivableEntry[]): ReceivableEntry => {
+    return arr.slice().sort((a, b) => {
+      const aP = preferIds.has(a.id) ? 1 : 0
+      const bP = preferIds.has(b.id) ? 1 : 0
+      if (aP !== bP) return bP - aP
+      const aR = phaseRank(phaseKey(a))
+      const bR = phaseRank(phaseKey(b))
+      if (aR !== bR) return bR - aR
+      return (a.id ?? '').localeCompare(b.id ?? '')
+    })[0]!
+  }
+
+  const groups = new Map<string, Map<string, ReceivableEntry[]>>()
+  for (const e of entries) {
+    const base = baseFingerprint(e)
+    const ph = phaseKey(e)
+    let inner = groups.get(base)
+    if (!inner) {
+      inner = new Map()
+      groups.set(base, inner)
+    }
+    const arr = inner.get(ph)
+    if (arr) arr.push(e)
+    else inner.set(ph, [e])
+  }
+
+  const out: ReceivableEntry[] = []
+  let removed = 0
+  for (const inner of groups.values()) {
+    const empties = inner.get('empty') ?? []
+    const nonEmptyKeys = [...inner.keys()].filter((k) => k !== 'empty')
+    if (nonEmptyKeys.length === 0) {
+      const picked = pickBest(empties)
+      removed += empties.length - 1
+      out.push({ ...picked, phaseLabel: '' })
+      continue
+    }
+    if (nonEmptyKeys.length === 1) {
+      const merged = [...(inner.get(nonEmptyKeys[0]!) ?? []), ...empties]
+      const picked = pickBest(merged)
+      removed += merged.length - 1
+      out.push(picked)
+      continue
+    }
+    for (const k of nonEmptyKeys) {
+      const arr = inner.get(k) ?? []
+      const picked = pickBest(arr)
+      removed += arr.length - 1
+      out.push(picked)
+    }
+    if (empties.length > 0) {
+      const picked = pickBest(empties)
+      removed += empties.length - 1
+      out.push({ ...picked, phaseLabel: '' })
+    }
+  }
+
+  return { entries: sortReceivableEntriesByBookedDate(out), removedCount: removed }
 }
 
 /**
@@ -358,11 +564,17 @@ function receivableSingleLineField(s: string): string {
 }
 
 function normalizeReceivableEntryDimensions(e: ReceivableEntry): ReceivableEntry {
+  /**
+   * 階段欄正規化：先做單行／符號折疊，再把純文字 `未填`（畫面上的占位）視為空字串存檔，
+   * 避免 `''` 與 `未填` 在後續合併／去重時被當成兩個不同值。
+   */
+  const phaseNormalized = normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel))
+  const phaseFinal = phaseNormalized === '未填' ? '' : phaseNormalized
   return {
     ...e,
     buildingLabel: collapseSiteDimensionWhitespace(e.buildingLabel),
     floorLabel: collapseSiteDimensionWhitespace(e.floorLabel),
-    phaseLabel: normalizePhasePeriodLabel(receivableSingleLineField(e.phaseLabel)),
+    phaseLabel: phaseFinal,
   }
 }
 
@@ -512,22 +724,38 @@ export function migrateReceivablesState(loaded: unknown): ReceivablesState {
   if (!loaded || typeof loaded !== 'object') return init
   const o = loaded as Record<string, unknown>
   const seqHint = readNextEntrySeqHint(o)
+  const tombstones = normalizeReceivableTombstones(o.deletedEntryIds)
 
   if (Array.isArray(o.entries)) {
     const entries = sortReceivableEntriesByBookedDate(
       syncEntriesTax(migrateEntriesArray(o.entries)),
     )
-    return finalizeReceivableEntryIds(entries, seqHint)
+    /**
+     * 載入即去重：把過去多裝置同步累積之「同入帳日／案場／金額／備註」近重複（含 phaseLabel
+     * 為 `''`／`未填` 或 `1/21 ~ 2/20` vs `2026/01/21 ~ 2026/02/20`）收斂為一列；不更動穩定 id 配發；
+     * 並依墓碑壓掉先前已刪除過、但又被某邊資料帶回來之列。
+     */
+    const dedupedRaw = dedupReceivableEntriesByContent(entries).entries
+    const deduped = applyReceivableTombstones(dedupedRaw, tombstones)
+    const finalized = finalizeReceivableEntryIds(deduped, seqHint)
+    return tombstones.length === 0
+      ? finalized
+      : { ...finalized, deletedEntryIds: tombstones }
   }
 
   if (Array.isArray(o.receipts) && (o.receipts as unknown[]).length > 0) {
     const entries = sortReceivableEntriesByBookedDate(
       syncEntriesTax(migrateLegacyNested(o).entries),
     )
-    return finalizeReceivableEntryIds(entries, seqHint)
+    const dedupedRaw = dedupReceivableEntriesByContent(entries).entries
+    const deduped = applyReceivableTombstones(dedupedRaw, tombstones)
+    const finalized = finalizeReceivableEntryIds(deduped, seqHint)
+    return tombstones.length === 0
+      ? finalized
+      : { ...finalized, deletedEntryIds: tombstones }
   }
 
-  return init
+  return tombstones.length === 0 ? init : { ...init, deletedEntryIds: tombstones }
 }
 
 export function sumEntriesNetTaxGross(entries: ReceivableEntry[]): {
@@ -577,12 +805,16 @@ export function sumEntriesInYear(
 
 /**
  * JSONBin 下載套用時合併收帳：
- * 1. 兩邊皆先 {@link migrateReceivablesState}（稅／正規化／id 唯一化）。
- * 2. **僅依 `id` 聯集**：雲端有、本機沒有的 id 併入；**同 id 以本機為準**。
- * 3. 同 id 且本機未填 {@link ReceivableEntry.contractLineId}、雲端有唯一合約 id 時寫入，避免對帳遺失。
- * 4. {@link finalizeReceivableEntryIds} 收尾（一般不應改動已穩定 id）。
+ * 1. 兩邊皆先 {@link migrateReceivablesState}（稅／正規化／id 唯一化、載入時內容去重；同步壓掉自家墓碑）。
+ * 2. **墓碑聯集**：合併雙邊 {@link ReceivablesState.deletedEntryIds}（同 id 取較新刪除時刻），並把名單中所有 id 從 `byId` 移除，
+ *    避免「裝置 A 刪了但雲端／其他裝置仍持有」造成刪除被同步覆寫回來。
+ * 3. 依 `id` 聯集：雲端有、本機沒有的 id 併入；**同 id 以本機為準**。
+ * 4. 同 id 且本機未填 {@link ReceivableEntry.contractLineId}、雲端有唯一合約 id 時寫入，避免對帳遺失。
+ * 5. {@link dedupReceivableEntriesByContent} 以業務指紋去重（保住本機 id），收掉跨裝置 id 不同但「邏輯上同一筆」之近重複。
+ * 6. {@link finalizeReceivableEntryIds} 收尾（一般不應改動已穩定 id），並把整理後墓碑回寫。
  *
- * **不**依「同一天／同金額／案場…」併列；不同 id 即不同列。
+ * **保守原則**：基底欄位（入帳日／案場／棟樓／未稅／稅別／月表綁定／備註）任一不同即視為不同筆；
+ * `phaseLabel` 為 `''`／`未填` 視為通配，可解析日期區間者以 ISO 起迄為準。
  */
 export function mergeReceivablesPreferLocal(
   local: ReceivablesState,
@@ -590,9 +822,15 @@ export function mergeReceivablesPreferLocal(
 ): ReceivablesState {
   const l = migrateReceivablesState(local)
   const r = migrateReceivablesState(remote)
+  const tombstones = mergeReceivableTombstones(l.deletedEntryIds, r.deletedEntryIds)
+  const dead = new Set(tombstones.map((t) => t.id))
   const byId = new Map<string, ReceivableEntry>()
-  for (const e of r.entries) byId.set(e.id, e)
+  for (const e of r.entries) {
+    if (dead.has(e.id)) continue
+    byId.set(e.id, e)
+  }
   for (const e of l.entries) {
+    if (dead.has(e.id)) continue
     const prev = byId.get(e.id)
     if (!prev) {
       byId.set(e.id, e)
@@ -604,7 +842,11 @@ export function mergeReceivablesPreferLocal(
     const merged = !eC && prevC ? { ...e, contractLineId: prevC } : e
     byId.set(e.id, merged)
   }
-  const merged = sortReceivableEntriesByBookedDate([...byId.values()])
+  const localIds = new Set(l.entries.map((e) => e.id))
+  const dedup = dedupReceivableEntriesByContent([...byId.values()], localIds)
   const seqHint = Math.max(l.nextEntrySeq ?? 1, r.nextEntrySeq ?? 1)
-  return finalizeReceivableEntryIds(merged, seqHint)
+  const finalized = finalizeReceivableEntryIds(dedup.entries, seqHint)
+  return tombstones.length === 0
+    ? finalized
+    : { ...finalized, deletedEntryIds: tombstones }
 }

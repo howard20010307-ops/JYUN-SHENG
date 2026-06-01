@@ -371,6 +371,11 @@ html {
   font-size: var(--ui-fs-sm);
 }
 
+.jsonbinSyncBar__warn {
+  color: #f0c674;
+  font-size: var(--ui-fs-sm);
+}
+
 .jsonbinSyncBar__record {
   margin: var(--ui-space-1) 0 0;
   font-size: var(--ui-fs-xs);

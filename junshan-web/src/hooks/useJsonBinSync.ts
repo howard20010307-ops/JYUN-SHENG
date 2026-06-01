@@ -8,6 +8,7 @@ import {
   hasJsonBinEnvIntent,
   isJsonBinConfigured,
   readLastJsonBinUploadMeta,
+  formatJsonBinFetchError,
   uploadAppStateToJsonBin,
   type JsonBinLastUploadMeta,
 } from '../services/jsonbin'
@@ -85,7 +86,9 @@ export function useJsonBinSync(
   /** 自動上傳失敗：應全螢幕鎖定，直到使用者暫停雲端上傳 */
   cloudUploadBlocked: boolean
   cloudUploadBlockMessage: string | null
+  cloudUploadRetrying: boolean
   dismissCloudUploadBlock: () => void
+  retryCloudUpload: () => void
   /** 使用者已選暫停上傳後為 true；可呼叫 {@link resumeCloudUpload} 立刻恢復，不必重新整理 */
   cloudUploadSuspended: boolean
   /** 可安全執行恢復／自動上傳（金鑰有效、已就緒、且允許寫入） */
@@ -110,6 +113,7 @@ export function useJsonBinSync(
     envIntent ? readLastJsonBinUploadMeta() : { at: null, receivablesCount: null, wireSha256Hex: null },
   )
   const [uploadBlockMessage, setUploadBlockMessage] = useState<string | null>(null)
+  const [cloudUploadRetrying, setCloudUploadRetrying] = useState(false)
   const [cloudUploadSuspended, setCloudUploadSuspended] = useState(false)
   const [restoringFromCloud, setRestoringFromCloud] = useState(false)
   const skipNextUpload = useRef(false)
@@ -133,7 +137,7 @@ export function useJsonBinSync(
         return r
       })
       .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = formatJsonBinFetchError(e)
         setUploadBlockMessage(msg)
         setLine({
           text: msg,
@@ -150,6 +154,30 @@ export function useJsonBinSync(
     setUploadBlockMessage(null)
     setLine(null)
   }, [])
+
+  const retryCloudUpload = useCallback(() => {
+    if (!allowCloudWrite) return
+    if (keyErr || !canUse || !ready) return
+    if (cloudUploadRetrying) return
+    setUploadBlockMessage(null)
+    setCloudUploadRetrying(true)
+    void performUpload(latestStateRef.current)
+      .then((r) => {
+        setLine({
+          text: r.skippedDuplicate
+            ? '已重新連線；目前資料與上次成功上傳相同，已略過重複寫入。'
+            : '已重新上傳至 JSONBin。',
+          isError: false,
+        })
+        window.setTimeout(() => setLine(null), 3200)
+      })
+      .catch(() => {
+        /* 錯誤已在 performUpload 內處理 */
+      })
+      .finally(() => {
+        setCloudUploadRetrying(false)
+      })
+  }, [allowCloudWrite, keyErr, canUse, ready, cloudUploadRetrying, performUpload])
 
   const resumeCloudUpload = useCallback(() => {
     if (!allowCloudWrite) return
@@ -242,6 +270,12 @@ export function useJsonBinSync(
               receivablesCountBefore = merged.receivablesCountBefore
               receivablesCountAfter = merged.receivablesCountAfter
               const months = mergeLedgerMonthLinesPreferLocal(prev.months, fromCloud.months)
+              const presets = mergeWorkItemPresetLabelsPreferLocal(
+                prev.workItemPresetLabels,
+                fromCloud.workItemPresetLabels,
+                prev.workItemPresetLabelsDeleted,
+                fromCloud.workItemPresetLabelsDeleted,
+              )
               return {
                 ...fromCloud,
                 months,
@@ -256,10 +290,8 @@ export function useJsonBinSync(
                   prev.pricingWorkspace,
                   fromCloud.pricingWorkspace,
                 ),
-                workItemPresetLabels: mergeWorkItemPresetLabelsPreferLocal(
-                  prev.workItemPresetLabels,
-                  fromCloud.workItemPresetLabels,
-                ),
+                workItemPresetLabels: presets.labels,
+                workItemPresetLabelsDeleted: presets.tombstones,
               }
             })
           })
@@ -352,7 +384,9 @@ export function useJsonBinSync(
     cloudBootstrapPending,
     cloudUploadBlocked,
     cloudUploadBlockMessage: uploadBlockMessage,
+    cloudUploadRetrying,
     dismissCloudUploadBlock,
+    retryCloudUpload,
     cloudUploadSuspended,
     resumeCloudUploadAllowed,
     resumeCloudUpload,

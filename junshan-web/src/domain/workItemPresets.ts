@@ -1,5 +1,12 @@
 import type { WorkLogState } from './workLogModel'
 import { sortWorkItemLabelsList } from './workLogModel'
+import {
+  appendTombstone,
+  applyTombstonesByValue,
+  mergeTombstones,
+  normalizeTombstones,
+  type Tombstone,
+} from './tombstones'
 
 /** 預設「工作內容」選項（載入後會再經 {@link sortWorkItemLabelsList} 依字長排序） */
 const RAW_WORK_ITEM_PRESET_LABELS: readonly string[] = [
@@ -36,26 +43,59 @@ export function initialSortedWorkItemPresetLabels(): string[] {
 /**
  * 舊存檔無 `workItemPresetLabels` 時用預設表，並合併 `workLog.customWorkItemLabels`（去重排序）。
  * 若檔內已有陣列，仍合併舊自訂欄位一次，避免升級後選項消失。
+ *
+ * 若同時提供墓碑名單（`tombstones` 或 `workLog.deletedCustomWorkItemLabels`），會把已刪選項先濾掉，
+ * 避免從舊備份／雲端帶回曾經刪過之項目。
  */
 export function migrateWorkItemPresetLabels(
   loaded: unknown,
   workLog: WorkLogState,
+  tombstones?: Tombstone[],
 ): string[] {
   const defaults = initialSortedWorkItemPresetLabels()
   const legacyCustom = workLog.customWorkItemLabels ?? []
   const fromFile = Array.isArray(loaded)
     ? loaded.map((x) => String(x).trim()).filter(Boolean)
     : []
-  if (fromFile.length > 0) {
-    return sortWorkItemLabelsList([...fromFile, ...legacyCustom])
-  }
-  return sortWorkItemLabelsList([...defaults, ...legacyCustom])
+  const deadFromState = workLog.deletedCustomWorkItemLabels ?? []
+  const dead = mergeTombstones(deadFromState, tombstones)
+  const merged =
+    fromFile.length > 0
+      ? sortWorkItemLabelsList([...fromFile, ...legacyCustom])
+      : sortWorkItemLabelsList([...defaults, ...legacyCustom])
+  return applyTombstonesByValue(merged, dead)
 }
 
-/** JSONBin 首載合併：聯集後再依字長排序（與本機／雲端各自新增的項目都保留） */
+/** 將任意輸入正規化為 `workItemPresetLabels` 之墓碑陣列（鍵為字串本身）。 */
+export function normalizeWorkItemPresetLabelTombstones(raw: unknown): Tombstone[] {
+  return normalizeTombstones(raw)
+}
+
+/** 在墓碑名單上記下「現在刪除某 label」。 */
+export function appendWorkItemPresetLabelTombstone(
+  current: Tombstone[] | undefined,
+  label: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = label.trim()
+  if (!t) return current ?? []
+  return appendTombstone(current, t, deletedAt)
+}
+
+/**
+ * JSONBin 首載合併：聯集後再依字長排序（與本機／雲端各自新增的項目都保留）。
+ * 同時聯集兩邊墓碑、把已刪選項濾掉，避免「刪了又被雲端帶回」。
+ */
 export function mergeWorkItemPresetLabelsPreferLocal(
   local: readonly string[],
   cloud: readonly string[],
-): string[] {
-  return sortWorkItemLabelsList([...local, ...cloud])
+  localTombstones?: Tombstone[],
+  cloudTombstones?: Tombstone[],
+): { labels: string[]; tombstones: Tombstone[] } {
+  const tombstones = mergeTombstones(localTombstones, cloudTombstones)
+  const labels = applyTombstonesByValue(
+    sortWorkItemLabelsList([...local, ...cloud]),
+    tombstones,
+  )
+  return { labels, tombstones }
 }

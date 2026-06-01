@@ -9,6 +9,53 @@ import {
 
 const BASE = 'https://api.jsonbin.io/v3/b'
 
+const JSONBIN_PUT_MAX_ATTEMPTS = 3
+const JSONBIN_PUT_RETRY_DELAY_MS = 1200
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+/** 將 fetch 的英文錯誤轉成可操作的繁中說明（仍保留原文供除錯）。 */
+export function formatJsonBinFetchError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  const lower = msg.toLowerCase()
+  if (
+    msg === 'Failed to fetch' ||
+    lower.includes('networkerror') ||
+    lower.includes('load failed') ||
+    lower.includes('network request failed')
+  ) {
+    return (
+      `無法連線 JSONBin（${msg}）。` +
+      '常見原因：網路中斷、防毒或廣告阻擋 api.jsonbin.io、VPN／公司防火牆、或 JSONBin 暫時無法連線。' +
+      '請確認可開啟 https://api.jsonbin.io ，稍後再試「重試上傳」或「立即恢復雲端上傳」。'
+    )
+  }
+  if (lower.includes('aborted') || lower.includes('timeout')) {
+    return `連線 JSONBin 逾時或中斷（${msg}）。資料可能較大或網路不穩，請稍後重試。`
+  }
+  return msg
+}
+
+function isRetryableJsonBinHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504
+}
+
+function isRetryableJsonBinFetchError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false
+  const msg = e.message
+  const lower = msg.toLowerCase()
+  return (
+    msg === 'Failed to fetch' ||
+    lower.includes('networkerror') ||
+    lower.includes('load failed') ||
+    lower.includes('network request failed') ||
+    lower.includes('aborted') ||
+    lower.includes('timeout')
+  )
+}
+
 /**
  * JSONBin 免費版單筆約 100 KiB（以請求本體 UTF-8 位元組計）；預留餘量避免邊界遭拒。
  * Pro／XL 可於 `.env` 設定 `VITE_JSONBIN_MAX_BODY_UTF8_BYTES` 放寬（仍為整包上傳、不刪欄位）。
@@ -325,12 +372,23 @@ export type JsonBinUploadResult = {
   skippedDuplicate: boolean
 }
 
+export type JsonBinUploadOptions = {
+  /**
+   * 為 true 時**不**因本機紀錄之指紋相同而略過 PUT，一律寫入 JSONBin。
+   * 用於整理收帳等後，確認要把「目前畫面上的整包資料」當成雲端唯一版本時手動觸發。
+   */
+  force?: boolean
+}
+
 /**
  * 上傳完整狀態至 JSONBin。
- * 若與 {@link readLastJsonBinUploadMeta} 所存之 `wireSha256Hex` 相同（{@link stringifyAppBackupFingerprint} 一致），則略過 PUT。
+ * 若與 {@link readLastJsonBinUploadMeta} 所存之 `wireSha256Hex` 相同（{@link stringifyAppBackupFingerprint} 一致），則略過 PUT（{@link JsonBinUploadOptions.force} 為 true 時仍會 PUT）。
  * 成功寫入後才更新 {@link writeLastJsonBinUploadMeta} 之時間、收帳筆數與指紋。
  */
-export async function uploadAppStateToJsonBin(state: AppState): Promise<JsonBinUploadResult> {
+export async function uploadAppStateToJsonBin(
+  state: AppState,
+  options?: JsonBinUploadOptions,
+): Promise<JsonBinUploadResult> {
   if (!isJsonBinConfigured()) return { skippedDuplicate: false }
   const id = binId()
   const key = masterKey()
@@ -339,7 +397,13 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<JsonBinU
   const fpRaw = stringifyAppBackupFingerprint(state)
   const fp = await sha256HexUtf8(fpRaw)
   const prev = readLastJsonBinUploadMeta()
-  if (fp != null && prev.wireSha256Hex != null && prev.wireSha256Hex === fp) {
+  const force = Boolean(options?.force)
+  if (
+    !force &&
+    fp != null &&
+    prev.wireSha256Hex != null &&
+    prev.wireSha256Hex === fp
+  ) {
     return { skippedDuplicate: true }
   }
   const g = await gzipTextToB64(raw)
@@ -360,17 +424,40 @@ export async function uploadAppStateToJsonBin(state: AppState): Promise<JsonBinU
         `未壓縮備份 JSON 約 ${rawUtf8Bytes} 位元組。可刪減歷史月表或匯出備份後減量；若為 JSONBin Pro 可在 .env 設定 VITE_JSONBIN_MAX_BODY_UTF8_BYTES 放寬。`,
     )
   }
-  const res = await fetch(`${BASE}/${id}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': key,
-    },
-    body,
-  })
-  if (!res.ok) {
-    const t = await res.text()
-    throw new Error(t || `JSONBin 寫入失敗：${res.status}`)
+  let lastErr: unknown = null
+  for (let attempt = 1; attempt <= JSONBIN_PUT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': key,
+        },
+        body,
+      })
+      if (!res.ok) {
+        const t = await res.text()
+        const err = new Error(t || `JSONBin 寫入失敗：${res.status}`)
+        if (attempt < JSONBIN_PUT_MAX_ATTEMPTS && isRetryableJsonBinHttpStatus(res.status)) {
+          lastErr = err
+          await sleep(JSONBIN_PUT_RETRY_DELAY_MS * attempt)
+          continue
+        }
+        throw err
+      }
+      lastErr = null
+      break
+    } catch (e) {
+      lastErr = e
+      if (attempt < JSONBIN_PUT_MAX_ATTEMPTS && isRetryableJsonBinFetchError(e)) {
+        await sleep(JSONBIN_PUT_RETRY_DELAY_MS * attempt)
+        continue
+      }
+      throw new Error(formatJsonBinFetchError(e))
+    }
+  }
+  if (lastErr) {
+    throw new Error(formatJsonBinFetchError(lastErr))
   }
   const d = new Date()
   const rc = state.receivables?.entries?.length ?? 0

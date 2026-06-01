@@ -17,7 +17,8 @@ import {
   repairWorkLogDayDocumentsAgainstPayroll,
   salaryBookNamedSitesFingerprint,
 } from './domain/workLogPayrollLink'
-import { sortWorkItemLabelsList } from './domain/workLogModel'
+import { removeCustomWorkItemLabel, sortWorkItemLabelsList } from './domain/workLogModel'
+import { appendWorkItemPresetLabelTombstone } from './domain/workItemPresets'
 import { downloadAppBackup, rawDataFromBackupJson } from './domain/appStateBackup'
 import { JsonBinSyncBar } from './components/JsonBinSyncBar'
 import { TableArrowNavigation } from './components/TableArrowNavigation'
@@ -163,16 +164,19 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
     (label: string) => {
       const t = label.trim()
       if (!t) return
-      setState((s) => ({
-        ...s,
-        workItemPresetLabels: sortWorkItemLabelsList(s.workItemPresetLabels.filter((x) => x !== t)),
-        workLog: {
-          ...s.workLog,
-          customWorkItemLabels: sortWorkItemLabelsList(
-            (s.workLog.customWorkItemLabels ?? []).filter((x) => x !== t),
+      setState((s) => {
+        const had = s.workItemPresetLabels.includes(t)
+        return {
+          ...s,
+          workItemPresetLabels: sortWorkItemLabelsList(
+            s.workItemPresetLabels.filter((x) => x !== t),
           ),
-        },
-      }))
+          workItemPresetLabelsDeleted: had
+            ? appendWorkItemPresetLabelTombstone(s.workItemPresetLabelsDeleted, t)
+            : s.workItemPresetLabelsDeleted,
+          workLog: removeCustomWorkItemLabel(s.workLog, t),
+        }
+      })
     },
     [setState],
   )
@@ -692,6 +696,14 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               <button
                 type="button"
                 className="btn primary"
+                disabled={jsonBin.cloudUploadRetrying}
+                onClick={() => jsonBin.retryCloudUpload()}
+              >
+                {jsonBin.cloudUploadRetrying ? '重試上傳中…' : '重試上傳'}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
                 onClick={() => jsonBin.dismissCloudUploadBlock()}
               >
                 暫停雲端上傳並繼續使用

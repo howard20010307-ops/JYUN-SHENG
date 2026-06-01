@@ -6,6 +6,14 @@
  * - 總出工數：跨所有案場，同日同人之天數加總；餐為金額加總
  */
 
+import {
+  appendTombstone,
+  appendTombstones,
+  mergeTombstones,
+  normalizeTombstones,
+  type Tombstone,
+} from './tombstones'
+
 export const DEFAULT_STAFF = ['蕭上彬', '楊家全', '劉子瑜', '陳建良', '黃致揚'] as const
 export type StaffName = (typeof DEFAULT_STAFF)[number]
 
@@ -263,6 +271,19 @@ export type SalaryBook = {
   /** 對應「員工總出工及薪水計算」橫向分期欄 */
   periodColumns: PeriodColumn[]
   months: MonthSheetData[]
+  /**
+   * 已刪除之月表 id 墓碑：阻止下次同步把已刪整月從雲端帶回。詳見 `tombstones.ts`。
+   */
+  deletedMonthIds?: import('./tombstones').Tombstone[]
+  /**
+   * 已刪除之案場區塊 id 墓碑（鍵為 block.id，跨月唯一）：阻止下次同步把已刪案場區塊從雲端帶回。
+   */
+  deletedSiteBlockIds?: import('./tombstones').Tombstone[]
+  /**
+   * 已刪除之施工人員姓名墓碑（全書層級；鍵為員工姓名字串，由 {@link removeWorkerFromBook} 寫入）：
+   * 阻止下次同步把已刪人員之 grid／預支／調工／加班 等 record 從雲端帶回。
+   */
+  deletedStaffNames?: import('./tombstones').Tombstone[]
 }
 
 export function padArray(arr: number[] | undefined, len: number): number[] {
@@ -1096,7 +1117,10 @@ export function addOrEnsureWorkerInMonth(
   }
 }
 
-/** 全書刪除人員：各月與各案場移除該鍵（日薪、格線、預支、調工、加班列） */
+/**
+ * 全書刪除人員：各月與各案場移除該鍵（日薪、格線、預支、調工、加班列），並寫入人員姓名墓碑，
+ * 阻止下次同步把該人員之資料從雲端帶回（見 `tombstones.ts`）。
+ */
 export function removeWorkerFromBook(
   book: SalaryBook,
   nameRaw: string,
@@ -1115,7 +1139,11 @@ export function removeWorkerFromBook(
   }
   const months = book.months.map((m) => removeWorkerFromMonth(m, name))
   return {
-    book: { ...book, months },
+    book: {
+      ...book,
+      months,
+      deletedStaffNames: tombstoneSalaryBookStaffName(book, name),
+    },
     ok: true,
     message: `已刪除「${name}」（全書各月）。`,
   }
@@ -2915,6 +2943,163 @@ export function collapseMonthSheetsWithIdenticalDateColumns(book: SalaryBook): {
   }
 }
 
+/** 從 raw 物件讀回墓碑欄位，正規化為陣列。 */
+function readSalaryBookTombstones(raw: unknown): {
+  deletedMonthIds: Tombstone[]
+  deletedSiteBlockIds: Tombstone[]
+  deletedStaffNames: Tombstone[]
+} {
+  if (!raw || typeof raw !== 'object') {
+    return { deletedMonthIds: [], deletedSiteBlockIds: [], deletedStaffNames: [] }
+  }
+  const r = raw as Record<string, unknown>
+  return {
+    deletedMonthIds: normalizeTombstones(r.deletedMonthIds),
+    deletedSiteBlockIds: normalizeTombstones(r.deletedSiteBlockIds),
+    deletedStaffNames: normalizeTombstones(r.deletedStaffNames),
+  }
+}
+
+/** 把墓碑套用到一張 `MonthSheetData`（過濾死區塊 id 與死人員鍵）。 */
+function applyTombstonesToMonthSheet(
+  m: MonthSheetData,
+  deadBlocks: Set<string>,
+  deadStaff: Set<string>,
+): MonthSheetData {
+  const omitDeadStaffKeys = (rec: Record<string, number[]>): Record<string, number[]> => {
+    if (deadStaff.size === 0) return rec
+    const out: Record<string, number[]> = {}
+    for (const [k, v] of Object.entries(rec)) {
+      if (!deadStaff.has(k)) out[k] = v
+    }
+    return out
+  }
+  const omitDeadStaffRates = (rec: Record<string, number>): Record<string, number> => {
+    if (deadStaff.size === 0) return rec
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(rec)) {
+      if (!deadStaff.has(k)) out[k] = v
+    }
+    return out
+  }
+  const blocks = m.blocks
+    .filter((b) => !deadBlocks.has(b.id))
+    .map((b) =>
+      deadStaff.size === 0
+        ? b
+        : { ...b, grid: omitDeadStaffKeys(b.grid) },
+    )
+  return {
+    ...m,
+    blocks,
+    rateJun: omitDeadStaffRates(m.rateJun),
+    rateTsai: omitDeadStaffRates(m.rateTsai),
+    advances: omitDeadStaffKeys(m.advances),
+    junAdjustDays: omitDeadStaffKeys(m.junAdjustDays),
+    tsaiAdjustDays: omitDeadStaffKeys(m.tsaiAdjustDays),
+    junOtHours: omitDeadStaffKeys(m.junOtHours),
+    tsaiOtHours: omitDeadStaffKeys(m.tsaiOtHours),
+  }
+}
+
+/**
+ * 將整本書套上墓碑：刪除已記為死亡之月表、案場區塊與人員鍵；
+ * 固定每月人員（{@link MONTH_STAFF_FIXED}）即便有墓碑亦不刪（與 `removeWorkerFromBook` 一致），
+ * 仍由 `ensureFixedMonthStaffInSheet` 保留。
+ *
+ * 兼具墓碑欄位「正規化」（去掉雜訊／合併同 id 取較新時刻／套用 TTL），故重複呼叫安全。
+ */
+export function applySalaryBookTombstones(book: SalaryBook): SalaryBook {
+  const tombMonth = normalizeTombstones(book.deletedMonthIds)
+  const tombBlock = normalizeTombstones(book.deletedSiteBlockIds)
+  const tombStaffRaw = normalizeTombstones(book.deletedStaffNames)
+  const deadMonth = new Set(tombMonth.map((t) => t.id))
+  const deadBlock = new Set(tombBlock.map((t) => t.id))
+  const deadStaff = new Set(
+    tombStaffRaw
+      .map((t) => t.id)
+      .filter((n) => !(MONTH_STAFF_FIXED as readonly string[]).includes(n)),
+  )
+  const monthsFiltered = book.months.filter((m) => !deadMonth.has(m.id))
+  const monthsWithDeadStaff =
+    deadBlock.size === 0 && deadStaff.size === 0
+      ? monthsFiltered
+      : monthsFiltered.map((m) => applyTombstonesToMonthSheet(m, deadBlock, deadStaff))
+  return {
+    ...book,
+    months: monthsWithDeadStaff,
+    deletedMonthIds: tombMonth.length > 0 ? tombMonth : undefined,
+    deletedSiteBlockIds: tombBlock.length > 0 ? tombBlock : undefined,
+    deletedStaffNames: tombStaffRaw.length > 0 ? tombStaffRaw : undefined,
+  }
+}
+
+/** 雙邊墓碑聯集 → 套到 base 之 deleted* 欄位並回傳新 book。 */
+export function mergeSalaryBookTombstones(local: SalaryBook, remote: SalaryBook): SalaryBook {
+  const deletedMonthIds = mergeTombstones(local.deletedMonthIds, remote.deletedMonthIds)
+  const deletedSiteBlockIds = mergeTombstones(local.deletedSiteBlockIds, remote.deletedSiteBlockIds)
+  const deletedStaffNames = mergeTombstones(local.deletedStaffNames, remote.deletedStaffNames)
+  return {
+    ...local,
+    deletedMonthIds: deletedMonthIds.length > 0 ? deletedMonthIds : undefined,
+    deletedSiteBlockIds: deletedSiteBlockIds.length > 0 ? deletedSiteBlockIds : undefined,
+    deletedStaffNames: deletedStaffNames.length > 0 ? deletedStaffNames : undefined,
+  }
+}
+
+/** 載入時讀回原 JSON 上之墓碑欄位並掛回 SalaryBook（供 migrate 路徑使用）。 */
+export function attachSalaryBookTombstonesFromRaw(book: SalaryBook, raw: unknown): SalaryBook {
+  const t = readSalaryBookTombstones(raw)
+  return {
+    ...book,
+    deletedMonthIds: t.deletedMonthIds.length > 0 ? t.deletedMonthIds : undefined,
+    deletedSiteBlockIds: t.deletedSiteBlockIds.length > 0 ? t.deletedSiteBlockIds : undefined,
+    deletedStaffNames: t.deletedStaffNames.length > 0 ? t.deletedStaffNames : undefined,
+  }
+}
+
+/** UI 刪除整月時呼叫：在 book 上記下「現在刪除某 month id」之墓碑。 */
+export function tombstoneSalaryBookMonthId(
+  book: SalaryBook,
+  monthId: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = monthId.trim()
+  if (!t) return book.deletedMonthIds ?? []
+  return appendTombstone(book.deletedMonthIds, t, deletedAt)
+}
+
+/** UI 刪除案場區塊時呼叫：在 book 上記下「現在刪除某 block id」之墓碑。 */
+export function tombstoneSalaryBookSiteBlockId(
+  book: SalaryBook,
+  blockId: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = blockId.trim()
+  if (!t) return book.deletedSiteBlockIds ?? []
+  return appendTombstone(book.deletedSiteBlockIds, t, deletedAt)
+}
+
+/** 一次刪多個 block id（例：刪整月時連同其下所有 block 一併墓碑化）。 */
+export function tombstoneSalaryBookSiteBlockIds(
+  book: SalaryBook,
+  blockIds: readonly string[],
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  return appendTombstones(book.deletedSiteBlockIds, blockIds, deletedAt)
+}
+
+/** UI 刪除人員時呼叫：在 book 上記下「現在刪除某員工姓名」之墓碑。 */
+export function tombstoneSalaryBookStaffName(
+  book: SalaryBook,
+  name: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = name.trim()
+  if (!t) return book.deletedStaffNames ?? []
+  return appendTombstone(book.deletedStaffNames, t, deletedAt)
+}
+
 /** 載入／合併時月表 id 先「併重複月」再「穩定化 id」兩步時，收帳綁定需串聯兩張對照表。 */
 export function composePayrollMonthIdRemaps(
   first: Readonly<Record<string, string>>,
@@ -2934,7 +3119,10 @@ export function composePayrollMonthIdRemaps(
   return out
 }
 
-/** 正規化 → 合併同日期欄之重複月表 → 穩定化 id；備份還原／JSONBin／合併皆應經此得到一致薪水書。 */
+/**
+ * 正規化 → 合併同日期欄之重複月表 → 穩定化 id → 套上墓碑（刪除死月表／死區塊／死人員鍵）；
+ * 備份還原／JSONBin／合併皆應經此得到一致薪水書。
+ */
 export function finalizeSalaryBookPayroll(book: SalaryBook): {
   book: SalaryBook
   remap: PayrollIdsRemap
@@ -2948,7 +3136,7 @@ export function finalizeSalaryBookPayroll(book: SalaryBook): {
     stabilized.remap.monthByOldId,
   )
   return {
-    book: stabilized.book,
+    book: applySalaryBookTombstones(stabilized.book),
     remap: {
       monthByOldId,
       blockByOldId: stabilized.remap.blockByOldId,
@@ -3043,10 +3231,16 @@ export function mergeSalaryBookPreferLocalEx(
 ): { book: SalaryBook; remap: PayrollIdsRemap } {
   const l = finalizeSalaryBookPayroll(local).book
   const r = finalizeSalaryBookPayroll(remote).book
+  const deletedMonthIds = mergeTombstones(l.deletedMonthIds, r.deletedMonthIds)
+  const deletedSiteBlockIds = mergeTombstones(l.deletedSiteBlockIds, r.deletedSiteBlockIds)
+  const deletedStaffNames = mergeTombstones(l.deletedStaffNames, r.deletedStaffNames)
   const merged: SalaryBook = {
     version: 1,
     periodColumns: mergePayrollPeriodColumnsPreferLocal(l.periodColumns, r.periodColumns),
     months: mergeMonthsArrayPreferLocal(l.months, r.months),
+    deletedMonthIds: deletedMonthIds.length > 0 ? deletedMonthIds : undefined,
+    deletedSiteBlockIds: deletedSiteBlockIds.length > 0 ? deletedSiteBlockIds : undefined,
+    deletedStaffNames: deletedStaffNames.length > 0 ? deletedStaffNames : undefined,
   }
   return finalizeSalaryBookPayroll(merged)
 }

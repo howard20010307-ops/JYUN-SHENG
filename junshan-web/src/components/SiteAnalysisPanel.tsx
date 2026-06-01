@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   contractAmountOf,
   createContractContentLine,
+  tombstoneContractContentLineId,
   type ContractContentLine,
   type ContractContentState,
 } from '../domain/contractContentModel'
@@ -375,7 +376,11 @@ export function SiteAnalysisPanel({
       window.alert(`此合約列已有 ${linkedCount} 筆收帳綁定，請先在收帳解除或改綁後再刪除。`)
       return
     }
-    setContractContents((prev) => ({ ...prev, lines: prev.lines.filter((x) => x.id !== id) }))
+    setContractContents((prev) => ({
+      ...prev,
+      lines: prev.lines.filter((x) => x.id !== id),
+      deletedLineIds: tombstoneContractContentLineId(prev, id),
+    }))
   }
 
   return (
@@ -384,7 +389,7 @@ export function SiteAnalysisPanel({
       <p className="hint">
         僅供分析，唯讀不回寫。資料來源：工作日誌＋收帳＋薪水月表。收入以收帳掛載；
         棟/樓層/階段以工作日誌分類；合約／收帳／日誌之棟樓階段會折疊全形與多餘空白；空欄在損益分組時與「未填」相同。薪資與工數依月表同日同案場人員資料計算；儀器成本列入營業費用（儀器）。
-        「未對應收帳」且階段為日期區間時，會依下方出工明細對齊：薪資／餐費／工數以棟樓階段皆未填者為準；儀器為該日明細「儀器」加總（含錨點區塊掛在有填階段者）併入請款列並自對應列扣回。
+        「未對應收帳」且階段為日期區間時，會依下方出工明細對齊：薪資／餐費／工數以棟樓階段皆未填者為準；儀器與工作日誌各案場區塊台數一致（有台數依單價；無台數則依工天分攤當日儀器支出），併入請款列時自對應明細扣回。
       </p>
       <div className="btnRow" style={{ marginBottom: 10 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

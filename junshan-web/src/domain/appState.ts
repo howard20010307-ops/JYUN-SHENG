@@ -29,9 +29,11 @@ import {
 import {
   initialSortedWorkItemPresetLabels,
   migrateWorkItemPresetLabels,
+  normalizeWorkItemPresetLabelTombstones,
 } from './workItemPresets'
 import { migrateCustomLaborReportLines } from './quoteCustomLaborReport'
 import { migrateQuoteOwnerClient } from './quoteEngine'
+import type { Tombstone } from './tombstones'
 import {
   initialCustomLaborWorkspace,
   migrateCustomLaborWorkspace,
@@ -89,6 +91,12 @@ export type AppState = {
   ledgerYear: number
   /** 工作日誌／快速登記「工作內容」datalist 預設項（與放樣估價分開；依字長排序） */
   workItemPresetLabels: string[]
+  /**
+   * `workItemPresetLabels` 之刪除墓碑（鍵為字串本身），阻止下次同步把已刪選項從雲端帶回。
+   * 詳見 `tombstones.ts`／`workItemPresets.ts`。
+   * 無墓碑時為 **空陣列**（不可 `undefined`）：`JSON.stringify` 會略過 `undefined` 欄位，導致雲端上傳校驗失敗。
+   */
+  workItemPresetLabelsDeleted: Tombstone[]
   workLog: WorkLogState
   receivables: ReceivablesState
   /** 工作明細：獨立於放樣估價案場（對外文件之一） */
@@ -115,6 +123,7 @@ const APP_STATE_FIELD_GUARD: Record<keyof AppState, true> = {
   months: true,
   ledgerYear: true,
   workItemPresetLabels: true,
+  workItemPresetLabelsDeleted: true,
   workLog: true,
   receivables: true,
   customLaborWorkspace: true,
@@ -190,6 +199,7 @@ export function initialAppState(): AppState {
     months: defaultLedger(),
     ledgerYear: inferPayrollYearFromBook(salaryBook),
     workItemPresetLabels: initialSortedWorkItemPresetLabels(),
+    workItemPresetLabelsDeleted: [],
     workLog: initialWorkLogState(),
     receivables: initialReceivablesState(),
     customLaborWorkspace: initialCustomLaborWorkspace(),
@@ -237,7 +247,14 @@ export function migrateAppState(loaded: unknown): AppState {
     d.workLog && typeof d.workLog === 'object' && d.workLog !== null
       ? migrateWorkLogState(d.workLog)
       : init.workLog
-  const workItemPresetLabels = migrateWorkItemPresetLabels(d.workItemPresetLabels, workLog)
+  const workItemPresetLabelsDeleted = normalizeWorkItemPresetLabelTombstones(
+    (d as Record<string, unknown>).workItemPresetLabelsDeleted,
+  )
+  const workItemPresetLabels = migrateWorkItemPresetLabels(
+    d.workItemPresetLabels,
+    workLog,
+    workItemPresetLabelsDeleted,
+  )
 
   const rawSiteLegacy =
     d.site && typeof d.site === 'object' ? (d.site as Record<string, unknown>) : null
@@ -293,6 +310,7 @@ export function migrateAppState(loaded: unknown): AppState {
     months: Array.isArray(d.months) ? mergeStoredMonthLines(d.months as unknown[]) : init.months,
     ledgerYear,
     workItemPresetLabels,
+    workItemPresetLabelsDeleted,
     workLog,
     receivables:
       d.receivables !== undefined && d.receivables !== null

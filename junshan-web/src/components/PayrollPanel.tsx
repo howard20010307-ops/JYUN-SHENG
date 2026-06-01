@@ -35,6 +35,9 @@ import {
   monthSheetCalendarMonth,
   monthSheetSelectOptionLabel,
   autoPayrollPeriodColumns,
+  tombstoneSalaryBookMonthId,
+  tombstoneSalaryBookSiteBlockId,
+  tombstoneSalaryBookSiteBlockIds,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import type { WorkLogState } from '../domain/workLogModel'
@@ -393,8 +396,18 @@ export function PayrollPanel({
 
   function removeMonth(id: string) {
     setSalaryBook((b) => {
+      const target = b.months.find((x) => x.id === id)
+      const blockIdsInsideMonth = target ? target.blocks.map((bk) => bk.id) : []
       const rest = b.months.filter((x) => x.id !== id)
-      return { ...b, months: rest }
+      return {
+        ...b,
+        months: rest,
+        deletedMonthIds: tombstoneSalaryBookMonthId(b, id),
+        deletedSiteBlockIds:
+          blockIdsInsideMonth.length > 0
+            ? tombstoneSalaryBookSiteBlockIds(b, blockIdsInsideMonth)
+            : b.deletedSiteBlockIds,
+      }
     })
   }
 
@@ -819,12 +832,20 @@ export function PayrollPanel({
                   type="button"
                   className="btn danger ghost"
                   disabled={month.blocks.length <= 1}
-                  onClick={() =>
-                    patchMonth(month.id, (m) => ({
-                      ...m,
-                      blocks: m.blocks.filter((_, j) => j !== bi),
+                  onClick={() => {
+                    const blockId = month.blocks[bi]?.id ?? ''
+                    setSalaryBook((b) => ({
+                      ...b,
+                      months: b.months.map((m) =>
+                        m.id === month.id
+                          ? { ...m, blocks: m.blocks.filter((_, j) => j !== bi) }
+                          : m,
+                      ),
+                      deletedSiteBlockIds: blockId
+                        ? tombstoneSalaryBookSiteBlockId(b, blockId)
+                        : b.deletedSiteBlockIds,
                     }))
-                  }
+                  }}
                 >
                   刪除此案場
                 </button>

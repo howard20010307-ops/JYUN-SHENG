@@ -20,6 +20,7 @@ export const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'months',
   'ledgerYear',
   'workItemPresetLabels',
+  'workItemPresetLabelsDeleted',
   'workLog',
   'receivables',
   'customLaborWorkspace',
@@ -39,6 +40,7 @@ const WIRE_DATA_KEYS_GUARD: Record<keyof AppState, true> = {
   months: true,
   ledgerYear: true,
   workItemPresetLabels: true,
+  workItemPresetLabelsDeleted: true,
   workLog: true,
   receivables: true,
   customLaborWorkspace: true,
@@ -142,6 +144,9 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   }
   if (!Array.isArray(data.workItemPresetLabels)) {
     throw new Error('上傳中止：workItemPresetLabels 必須為陣列。')
+  }
+  if (!Array.isArray(data.workItemPresetLabelsDeleted)) {
+    throw new Error('上傳中止：workItemPresetLabelsDeleted 必須為陣列。')
   }
   const qv = data.quoteRowsSchemaVersion
   if (typeof qv !== 'number' || !Number.isFinite(qv)) {

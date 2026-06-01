@@ -14,6 +14,7 @@ import {
   sumEntriesInYear,
   sumEntriesNetTaxGross,
   taxFromNet,
+  tombstoneReceivableEntryId,
   type ReceivableEntry,
 } from '../domain/receivablesModel'
 import { phasePeriodLabelFromIsoRange, phaseRangeDateFieldsFromText } from '../domain/receivablePhaseRange'
@@ -356,10 +357,15 @@ export function ReceivablesPanel({
       if (!canEdit) return
       if (!window.confirm('確定刪除此筆入帳？')) return
       setReceivables((prev) => {
-        const p = prev
+        /**
+         * 刪除一列必須同步寫入「墓碑」，否則本機刪掉後若雲端仍持有此 id，下次 JSONBin 同步會把它帶回來；
+         * 跨裝置場景亦同。墓碑由 {@link mergeReceivablesPreferLocal} 雙邊聯集處理。
+         */
+        const deletedEntryIds = tombstoneReceivableEntryId(prev, id)
         return {
-          ...p,
-          entries: sortReceivableEntriesByBookedDate(p.entries.filter((x) => x.id !== id)),
+          ...prev,
+          entries: sortReceivableEntriesByBookedDate(prev.entries.filter((x) => x.id !== id)),
+          deletedEntryIds,
         }
       })
     },

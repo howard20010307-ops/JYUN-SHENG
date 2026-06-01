@@ -14,6 +14,8 @@ import {
   createPricingRow,
   initialPricingWorkspace,
   pricingLineSubtotalNet,
+  tombstonePricingRemarkLineId,
+  tombstonePricingRowId,
   type PricingRow,
   type PricingWorkspaceState,
 } from '../domain/pricingWorkspace'
@@ -604,6 +606,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                           setWorkspace((w) => ({
                             ...w,
                             rows: w.rows.filter((x) => x.id !== row.id),
+                            deletedRowIds: tombstonePricingRowId(w, row.id),
                           }))
                         }
                       >
@@ -716,6 +719,7 @@ export function PricingWorkspacePanel({ workspace, setWorkspace, contractContent
                     setWorkspace((w) => ({
                       ...w,
                       remarkLines: w.remarkLines.filter((x) => x.id !== line.id),
+                      deletedRemarkLineIds: tombstonePricingRemarkLineId(w, line.id),
                     }))
                   }
                 >

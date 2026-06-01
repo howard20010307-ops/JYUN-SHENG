@@ -1,8 +1,13 @@
 import type { ReceivablesState } from './receivablesModel'
 import type { SalaryBook } from './salaryExcelModel'
-import type { WorkLogState } from './workLogModel'
+import type { WorkLogSiteBlock, WorkLogState } from './workLogModel'
 import { contractAmountOf, type ContractContentState } from './contractContentModel'
-import { effectiveEntriesForCalendar } from './workLogModel'
+import {
+  effectiveEntriesForCalendar,
+  emptyInstrumentQty,
+  instrumentExpenseFromQty,
+  instrumentQtyAnyPositive,
+} from './workLogModel'
 import { QUICK_SITE_JUN_ADJUST, QUICK_SITE_TSAI_ADJUST } from './fieldworkQuickApply'
 import { parsePhaseDateFragmentToIso, parsePhasePeriodRangeStrict } from './receivablePhaseRange'
 import { normalizeSiteDimensionLabel } from './siteDimensionLabels'
@@ -234,7 +239,29 @@ function isUnstructuredSiteDetail(d: SiteAnalysisDetail): boolean {
   return d.dong === '未填' && d.floorLevel === '未填' && d.workPhase === '未填'
 }
 
-/** 從出工明細可溯同日、同案場掛在「有填棟樓階段」列上之儀器（整日文件錨點區塊常落在此）。 */
+/**
+ * 與工作日誌儲存邏輯一致：有結構化台數則依區塊台數×單價；否則依當日工天分攤整日 `instrumentCost`。
+ */
+function instrumentCostForDayBlock(
+  block: WorkLogSiteBlock,
+  blocks: readonly WorkLogSiteBlock[],
+  blockDays: number,
+  totalDays: number,
+  docInstrumentCost: number,
+): number {
+  const hasStructured = blocks.some((b) =>
+    instrumentQtyAnyPositive(b.instrumentQty ?? emptyInstrumentQty()),
+  )
+  if (hasStructured) {
+    return instrumentExpenseFromQty(block.instrumentQty ?? emptyInstrumentQty())
+  }
+  const total = nz(docInstrumentCost)
+  if (total <= 0) return 0
+  if (totalDays > 0) return Math.round(total * (blockDays / totalDays))
+  return Math.round(total / Math.max(1, blocks.length))
+}
+
+/** 從出工明細可溯同日、同案場掛在「有填棟樓階段」列上之儀器（與日誌區塊台數對齊）。 */
 function subtractInstrumentFromStructuredSiteDetailsForDay(
   groupMap: Map<string, MutableGroup>,
   siteKey: string,
@@ -284,7 +311,7 @@ function addToBucket(m: Map<string, CostBucket>, bucketKey: string, partial: Cos
 /**
  * 收帳落在「未對應收帳」且階段可解讀為日期區間時：依案場分析「出工明細」對齊成本。
  * - 薪資／餐費／工數：僅合併棟／樓／階段皆未填之明細，並自「未填」合計列扣回。
- * - 儀器：該日該案場明細「儀器」欄之加總（含掛在有填棟樓階段之錨點列），併入請款列；超出未填列所承擔之部分自對應結構列扣回。
+ * - 儀器：該日該案場出工明細「儀器」加總（與工作日誌區塊台數一致），併入請款列；超出未填列所承擔之部分自對應結構列扣回。
  */
 function reallocateUnfilledDetailCostsToUnmatchedReceivablePhases(
   groupMap: Map<string, MutableGroup>,
@@ -553,15 +580,7 @@ export function buildSiteAnalysis(
     })
     const perBlockDays = perBlock.map((x) => x.days)
     const totalDays = perBlockDays.reduce((sum, x) => sum + x, 0)
-    let instrumentAnchorIdx = 0
-    let instrumentAnchorDays = -1
-    for (let i = 0; i < perBlockDays.length; i++) {
-      const d = nz(perBlockDays[i] ?? 0)
-      if (d > instrumentAnchorDays) {
-        instrumentAnchorDays = d
-        instrumentAnchorIdx = i
-      }
-    }
+    const docInstrumentCost = nz(doc.instrumentCost)
     const siteDaysInDoc = new Map<string, number>()
     const siteBlockCount = new Map<string, number>()
     for (let i = 0; i < blocks.length; i++) {
@@ -581,7 +600,7 @@ export function buildSiteAnalysis(
       const ratioInSite = siteTotalDays > 0 ? blockDays / siteTotalDays : 1 / siteBlocks
       const monthMealForSite = nz(payroll.mealByDateSite.get(dateSiteKey(dateKey, site.key)) ?? 0)
       const meal = monthMealForSite * ratioInSite
-      const instrument = i === instrumentAnchorIdx ? nz(doc.instrumentCost) : 0
+      const instrument = instrumentCostForDayBlock(b, blocks, blockDays, totalDays, docInstrumentCost)
       const key = toGroupKey(site.key, b.dong, b.floorLevel, b.workPhase)
       const g = ensureGroup(groupMap, key, site.display)
       g.mealCost += meal

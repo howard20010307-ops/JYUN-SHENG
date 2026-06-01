@@ -7,6 +7,13 @@ import {
   type ContractContentLine,
 } from './contractContentModel'
 import { migrateQuoteOwnerClient, type QuoteOwnerClient } from './quoteEngine'
+import {
+  appendTombstone,
+  applyTombstonesById,
+  mergeTombstones,
+  normalizeTombstones,
+  type Tombstone,
+} from './tombstones'
 
 export type PricingRow = {
   id: string
@@ -41,6 +48,14 @@ export type PricingWorkspaceState = {
   payer: QuoteOwnerClient
   remarkLines: { id: string; text: string }[]
   rows: PricingRow[]
+  /**
+   * 已刪除之計價列 id 墓碑，阻止下次同步把已刪計價列從雲端帶回。詳見 `tombstones.ts`。
+   */
+  deletedRowIds?: Tombstone[]
+  /**
+   * 已刪除之備註列 id 墓碑，阻止下次同步把已刪備註從雲端帶回。
+   */
+  deletedRemarkLineIds?: Tombstone[]
 }
 
 function safeNum(v: unknown): number {
@@ -129,6 +144,8 @@ export function migratePricingWorkspace(raw: unknown): PricingWorkspaceState {
   const init = initialPricingWorkspace()
   if (!raw || typeof raw !== 'object') return init
   const o = raw as Record<string, unknown>
+  const deletedRowIds = normalizeTombstones(o.deletedRowIds)
+  const deletedRemarkLineIds = normalizeTombstones(o.deletedRemarkLineIds)
   const rowsRaw = Array.isArray(o.rows) ? o.rows : []
   const rows: PricingRow[] = []
   for (let i = 0; i < rowsRaw.length; i++) {
@@ -171,8 +188,10 @@ export function migratePricingWorkspace(raw: unknown): PricingWorkspaceState {
       taxId: str((o.supplier as Record<string, unknown> | undefined)?.taxId) || init.supplier.taxId,
     },
     payer: migrateQuoteOwnerClient(o.payer),
-    remarkLines: migrateRemarkLines(o.remarkLines),
-    rows: ensureStableRowIds(rows),
+    remarkLines: applyTombstonesById(migrateRemarkLines(o.remarkLines), deletedRemarkLineIds),
+    rows: applyTombstonesById(ensureStableRowIds(rows), deletedRowIds),
+    deletedRowIds: deletedRowIds.length > 0 ? deletedRowIds : undefined,
+    deletedRemarkLineIds: deletedRemarkLineIds.length > 0 ? deletedRemarkLineIds : undefined,
   }
 }
 
@@ -256,9 +275,13 @@ export function mergePricingWorkspacePreferLocal(
 ): PricingWorkspaceState {
   const l = migratePricingWorkspace(local)
   const r = migratePricingWorkspace(remote)
+  const deletedRowIds = mergeTombstones(l.deletedRowIds, r.deletedRowIds)
+  const deletedRemarkLineIds = mergeTombstones(l.deletedRemarkLineIds, r.deletedRemarkLineIds)
+  const deadRow = new Set(deletedRowIds.map((t) => t.id))
+  const deadRemark = new Set(deletedRemarkLineIds.map((t) => t.id))
   const byId = new Map<string, PricingRow>()
-  for (const x of r.rows) byId.set(x.id, x)
-  for (const x of l.rows) byId.set(x.id, x)
+  for (const x of r.rows) if (!deadRow.has(x.id)) byId.set(x.id, x)
+  for (const x of l.rows) if (!deadRow.has(x.id)) byId.set(x.id, x)
   return {
     sheetTitle: l.sheetTitle || r.sheetTitle,
     pricingNumber: l.pricingNumber || r.pricingNumber,
@@ -269,11 +292,35 @@ export function mergePricingWorkspacePreferLocal(
     payer: { ...r.payer, ...l.payer },
     remarkLines: (() => {
       const byId = new Map<string, { id: string; text: string }>()
-      for (const x of r.remarkLines) byId.set(x.id, x)
-      for (const x of l.remarkLines) byId.set(x.id, x)
+      for (const x of r.remarkLines) if (!deadRemark.has(x.id)) byId.set(x.id, x)
+      for (const x of l.remarkLines) if (!deadRemark.has(x.id)) byId.set(x.id, x)
       return [...byId.values()]
     })(),
     rows: ensureStableRowIds([...byId.values()].map(normalizeRow)),
+    deletedRowIds: deletedRowIds.length > 0 ? deletedRowIds : undefined,
+    deletedRemarkLineIds: deletedRemarkLineIds.length > 0 ? deletedRemarkLineIds : undefined,
   }
+}
+
+/** UI 刪除計價列時呼叫：把 id 寫入墓碑名單。 */
+export function tombstonePricingRowId(
+  state: PricingWorkspaceState,
+  id: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = id.trim()
+  if (!t) return state.deletedRowIds ?? []
+  return appendTombstone(state.deletedRowIds, t, deletedAt)
+}
+
+/** UI 刪除備註列時呼叫：把 id 寫入墓碑名單。 */
+export function tombstonePricingRemarkLineId(
+  state: PricingWorkspaceState,
+  id: string,
+  deletedAt: number = Date.now(),
+): Tombstone[] {
+  const t = id.trim()
+  if (!t) return state.deletedRemarkLineIds ?? []
+  return appendTombstone(state.deletedRemarkLineIds, t, deletedAt)
 }
 
