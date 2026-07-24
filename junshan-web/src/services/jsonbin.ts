@@ -1,5 +1,5 @@
 import { gzip, gunzip, strFromU8, strToU8 } from 'fflate'
-import { migrateAppState, type AppState } from '../domain/appState'
+import { initialAppState, migrateAppState, type AppState } from '../domain/appState'
 import {
   assertJsonBinBackupWireStringComplete,
   stringifyAppBackupCompact,
@@ -306,6 +306,18 @@ function extractAppStatePayload(record: unknown): unknown {
   return record
 }
 
+function patchMissingWireKeys(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') return payload
+  const init = initialAppState()
+  const out = { ...(payload as Record<string, unknown>) }
+  for (const k of WIRE_DATA_KEYS) {
+    if (!(k in out)) {
+      out[k] = init[k]
+    }
+  }
+  return out
+}
+
 function isUsableAppPayload(loaded: unknown): boolean {
   if (!loaded || typeof loaded !== 'object') return false
   const d = loaded as Record<string, unknown>
@@ -319,6 +331,8 @@ function isUsableAppPayload(loaded: unknown): boolean {
   if (!d.quotationWorkspace || typeof d.quotationWorkspace !== 'object') return false
   if (!d.contractContents || typeof d.contractContents !== 'object') return false
   if (!d.pricingWorkspace || typeof d.pricingWorkspace !== 'object') return false
+  if (!d.debtConfirmationWorkspace || typeof d.debtConfirmationWorkspace !== 'object') return false
+  if (!d.contractWorkspace || typeof d.contractWorkspace !== 'object') return false
   return true
 }
 
@@ -357,7 +371,8 @@ export async function downloadAppStateFromJsonBin(): Promise<JsonBinDownloadResu
   const record = j.record !== undefined ? j.record : (j as unknown)
   const root = await jsonBinRecordToRootObject(record)
   const exportedAtMs = exportedAtMsFromBackupRoot(root)
-  const payload = extractAppStatePayload(root)
+  const rawPayload = extractAppStatePayload(root)
+  const payload = patchMissingWireKeys(rawPayload)
   if (payload == null || !isUsableAppPayload(payload)) return null
   return { state: migrateAppState(payload), exportedAtMs }
 }

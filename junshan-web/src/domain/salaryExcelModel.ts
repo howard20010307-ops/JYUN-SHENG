@@ -1,9 +1,11 @@
 /**
  * 與《2026鈞泩薪水統計》月表邏輯對齊：
- * - 案場區塊：每人每日欄位為「天數」可小數；總天數 = SUM(日期欄)；總計(P) = 總天數 × 鈞泩日薪
+ * - 案場區塊：每人每日欄位為「天數」可小數；總天數 = SUM(日期欄)；
+ *   總計(P) = Σ（該日出工 × 當日適用鈞泩日薪）；無調薪紀錄時等同「總天數 × 月表日薪」
  * - 餐列：各日期欄為「金額」；總計(P) = SUM(日期欄)（與 Excel 餐列公式一致）
  * - 區塊總計列：各日期欄 = 各員工該日之和（不含餐）；總計(P) 為區塊內各人員＋餐之總計(P)相加
  * - 總出工數：跨所有案場，同日同人之天數加總；餐為金額加總
+ * - 調薪：`rateChanges` 自生效日起覆寫該線日薪；生效日前仍用月表 `rateJun`／`rateTsai`
  */
 
 import {
@@ -205,7 +207,12 @@ export function stabilizeSalaryBookPayrollIds(book: SalaryBook): {
       return { ...b, id: nid }
     })
 
-    return { ...m, id: newMid, blocks: newBlocks }
+    const rateChanges = rewriteStaffRateChangeIdsForMonth(
+      m.rateChanges,
+      m.id,
+      newMid,
+    )
+    return { ...m, id: newMid, blocks: newBlocks, rateChanges }
   })
 
   if (monthRemap.size === 0 && blockRemap.size === 0) {
@@ -233,13 +240,28 @@ export function siteBlockLabelForSummary(siteNameRaw: string): string {
   return t || '（未命名案場）'
 }
 
+/** 月中起算之日薪調整（掛在該張月表；生效日前用月表預設日薪） */
+export type StaffRateChange = {
+  id: string
+  staffName: string
+  line: 'jun' | 'tsai'
+  /** ISO 日期 YYYY-MM-DD；自該日起（含）適用新日薪 */
+  effectiveFrom: string
+  rate: number
+}
+
 export type MonthSheetData = {
   id: string
   label: string
   dates: string[]
-  /** 鈞泩日薪／蔡董日薪（與各月表頭一致） */
+  /** 鈞泩日薪／蔡董日薪（與各月表頭一致；無調薪紀錄時整月使用） */
   rateJun: Record<string, number>
   rateTsai: Record<string, number>
+  /**
+   * 生效日調薪：自 `effectiveFrom` 起覆寫對應線日薪。
+   * 穩定鍵見 {@link buildStaffRateChangeId}。
+   */
+  rateChanges?: StaffRateChange[]
   blocks: SiteBlock[]
   /** 預支：金額，與 dates 等長 */
   advances: Record<string, number[]>
@@ -251,6 +273,159 @@ export type MonthSheetData = {
   junOtHours: Record<string, number[]>
   /** 蔡董加班時數 */
   tsaiOtHours: Record<string, number[]>
+  /** 鈞泩手動加班費（元／日欄；快速登記時數為 0 時入帳） */
+  junOtManualPay?: Record<string, number[]>
+  /** 蔡董手動加班費（元／日欄） */
+  tsaiOtManualPay?: Record<string, number[]>
+}
+
+/** 新建／覆寫調薪列之穩定 id（同月＋人＋線＋生效日 → 同一鍵）。 */
+export function buildStaffRateChangeId(
+  monthSheetId: string,
+  staffName: string,
+  line: 'jun' | 'tsai',
+  effectiveFrom: string,
+): string {
+  const slug = slugForStableBlockIdSegment(staffName.trim() || 'x')
+  const from = effectiveFrom.trim().slice(0, 10)
+  return `rc--${monthSheetId}--${line}--${slug}--${from}`
+}
+
+function sortStaffRateChanges(list: readonly StaffRateChange[]): StaffRateChange[] {
+  return [...list].sort((a, b) => {
+    const d = a.effectiveFrom.localeCompare(b.effectiveFrom)
+    if (d !== 0) return d
+    const ln = a.line.localeCompare(b.line)
+    if (ln !== 0) return ln
+    const n = a.staffName.localeCompare(b.staffName, 'zh-Hant')
+    if (n !== 0) return n
+    return a.id.localeCompare(b.id)
+  })
+}
+
+function normalizeStaffRateChanges(
+  monthId: string,
+  raw: unknown,
+): StaffRateChange[] {
+  if (!Array.isArray(raw)) return []
+  const out: StaffRateChange[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const staffName = typeof o.staffName === 'string' ? o.staffName.trim() : ''
+    const line = o.line === 'tsai' ? 'tsai' : o.line === 'jun' ? 'jun' : null
+    const effectiveFrom =
+      typeof o.effectiveFrom === 'string' ? o.effectiveFrom.trim().slice(0, 10) : ''
+    const rate = typeof o.rate === 'number' && Number.isFinite(o.rate) ? o.rate : NaN
+    if (!staffName || !line || !ISO_DATE_RE.test(effectiveFrom) || !Number.isFinite(rate))
+      continue
+    const id = buildStaffRateChangeId(monthId, staffName, line, effectiveFrom)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, staffName, line, effectiveFrom, rate })
+  }
+  return sortStaffRateChanges(out)
+}
+
+function rewriteStaffRateChangeIdsForMonth(
+  list: StaffRateChange[] | undefined,
+  oldMonthId: string,
+  newMonthId: string,
+): StaffRateChange[] | undefined {
+  const normalized = normalizeStaffRateChanges(newMonthId, list ?? [])
+  if (normalized.length === 0) return undefined
+  if (oldMonthId === newMonthId) return normalized
+  return normalized
+}
+
+/**
+ * 查某日適用之日薪：取「生效日 ≤ 該日」之最近一筆調薪；若無則用月表預設。
+ */
+export function staffRateOnDate(
+  month: MonthSheetData,
+  staffName: string,
+  line: 'jun' | 'tsai',
+  isoDate: string,
+): number {
+  const base =
+    line === 'jun' ? (month.rateJun[staffName] ?? 0) : (month.rateTsai[staffName] ?? 0)
+  const day = typeof isoDate === 'string' ? isoDate.trim().slice(0, 10) : ''
+  if (!day) return base
+  let best: StaffRateChange | null = null
+  for (const c of month.rateChanges ?? []) {
+    if (c.staffName !== staffName || c.line !== line) continue
+    if (c.effectiveFrom > day) continue
+    if (
+      !best ||
+      c.effectiveFrom > best.effectiveFrom ||
+      (c.effectiveFrom === best.effectiveFrom && c.id.localeCompare(best.id) > 0)
+    ) {
+      best = c
+    }
+  }
+  return best ? best.rate : base
+}
+
+/** 格線列：Σ（日出工 × 當日鈞泩日薪） */
+export function staffRowJunPay(month: MonthSheetData, staffName: string, dayRow: number[]): number {
+  const row = padArray(dayRow, month.dates.length)
+  let t = 0
+  for (let j = 0; j < month.dates.length; j++) {
+    const d = row[j] ?? 0
+    if (d === 0) continue
+    t += d * staffRateOnDate(month, staffName, 'jun', month.dates[j] ?? '')
+  }
+  return t
+}
+
+/** 新增或覆寫一筆調薪（同人同線同生效日 → 同一 id） */
+export function upsertStaffRateChange(
+  month: MonthSheetData,
+  input: {
+    staffName: string
+    line: 'jun' | 'tsai'
+    effectiveFrom: string
+    rate: number
+  },
+): MonthSheetData {
+  const staffName = input.staffName.trim()
+  const effectiveFrom = input.effectiveFrom.trim().slice(0, 10)
+  const rate = Number.isFinite(input.rate) ? input.rate : 0
+  if (!staffName || !ISO_DATE_RE.test(effectiveFrom)) return month
+  const id = buildStaffRateChangeId(month.id, staffName, input.line, effectiveFrom)
+  const entry: StaffRateChange = {
+    id,
+    staffName,
+    line: input.line,
+    effectiveFrom,
+    rate,
+  }
+  const others = (month.rateChanges ?? []).filter((c) => c.id !== id)
+  return { ...month, rateChanges: sortStaffRateChanges([...others, entry]) }
+}
+
+export function removeStaffRateChange(
+  month: MonthSheetData,
+  changeId: string,
+): MonthSheetData {
+  const id = changeId.trim()
+  if (!id) return month
+  const next = (month.rateChanges ?? []).filter((c) => c.id !== id)
+  if (next.length === (month.rateChanges ?? []).length) return month
+  return { ...month, rateChanges: next.length > 0 ? next : undefined }
+}
+
+function mergeStaffRateChangesPreferLocal(
+  local: StaffRateChange[] | undefined,
+  remote: StaffRateChange[] | undefined,
+  monthId: string,
+): StaffRateChange[] | undefined {
+  const byId = new Map<string, StaffRateChange>()
+  for (const c of normalizeStaffRateChanges(monthId, remote ?? [])) byId.set(c.id, c)
+  for (const c of normalizeStaffRateChanges(monthId, local ?? [])) byId.set(c.id, c)
+  const merged = sortStaffRateChanges([...byId.values()])
+  return merged.length > 0 ? merged : undefined
 }
 
 export type PeriodColumn = {
@@ -302,7 +477,7 @@ export function staffTotalDays(row: number[]): number {
   return sumArr(row)
 }
 
-/** 人員列：總計(P) = 總天數 × 鈞泩日薪 */
+/** 人員列：總計(P) = 總天數 × 鈞泩日薪（無調薪時；有調薪請用 {@link staffRowJunPay}） */
 export function staffTotalPay(days: number, rateJun: number): number {
   return days * rateJun
 }
@@ -323,18 +498,17 @@ export function blockDayColumnTotals(
   )
 }
 
-/** 區塊總計(P)：各人總計(P)＋餐總計(P) */
+/** 區塊總計(P)：各人總計(P)＋餐總計(P)（逐日套用當日鈞泩日薪） */
 export function blockGrandPay(
   block: SiteBlock,
   staff: readonly string[],
-  rateJun: Record<string, number>,
+  month: MonthSheetData,
 ): number {
   let t = 0
   for (const name of staff) {
-    const days = staffTotalDays(padArray(block.grid[name], block.meal.length))
-    t += staffTotalPay(days, rateJun[name] ?? 0)
+    t += staffRowJunPay(month, name, block.grid[name] ?? [])
   }
-  t += mealTotalPay(block.meal)
+  t += mealTotalPay(padArray(block.meal, month.dates.length))
   return t
 }
 
@@ -368,7 +542,7 @@ export function computeGrandTotalSection(
   for (const name of staffList) {
     const d = staffTotalDays(staffRows[name])
     staffTotalsDays[name] = d
-    staffTotalsPay[name] = staffTotalPay(d, month.rateJun[name] ?? 0)
+    staffTotalsPay[name] = staffRowJunPay(month, name, staffRows[name] ?? [])
   }
   const mealPay = mealTotalPay(mealRow)
   return { staffRows, mealRow, staffTotalsDays, staffTotalsPay, mealPay }
@@ -646,11 +820,14 @@ export function monthHasWorkerKey(m: MonthSheetData, n: string): boolean {
   if (!n) return false
   if (n in m.rateJun) return true
   if (n in m.rateTsai) return true
+  if ((m.rateChanges ?? []).some((c) => c.staffName === n)) return true
   if (n in m.advances) return true
   if (n in m.junAdjustDays) return true
   if (n in m.tsaiAdjustDays) return true
   if (n in m.junOtHours) return true
   if (n in m.tsaiOtHours) return true
+  if (n in (m.junOtManualPay ?? {})) return true
+  if (n in (m.tsaiOtManualPay ?? {})) return true
   for (const b of m.blocks) {
     if (n in b.grid) return true
   }
@@ -733,6 +910,8 @@ export function ensureWorkerOnMonth(
     tsaiAdjustDays: padStaff(month.tsaiAdjustDays),
     junOtHours: padStaff(month.junOtHours),
     tsaiOtHours: padStaff(month.tsaiOtHours),
+    junOtManualPay: padStaff(month.junOtManualPay ?? {}),
+    tsaiOtManualPay: padStaff(month.tsaiOtManualPay ?? {}),
   }
 }
 
@@ -777,16 +956,31 @@ export function renameWorkerInMonth(
   if (savedTsai !== undefined) rateTsai[to] = savedTsai
   else if (gridHasTo) rateTsai[to] = rateTsai[to] ?? 0
 
+  const rateChanges = sortStaffRateChanges(
+    (m.rateChanges ?? []).map((c) => {
+      if (c.staffName !== from) return c
+      const staffName = to
+      return {
+        ...c,
+        staffName,
+        id: buildStaffRateChangeId(m.id, staffName, c.line, c.effectiveFrom),
+      }
+    }),
+  )
+
   return {
     ...m,
     blocks,
     rateJun,
     rateTsai,
+    rateChanges: rateChanges.length > 0 ? rateChanges : undefined,
     advances: renameStaffGridRecord(m.advances, from, to, len),
     junAdjustDays: renameStaffGridRecord(m.junAdjustDays, from, to, len),
     tsaiAdjustDays: renameStaffGridRecord(m.tsaiAdjustDays, from, to, len),
     junOtHours: renameStaffGridRecord(m.junOtHours, from, to, len),
     tsaiOtHours: renameStaffGridRecord(m.tsaiOtHours, from, to, len),
+    junOtManualPay: renameStaffGridRecord(m.junOtManualPay ?? {}, from, to, len),
+    tsaiOtManualPay: renameStaffGridRecord(m.tsaiOtManualPay ?? {}, from, to, len),
   }
 }
 
@@ -1049,11 +1243,17 @@ export function removeWorkerFromMonth(m: MonthSheetData, name: string): MonthShe
     }),
     rateJun: omitRateKey(m.rateJun, n),
     rateTsai: omitRateKey(m.rateTsai, n),
+    rateChanges: (() => {
+      const next = (m.rateChanges ?? []).filter((c) => c.staffName !== n)
+      return next.length > 0 ? next : undefined
+    })(),
     advances: omitGridMapKey(m.advances, n),
     junAdjustDays: omitGridMapKey(m.junAdjustDays, n),
     tsaiAdjustDays: omitGridMapKey(m.tsaiAdjustDays, n),
     junOtHours: omitGridMapKey(m.junOtHours, n),
     tsaiOtHours: omitGridMapKey(m.tsaiOtHours, n),
+    junOtManualPay: omitGridMapKey(m.junOtManualPay ?? {}, n),
+    tsaiOtManualPay: omitGridMapKey(m.tsaiOtManualPay ?? {}, n),
   }
 }
 
@@ -1156,12 +1356,16 @@ export function newMonthSheet(label: string, dates: string[]): MonthSheetData {
   const tsaiAdjustDays: Record<string, number[]> = {}
   const junOtHours: Record<string, number[]> = {}
   const tsaiOtHours: Record<string, number[]> = {}
+  const junOtManualPay: Record<string, number[]> = {}
+  const tsaiOtManualPay: Record<string, number[]> = {}
   for (const n of DEFAULT_STAFF) {
     advances[n] = Array(dates.length).fill(0)
     junAdjustDays[n] = Array(dates.length).fill(0)
     tsaiAdjustDays[n] = Array(dates.length).fill(0)
     junOtHours[n] = Array(dates.length).fill(0)
     tsaiOtHours[n] = Array(dates.length).fill(0)
+    junOtManualPay[n] = Array(dates.length).fill(0)
+    tsaiOtManualPay[n] = Array(dates.length).fill(0)
   }
   const mid = stableMonthSheetIdFromDates(dates)
   return {
@@ -1176,6 +1380,29 @@ export function newMonthSheet(label: string, dates: string[]): MonthSheetData {
     tsaiAdjustDays,
     junOtHours,
     tsaiOtHours,
+    junOtManualPay,
+    tsaiOtManualPay,
+  }
+}
+
+function ensureMonthManualOtPayFields(m: MonthSheetData): MonthSheetData {
+  const len = m.dates.length
+  const padRec = (rec: Record<string, number[]> | undefined): Record<string, number[]> => {
+    const o = { ...(rec ?? {}) }
+    const names = new Set<string>([
+      ...DEFAULT_STAFF,
+      ...Object.keys(m.rateJun),
+      ...Object.keys(o),
+    ])
+    for (const n of names) {
+      o[n] = padArray(o[n], len)
+    }
+    return o
+  }
+  return {
+    ...m,
+    junOtManualPay: padRec(m.junOtManualPay),
+    tsaiOtManualPay: padRec(m.tsaiOtManualPay),
   }
 }
 
@@ -1218,6 +1445,7 @@ export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
   const months = bookRenamed.months.map((m) => {
     let mm = reconcileLegacyWorkerNamesInMonth(m)
     mm = ensureFixedMonthStaffInSheet(mm)
+    mm = ensureMonthManualOtPayFields(mm)
     const len = mm.dates.length
     const junAdjustDays: Record<string, number[]> = { ...mm.junAdjustDays }
     const tsaiAdjustDays: Record<string, number[]> = { ...mm.tsaiAdjustDays }
@@ -1225,7 +1453,13 @@ export function normalizeSalaryBook(book: SalaryBook): SalaryBook {
       junAdjustDays[n] = padArray(junAdjustDays[n], len)
       tsaiAdjustDays[n] = padArray(tsaiAdjustDays[n], len)
     }
-    return { ...mm, junAdjustDays, tsaiAdjustDays }
+    const rateChanges = normalizeStaffRateChanges(mm.id, mm.rateChanges)
+    return {
+      ...mm,
+      junAdjustDays,
+      tsaiAdjustDays,
+      rateChanges: rateChanges.length > 0 ? rateChanges : undefined,
+    }
   })
   const withMonths = { ...bookRenamed, months }
   return {
@@ -1473,6 +1707,54 @@ export function tsaiOtHoursInPeriod(
   return h
 }
 
+export function junOtManualPayInPeriod(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    junOtManualPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
+  let s = 0
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = m.junOtManualPay?.[staffName] ?? []
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      s += row[j] ?? 0
+    }
+  }
+  return s
+}
+
+export function tsaiOtManualPayInPeriod(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    tsaiOtManualPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
+  let s = 0
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = m.tsaiOtManualPay?.[staffName] ?? []
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      s += row[j] ?? 0
+    }
+  }
+  return s
+}
+
 function rateJunForStaff(book: SalaryBook, staffName: string, period?: PeriodColumn): number {
   if (period?.monthSheetId) {
     const m = book.months.find((x) => x.id === period.monthSheetId)
@@ -1505,7 +1787,7 @@ function rateTsaiForStaff(book: SalaryBook, staffName: string, period?: PeriodCo
   return 0
 }
 
-/** 與試算表「鈞泩加班費」：時薪 = 鈞泩日薪／8，再乘該期總加班時數 */
+/** 與試算表「鈞泩加班費」：逐日時薪 = 當日鈞泩日薪／8，再加手動加班費 */
 export function junOtPayInPeriod(
   book: SalaryBook,
   staffName: string,
@@ -1518,11 +1800,21 @@ export function junOtPayInPeriod(
     junOtPayInPeriod,
   )
   if (bulk !== undefined) return bulk
-  const h = junOtHoursInPeriod(book, staffName, period)
-  return h * (rateJunForStaff(book, staffName, period) / 8)
+  let s = junOtManualPayInPeriod(book, staffName, period)
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = padArray(m.junOtHours[staffName], m.dates.length)
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      const h = row[j] ?? 0
+      if (h === 0) continue
+      s += h * (staffRateOnDate(m, staffName, 'jun', m.dates[j] ?? '') / 8)
+    }
+  }
+  return s
 }
 
-/** 蔡董加班費：時薪 = 蔡董日薪／8 × 該期蔡董加班時數 */
+/** 蔡董加班費：逐日時薪 = 當日蔡董日薪／8 × 該日蔡董加班時數，再加手動加班費 */
 export function tsaiOtPayInPeriod(
   book: SalaryBook,
   staffName: string,
@@ -1535,16 +1827,53 @@ export function tsaiOtPayInPeriod(
     tsaiOtPayInPeriod,
   )
   if (bulk !== undefined) return bulk
-  const h = tsaiOtHoursInPeriod(book, staffName, period)
-  return h * (rateTsaiForStaff(book, staffName, period) / 8)
+  let s = tsaiOtManualPayInPeriod(book, staffName, period)
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = padArray(m.tsaiOtHours[staffName], m.dates.length)
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      const h = row[j] ?? 0
+      if (h === 0) continue
+      s += h * (staffRateOnDate(m, staffName, 'tsai', m.dates[j] ?? '') / 8)
+    }
+  }
+  return s
+}
+
+/** 蔡董調工薪水：逐日 調工天數 × 當日蔡董日薪 */
+function tsaiAdjustPayInPeriod(
+  book: SalaryBook,
+  staffName: string,
+  period: PeriodColumn,
+): number {
+  const bulk = sumMetricAcrossNonSummaryPeriods(
+    book,
+    staffName,
+    period,
+    tsaiAdjustPayInPeriod,
+  )
+  if (bulk !== undefined) return bulk
+  let s = 0
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = padArray(m.tsaiAdjustDays[staffName], m.dates.length)
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      const days = row[j] ?? 0
+      if (days === 0) continue
+      s += days * staffRateOnDate(m, staffName, 'tsai', m.dates[j] ?? '')
+    }
+  }
+  return s
 }
 
 /**
  * 實領薪水（分期間）：**鈞泩薪水 − 預支 + 鈞泩加班費 + 蔡董加班費 + 調工薪水 + 蔡董調工薪水**。
  *
- * - **鈞泩薪水**：各月·案場格線天數×該月鈞泩日薪加總（與總表「鈞泩薪水(未扣預支)」同義，**不含**調工）。
- * - **調工薪水**：調工天數×（該期鈞泩格線薪水合計÷格線天數）；無格線天數時改為×鈞泩日薪。
- * - **蔡董**：**不**以格線×蔡董日薪計入實領；蔡董日薪僅用於 **蔡董調工薪水**（蔡董調工×蔡董日薪）與 **蔡董加班費**（蔡董加班時數×蔡董日薪÷8）。
+ * - **鈞泩薪水**：各月·案場格線天數×當日鈞泩日薪加總（與總表「鈞泩薪水(未扣預支)」同義，**不含**調工）。
+ * - **調工薪水**：調工天數×（該期鈞泩格線薪水合計÷格線天數）；無格線天數時改為逐日×當日鈞泩日薪。
+ * - **蔡董**：**不**以格線×蔡董日薪計入實領；蔡董日薪僅用於 **蔡董調工薪水**（逐日×當日蔡董日薪）與 **蔡董加班費**（逐日加班時數×當日蔡董日薪÷8）。
  */
 export function netTakeHomePayInPeriod(
   book: SalaryBook,
@@ -1558,14 +1887,12 @@ export function netTakeHomePayInPeriod(
     netTakeHomePayInPeriod,
   )
   if (bulk !== undefined) return bulk
-  const rt = rateTsaiForStaff(book, staffName, period)
-  const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
   const adv = advanceSumInPeriod(book, staffName, period)
   const jOt = junOtPayInPeriod(book, staffName, period)
   const tOt = tsaiOtPayInPeriod(book, staffName, period)
   const junSalary = junGridSalaryTotalInPeriod(book, staffName, period)
   const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
-  const tsaiAdjustPay = tAdj * rt
+  const tsaiAdjustPay = tsaiAdjustPayInPeriod(book, staffName, period)
   return junSalary - adv + jOt + tOt + junAdjustPay + tsaiAdjustPay
 }
 
@@ -1585,13 +1912,11 @@ export function netTakeHomePayBeforeAdvanceInPeriod(
     netTakeHomePayBeforeAdvanceInPeriod,
   )
   if (bulk !== undefined) return bulk
-  const rt = rateTsaiForStaff(book, staffName, period)
-  const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
   const jOt = junOtPayInPeriod(book, staffName, period)
   const tOt = tsaiOtPayInPeriod(book, staffName, period)
   const junSalary = junGridSalaryTotalInPeriod(book, staffName, period)
   const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
-  const tsaiAdjustPay = tAdj * rt
+  const tsaiAdjustPay = tsaiAdjustPayInPeriod(book, staffName, period)
   return junSalary + jOt + tOt + junAdjustPay + tsaiAdjustPay
 }
 
@@ -1633,14 +1958,13 @@ export function netTakeHomeBreakdownLines(
   staffName: string,
   period: PeriodColumn,
 ): SummaryCellBreakdownLine[] {
-  const rt = rateTsaiForStaff(book, staffName, period)
   const gridDays = junWorkDaysInPeriod(book, staffName, period)
   const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
   const adv = advanceSumInPeriod(book, staffName, period)
   const jOt = junOtPayInPeriod(book, staffName, period)
   const tOt = tsaiOtPayInPeriod(book, staffName, period)
   const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
-  const tsaiAdjustPay = tAdj * rt
+  const tsaiAdjustPay = tsaiAdjustPayInPeriod(book, staffName, period)
 
   const junSalaryLines = withNetIncomePlusOnFirstLine(
     junGridSalaryPopoverLines(book, staffName, period),
@@ -1701,13 +2025,11 @@ export function netTakeHomeBeforeAdvanceBreakdownLines(
   staffName: string,
   period: PeriodColumn,
 ): SummaryCellBreakdownLine[] {
-  const rt = rateTsaiForStaff(book, staffName, period)
   const gridDays = junWorkDaysInPeriod(book, staffName, period)
-  const tAdj = tsaiAdjustDaysInPeriod(book, staffName, period)
   const jOt = junOtPayInPeriod(book, staffName, period)
   const tOt = tsaiOtPayInPeriod(book, staffName, period)
   const junAdjustPay = junAdjustPayInPeriod(book, staffName, period)
-  const tsaiAdjustPay = tAdj * rt
+  const tsaiAdjustPay = tsaiAdjustPayInPeriod(book, staffName, period)
 
   const junSalaryLines = withNetIncomePlusOnFirstLine(
     junGridSalaryPopoverLines(book, staffName, period),
@@ -1865,26 +2187,13 @@ export function payrollSummaryTooltipFooterTotals(
   ]
 }
 
-/** 「蔡董調工薪水」欄位值：各分期為調工天數×該期蔡董日薪；總結欄為各分期該乘積加總（非「總調工×單一日薪」）。 */
+/** 「蔡董調工薪水」欄位值：各分期為逐日調工×當日蔡董日薪；總結欄為各分期加總。 */
 function tapRowCellAmount(
   book: SalaryBook,
   staffName: string,
   period: PeriodColumn,
 ): number {
-  if (!period.summaryTotal) {
-    return (
-      tsaiAdjustDaysInPeriod(book, staffName, period) *
-      rateTsaiForStaff(book, staffName, period)
-    )
-  }
-  let s = 0
-  for (const p of book.periodColumns) {
-    if (p.summaryTotal) continue
-    s +=
-      tsaiAdjustDaysInPeriod(book, staffName, p) *
-      rateTsaiForStaff(book, staffName, p)
-  }
-  return s
+  return tsaiAdjustPayInPeriod(book, staffName, period)
 }
 
 function valueForSummaryPrefix(
@@ -1969,7 +2278,6 @@ function gridSiteChunkDayDetailLines(
 ): SummaryCellBreakdownLine[] {
   const m = c.month
   const row = padArray(c.block.grid[staffName], m.dates.length)
-  const rj = m.rateJun[staffName] ?? 0
   const detail: SummaryCellBreakdownLine[] = []
   let sub = 0
   for (let j = 0; j < m.dates.length; j++) {
@@ -1977,6 +2285,7 @@ function gridSiteChunkDayDetailLines(
     const day = row[j] ?? 0
     if (day === 0) continue
     const iso = m.dates[j] ?? ''
+    const rj = staffRateOnDate(m, staffName, 'jun', iso)
     const amt = kind === 'gridDays' ? day : day * rj
     sub += amt
     const unit = kind === 'gridDays' ? '天' : '元'
@@ -2032,12 +2341,12 @@ function staffPerDateTsaiAdjustMoneyLines(
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
     const row = padArray(m.tsaiAdjustDays[staffName], m.dates.length)
-    const rt = m.rateTsai[staffName] ?? 0
     for (let j = 0; j < m.dates.length; j++) {
       if (!dayColumnMatchesPeriod(m, j, period)) continue
       const days = row[j] ?? 0
       if (days === 0) continue
       const iso = m.dates[j] ?? ''
+      const rt = staffRateOnDate(m, staffName, 'tsai', iso)
       lines.push({
         label: `　${m.label} ${formatSummaryTooltipDay(iso)}（蔡董調工·元）`,
         amount: days * rt,
@@ -2048,7 +2357,7 @@ function staffPerDateTsaiAdjustMoneyLines(
   return lines
 }
 
-/** 調工薪水：逐日調工天數×（該期鈞泩格線薪水÷格線天數）；該期無格線天數時改×鈞泩日薪 */
+/** 調工薪水：逐日調工天數×（該期鈞泩格線薪水÷格線天數）；該期無格線天數時改×當日鈞泩日薪 */
 function staffPerDateJunAdjustPayLines(
   book: SalaryBook,
   staffName: string,
@@ -2056,7 +2365,7 @@ function staffPerDateJunAdjustPayLines(
 ): SummaryCellBreakdownLine[] {
   const gridDays = junWorkDaysInPeriod(book, staffName, period)
   const junSal = junGridSalaryTotalInPeriod(book, staffName, period)
-  const unit = gridDays > 0 ? junSal / gridDays : rateJunForStaff(book, staffName, period)
+  const unit = gridDays > 0 ? junSal / gridDays : null
   const lines: SummaryCellBreakdownLine[] = []
   for (const m of book.months) {
     if (!monthMatchesPeriodColumn(m, period)) continue
@@ -2066,9 +2375,11 @@ function staffPerDateJunAdjustPayLines(
       const days = row[j] ?? 0
       if (days === 0) continue
       const iso = m.dates[j] ?? ''
+      const dayUnit =
+        unit !== null ? unit : staffRateOnDate(m, staffName, 'jun', iso)
       lines.push({
         label: `　${m.label} ${formatSummaryTooltipDay(iso)}（調工薪水·元）`,
-        amount: days * unit,
+        amount: days * dayUnit,
         isDailyMoney: true,
       })
     }
@@ -2076,7 +2387,7 @@ function staffPerDateJunAdjustPayLines(
   return lines
 }
 
-/** 逐日加班時數×該期日薪÷8（與 {@link junOtPayInPeriod}／{@link tsaiOtPayInPeriod} 使用之期別日薪一致） */
+/** 逐日加班時數×當日日薪÷8（與 {@link junOtPayInPeriod}／{@link tsaiOtPayInPeriod} 一致） */
 function staffPerDateOtPayLines(
   book: SalaryBook,
   staffName: string,
@@ -2084,11 +2395,6 @@ function staffPerDateOtPayLines(
   rowFromMonth: (m: MonthSheetData) => number[] | undefined,
   mode: 'jun' | 'tsai',
 ): SummaryCellBreakdownLine[] {
-  const rDay =
-    mode === 'jun'
-      ? rateJunForStaff(book, staffName, period)
-      : rateTsaiForStaff(book, staffName, period)
-  const hourly = rDay / 8
   const who = mode === 'jun' ? '鈞泩' : '蔡董'
   const lines: SummaryCellBreakdownLine[] = []
   for (const m of book.months) {
@@ -2099,6 +2405,7 @@ function staffPerDateOtPayLines(
       const h = row[j] ?? 0
       if (h === 0) continue
       const iso = m.dates[j] ?? ''
+      const hourly = staffRateOnDate(m, staffName, mode, iso) / 8
       lines.push({
         label: `　${m.label} ${formatSummaryTooltipDay(iso)}（${who}加班費·元）`,
         amount: h * hourly,
@@ -2156,13 +2463,24 @@ function junSalaryLinesBySite(
   staffName: string,
   period: PeriodColumn,
 ): SummaryCellBreakdownLine[] {
-  return collectGridSiteDayChunks(book, staffName, period).map((c) => {
-    const rj = c.month.rateJun[staffName] ?? 0
-    return {
-      label: `${c.month.label} · ${c.siteName}（格線×鈞泩日薪）`,
-      amount: c.days * rj,
+  const out: SummaryCellBreakdownLine[] = []
+  for (const c of collectGridSiteDayChunks(book, staffName, period)) {
+    let amount = 0
+    const row = padArray(c.block.grid[staffName], c.month.dates.length)
+    for (let j = 0; j < c.month.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(c.month, j, period)) continue
+      const day = row[j] ?? 0
+      if (day === 0) continue
+      amount +=
+        day *
+        staffRateOnDate(c.month, staffName, 'jun', c.month.dates[j] ?? '')
     }
-  })
+    out.push({
+      label: `${c.month.label} · ${c.siteName}（格線×鈞泩日薪）`,
+      amount,
+    })
+  }
+  return out
 }
 
 /** 該期鈞泩格線薪水加總（各月·案場依當月 rateJun），等同 {@link junSalaryLinesBySite} 金額合計 */
@@ -2204,7 +2522,18 @@ export function junAdjustPayInPeriod(
     const total = junGridSalaryTotalInPeriod(book, staffName, period)
     return jAdj * (total / gridDays)
   }
-  return jAdj * rateJunForStaff(book, staffName, period)
+  let s = 0
+  for (const m of book.months) {
+    if (!monthMatchesPeriodColumn(m, period)) continue
+    const row = padArray(m.junAdjustDays[staffName], m.dates.length)
+    for (let j = 0; j < m.dates.length; j++) {
+      if (!dayColumnMatchesPeriod(m, j, period)) continue
+      const days = row[j] ?? 0
+      if (days === 0) continue
+      s += days * staffRateOnDate(m, staffName, 'jun', m.dates[j] ?? '')
+    }
+  }
+  return s
 }
 
 function ensureBreakdownLines(
@@ -2335,8 +2664,7 @@ export function computeStaffSummaryCellBreakdowns(
       }
       case 'jop': {
         const h = junOtHoursInPeriod(book, name, period)
-        const rj = rateJunForStaff(book, name, period)
-        const hourly = rj / 8
+        const autoPay = junOtPayInPeriod(book, name, period) - junOtManualPayInPeriod(book, name, period)
         const payDetail = staffPerDateOtPayLines(
           book,
           name,
@@ -2344,17 +2672,28 @@ export function computeStaffSummaryCellBreakdowns(
           (m) => m.junOtHours[name],
           'jun',
         )
+        const manualDetail = staffPerDateColumnLines(
+          book,
+          name,
+          period,
+          (m) => m.junOtManualPay?.[name],
+          '鈞泩手動加班費·元',
+          true,
+        )
+        const manualPay = junOtManualPayInPeriod(book, name, period)
         return finish([
           ...payDetail,
+          ...manualDetail,
           { label: '鈞泩加班時數合計', amount: h },
-          { label: '時薪（鈞泩日薪÷8）', amount: hourly },
-          { label: '鈞泩加班費（時數×時薪）', amount: h * hourly },
+          { label: '鈞泩加班費（逐日時薪＝當日日薪÷8）', amount: autoPay },
+          ...(manualPay !== 0
+            ? [{ label: '鈞泩手動加班費合計', amount: manualPay }]
+            : []),
         ])
       }
       case 'top': {
         const h = tsaiOtHoursInPeriod(book, name, period)
-        const rt = rateTsaiForStaff(book, name, period)
-        const hourly = rt / 8
+        const autoPay = tsaiOtPayInPeriod(book, name, period) - tsaiOtManualPayInPeriod(book, name, period)
         const payDetail = staffPerDateOtPayLines(
           book,
           name,
@@ -2362,11 +2701,23 @@ export function computeStaffSummaryCellBreakdowns(
           (m) => m.tsaiOtHours[name],
           'tsai',
         )
+        const manualDetail = staffPerDateColumnLines(
+          book,
+          name,
+          period,
+          (m) => m.tsaiOtManualPay?.[name],
+          '蔡董手動加班費·元',
+          true,
+        )
+        const manualPay = tsaiOtManualPayInPeriod(book, name, period)
         return finish([
           ...payDetail,
+          ...manualDetail,
           { label: '蔡董加班時數合計', amount: h },
-          { label: '時薪（蔡董日薪÷8）', amount: hourly },
-          { label: '蔡董加班費（時數×時薪）', amount: h * hourly },
+          { label: '蔡董加班費（逐日時薪＝當日日薪÷8）', amount: autoPay },
+          ...(manualPay !== 0
+            ? [{ label: '蔡董手動加班費合計', amount: manualPay }]
+            : []),
         ])
       }
       case 'jad': {
@@ -2404,20 +2755,17 @@ export function computeStaffSummaryCellBreakdowns(
         const gridDays = junWorkDaysInPeriod(book, name, period)
         const junSal = junGridSalaryTotalInPeriod(book, name, period)
         const perDay = staffPerDateJunAdjustPayLines(book, name, period)
+        const total = junAdjustPayInPeriod(book, name, period)
         if (gridDays <= 0) {
-          const r = rateJunForStaff(book, name, period)
-          const total = d * r
           if (perDay.length > 0) {
             return finish([...perDay, { label: '── 調工薪水合計', amount: total }])
           }
           return finish([
             { label: '調工天數', amount: d },
-            { label: '鈞泩日薪（該期無格線天數時）', amount: r },
-            { label: '調工薪水', amount: total },
+            { label: '調工薪水（逐日×當日鈞泩日薪）', amount: total },
           ])
         }
         const unit = junSal / gridDays
-        const total = d * unit
         const formulaCore = [
           { label: '調工天數', amount: d },
           { label: '該期鈞泩格線薪水合計', amount: junSal },
@@ -2438,16 +2786,14 @@ export function computeStaffSummaryCellBreakdowns(
       }
       case 'tap': {
         const d = tsaiAdjustDaysInPeriod(book, name, period)
-        const r = rateTsaiForStaff(book, name, period)
         const perDay = staffPerDateTsaiAdjustMoneyLines(book, name, period)
-        const total = d * r
+        const total = tsaiAdjustPayInPeriod(book, name, period)
         if (perDay.length > 0) {
           return finish([...perDay, { label: '── 蔡董調工薪水合計', amount: total }])
         }
         return finish([
           { label: '蔡董調工天數', amount: d },
-          { label: '蔡董日薪（元／天）', amount: r },
-          { label: '蔡董調工薪水（天數×日薪）', amount: total },
+          { label: '蔡董調工薪水（逐日×當日日薪）', amount: total },
         ])
       }
       case 'net':
@@ -2891,11 +3237,22 @@ function mergeMonthSheetPairPreferLocal(l: MonthSheetData, r: MonthSheetData): M
     blocks,
     rateJun: { ...r.rateJun, ...l.rateJun },
     rateTsai: { ...r.rateTsai, ...l.rateTsai },
+    rateChanges: mergeStaffRateChangesPreferLocal(l.rateChanges, r.rateChanges, l.id),
     advances: mergeRecordNumArraysPreferLocal(l.advances, r.advances, len),
     junAdjustDays: mergeRecordNumArraysPreferLocal(l.junAdjustDays, r.junAdjustDays, len),
     tsaiAdjustDays: mergeRecordNumArraysPreferLocal(l.tsaiAdjustDays, r.tsaiAdjustDays, len),
     junOtHours: mergeRecordNumArraysPreferLocal(l.junOtHours, r.junOtHours, len),
     tsaiOtHours: mergeRecordNumArraysPreferLocal(l.tsaiOtHours, r.tsaiOtHours, len),
+    junOtManualPay: mergeRecordNumArraysPreferLocal(
+      l.junOtManualPay ?? {},
+      r.junOtManualPay ?? {},
+      len,
+    ),
+    tsaiOtManualPay: mergeRecordNumArraysPreferLocal(
+      l.tsaiOtManualPay ?? {},
+      r.tsaiOtManualPay ?? {},
+      len,
+    ),
   }
 }
 
@@ -2994,11 +3351,18 @@ function applyTombstonesToMonthSheet(
     blocks,
     rateJun: omitDeadStaffRates(m.rateJun),
     rateTsai: omitDeadStaffRates(m.rateTsai),
+    rateChanges: (() => {
+      if (deadStaff.size === 0) return m.rateChanges
+      const next = (m.rateChanges ?? []).filter((c) => !deadStaff.has(c.staffName))
+      return next.length > 0 ? next : undefined
+    })(),
     advances: omitDeadStaffKeys(m.advances),
     junAdjustDays: omitDeadStaffKeys(m.junAdjustDays),
     tsaiAdjustDays: omitDeadStaffKeys(m.tsaiAdjustDays),
     junOtHours: omitDeadStaffKeys(m.junOtHours),
     tsaiOtHours: omitDeadStaffKeys(m.tsaiOtHours),
+    junOtManualPay: omitDeadStaffKeys(m.junOtManualPay ?? {}),
+    tsaiOtManualPay: omitDeadStaffKeys(m.tsaiOtManualPay ?? {}),
   }
 }
 

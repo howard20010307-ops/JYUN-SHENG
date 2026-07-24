@@ -54,11 +54,23 @@ import {
   migratePricingWorkspace,
   type PricingWorkspaceState,
 } from './pricingWorkspace'
+import {
+  initialDebtConfirmationWorkspace,
+  migrateDebtConfirmationWorkspace,
+  type DebtConfirmationWorkspaceState,
+} from './debtConfirmationWorkspace'
+import {
+  initialContractWorkspace,
+  migrateContractWorkspace,
+  type ContractWorkspaceState,
+} from './contractWorkspace'
 
 export type { CustomLaborWorkspaceState } from './customLaborWorkspace'
 export type { QuotationWorkspaceState } from './quotationWorkspace'
 export type { ContractContentState } from './contractContentModel'
 export type { PricingWorkspaceState } from './pricingWorkspace'
+export type { DebtConfirmationWorkspaceState } from './debtConfirmationWorkspace'
+export type { ContractWorkspaceState } from './contractWorkspace'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -75,7 +87,7 @@ function isFlatQuoteLayout(l: QuoteLayout): boolean {
 export type Tab = 'quote' | 'payroll' | 'ledger' | 'worklog' | 'receivables' | 'clientDocs'
 
 /** 「對外文件」內子畫面：工作明細（原自填明細）或報價單 */
-export type ClientDocsSheet = 'workDetail' | 'quotation' | 'pricing'
+export type ClientDocsSheet = 'workDetail' | 'quotation' | 'pricing' | 'debtConfirmation' | 'contract'
 
 export type AppState = {
   tab: Tab
@@ -107,6 +119,10 @@ export type AppState = {
   contractContents: ContractContentState
   /** 計價單：對外文件（可連接合約與收帳進度） */
   pricingWorkspace: PricingWorkspaceState
+  /** 工程款延期付款暨債務確認書 */
+  debtConfirmationWorkspace: DebtConfirmationWorkspaceState
+  /** 工程合約書（對外文件） */
+  contractWorkspace: ContractWorkspaceState
 }
 
 /**
@@ -130,6 +146,8 @@ const APP_STATE_FIELD_GUARD: Record<keyof AppState, true> = {
   quotationWorkspace: true,
   contractContents: true,
   pricingWorkspace: true,
+  debtConfirmationWorkspace: true,
+  contractWorkspace: true,
 }
 void APP_STATE_FIELD_GUARD
 
@@ -206,6 +224,8 @@ export function initialAppState(): AppState {
     quotationWorkspace: initialQuotationWorkspace(),
     contractContents: initialContractContentState(),
     pricingWorkspace: initialPricingWorkspace(),
+    debtConfirmationWorkspace: initialDebtConfirmationWorkspace(),
+    contractWorkspace: initialContractWorkspace(),
   }
 }
 
@@ -238,7 +258,9 @@ export function migrateAppState(loaded: unknown): AppState {
     else if (
       d.clientDocsSheet === 'quotation' ||
       d.clientDocsSheet === 'workDetail' ||
-      d.clientDocsSheet === 'pricing'
+      d.clientDocsSheet === 'pricing' ||
+      d.clientDocsSheet === 'debtConfirmation' ||
+      d.clientDocsSheet === 'contract'
     ) {
       clientDocsSheet = d.clientDocsSheet
     }
@@ -274,6 +296,8 @@ export function migrateAppState(loaded: unknown): AppState {
   const quotationWorkspace = migrateQuotationWorkspace(d.quotationWorkspace)
   const contractContents = migrateContractContentState(d.contractContents)
   const pricingWorkspace = migratePricingWorkspace(d.pricingWorkspace)
+  const debtConfirmationWorkspace = migrateDebtConfirmationWorkspace(d.debtConfirmationWorkspace)
+  const contractWorkspace = migrateContractWorkspace(d.contractWorkspace)
 
   const quoteM = migrateQuotePersistSlice({
     site: d.site,
@@ -324,6 +348,8 @@ export function migrateAppState(loaded: unknown): AppState {
     quotationWorkspace,
     contractContents,
     pricingWorkspace,
+    debtConfirmationWorkspace,
+    contractWorkspace,
   }
   return out
 }

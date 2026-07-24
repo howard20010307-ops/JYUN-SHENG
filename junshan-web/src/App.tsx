@@ -6,6 +6,8 @@ import { WorkLogPanel } from './components/WorkLogPanel'
 import { CustomLaborWorkspacePanel } from './components/CustomLaborWorkspacePanel'
 import { QuotationWorkspacePanel } from './components/QuotationWorkspacePanel'
 import { PricingWorkspacePanel } from './components/PricingWorkspacePanel'
+import { DebtConfirmationWorkspacePanel } from './components/DebtConfirmationWorkspacePanel'
+import { ContractWorkspacePanel } from './components/ContractWorkspacePanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
@@ -547,6 +549,24 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               >
                 計價單
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={state.clientDocsSheet === 'contract'}
+                className={`tab ${state.clientDocsSheet === 'contract' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'contract' }))}
+              >
+                合約書
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={state.clientDocsSheet === 'debtConfirmation'}
+                className={`tab ${state.clientDocsSheet === 'debtConfirmation' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'debtConfirmation' }))}
+              >
+                債務確認書
+              </button>
             </div>
             {state.clientDocsSheet === 'workDetail' ? (
               <CustomLaborWorkspacePanel
@@ -570,7 +590,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   }))
                 }
               />
-            ) : (
+            ) : state.clientDocsSheet === 'pricing' ? (
               <PricingWorkspacePanel
                 workspace={state.pricingWorkspace}
                 setWorkspace={(fn) =>
@@ -582,6 +602,31 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 }
                 contractContents={state.contractContents}
                 receivables={state.receivables}
+              />
+            ) : state.clientDocsSheet === 'contract' ? (
+              <ContractWorkspacePanel
+                workspace={state.contractWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    contractWorkspace:
+                      typeof fn === 'function' ? fn(s.contractWorkspace) : fn,
+                  }))
+                }
+                quoteSite={state.site}
+                laborOwnerClient={state.customLaborWorkspace.ownerClient}
+              />
+            ) : (
+              <DebtConfirmationWorkspacePanel
+                workspace={state.debtConfirmationWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    debtConfirmationWorkspace:
+                      typeof fn === 'function' ? fn(s.debtConfirmationWorkspace) : fn,
+                  }))
+                }
+                laborOwnerClient={state.customLaborWorkspace.ownerClient}
               />
             )}
           </fieldset>

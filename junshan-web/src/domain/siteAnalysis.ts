@@ -1,5 +1,6 @@
 import type { ReceivablesState } from './receivablesModel'
 import type { SalaryBook } from './salaryExcelModel'
+import { staffRateOnDate } from './salaryExcelModel'
 import type { WorkLogSiteBlock, WorkLogState } from './workLogModel'
 import { contractAmountOf, type ContractContentState } from './contractContentModel'
 import {
@@ -753,18 +754,18 @@ function buildPayrollMaps(salaryBook: SalaryBook): {
         if (meal !== 0) mealByDateSite.set(dsKey, (mealByDateSite.get(dsKey) ?? 0) + meal)
         for (const [staffName, row] of Object.entries(b.grid)) {
           const days = nz((row ?? [])[j] ?? 0)
-          const rate = nz(m.rateJun[staffName] ?? 0)
+          const rate = nz(staffRateOnDate(m, staffName, 'jun', dateKey))
           add(dateKey, site.key, staffName, days, rate)
         }
       }
       for (const [staffName, row] of Object.entries(m.junAdjustDays ?? {})) {
         const days = nz((row ?? [])[j] ?? 0)
-        const rate = nz(m.rateJun[staffName] ?? 0)
+        const rate = nz(staffRateOnDate(m, staffName, 'jun', dateKey))
         add(dateKey, resolveSite(QUICK_SITE_JUN_ADJUST).key, staffName, days, rate)
       }
       for (const [staffName, row] of Object.entries(m.tsaiAdjustDays ?? {})) {
         const days = nz((row ?? [])[j] ?? 0)
-        const rate = nz(m.rateTsai[staffName] ?? 0)
+        const rate = nz(staffRateOnDate(m, staffName, 'tsai', dateKey))
         add(dateKey, resolveSite(QUICK_SITE_TSAI_ADJUST).key, staffName, days, rate)
       }
     }

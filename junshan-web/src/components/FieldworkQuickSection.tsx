@@ -728,7 +728,7 @@ export function FieldworkQuickSection({
                   />
                 </label>
                 <label className="fieldworkQuick__field" style={{ maxWidth: 300 }}>
-                  <span>手動加班費（僅在時數為 0 時入帳；可正負）</span>
+                  <span>手動加班費（時數為 0 時入月表；需選人員；可正負）</span>
                   <input
                     type="text"
                     inputMode="decimal"

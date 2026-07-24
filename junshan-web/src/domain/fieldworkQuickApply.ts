@@ -6,6 +6,7 @@ import {
   ensureWorkersAcrossBook,
   padArray,
   staffKeysForMonthDisplay,
+  staffRateOnDate,
 } from './salaryExcelModel'
 
 /**
@@ -82,7 +83,7 @@ export type FieldworkQuickPayload = {
   otHoursPerPerson: number
   /** 加班費用哪一條日薪：鈞泩（rateJun）或蔡董（rateTsai） */
   otRateLine: 'jun' | 'tsai'
-  /** 加班費手動加帳（可正負）；僅在 otHoursPerPerson 為 0 時作為加班費入帳 */
+  /** 加班費手動加帳（可正負）；僅在 otHoursPerPerson 為 0 時寫入月表手動加班費列 */
   otManualAmount: number
   /**
    * 月表「預支」：所選人員該日每人累加金額（元，可正負）；0 或未傳則不變更預支欄。
@@ -133,6 +134,20 @@ function otRateLineForQuick(
   if (isTsaiAdjustSite) return 'tsai'
   if (isJunAdjustSite) return 'jun'
   return otRateLine === 'tsai' ? 'tsai' : 'jun'
+}
+
+/** 將總額均分至多員（餘數依序 ±1，確保加總不變） */
+export function splitAmountAmongWorkers(total: number, count: number): number[] {
+  if (count <= 0) return []
+  const base = Math.trunc(total / count)
+  let remainder = total - base * count
+  const parts = Array.from({ length: count }, () => base)
+  for (let i = 0; remainder !== 0 && i < parts.length; i++) {
+    const step = remainder > 0 ? 1 : -1
+    parts[i]! += step
+    remainder -= step
+  }
+  return parts
 }
 
 /** 依該月月表日薪（鈞泩或蔡董），每人時數相同時之加班費合計（四捨五入整數） */
@@ -241,6 +256,9 @@ export function applyFieldworkQuick(
 
   if (wantsOtAuto && workers.length === 0) {
     return { book, months, ok: false, message: '加班費（依時數）需選擇人員。' }
+  }
+  if (wantsOtManual && workers.length === 0) {
+    return { book, months, ok: false, message: '手動加班費需選擇人員，以寫入月表。' }
   }
 
   const wantsFieldworkDays = hasSite && workers.length > 0 && gridDayVal !== 0
@@ -354,6 +372,27 @@ export function applyFieldworkQuick(
     msg += ` 月表「${gridLabel}」已於 ${iso} 為所選人員每人 +${hours} 時（與加班費試算同一條日薪線）。`
   }
 
+  if (wantsOtManual && dayIdx >= 0 && dayIdx < len) {
+    const line = otRateLineForQuick(isTsaiAdjustSite, isJunAdjustSite, payload.otRateLine)
+    const field = line === 'tsai' ? 'tsaiOtManualPay' : 'junOtManualPay'
+    const gridLabel = line === 'tsai' ? '蔡董手動加班費' : '鈞泩手動加班費'
+    const shares = splitAmountAmongWorkers(otManual, workers.length)
+    newBook = {
+      ...newBook,
+      months: newBook.months.map((sheet, i) => {
+        if (i !== mi) return sheet
+        const grids: Record<string, number[]> = { ...(sheet[field] ?? {}) }
+        workers.forEach((w, wi) => {
+          const row = [...padArray(grids[w], len)]
+          row[dayIdx] = (row[dayIdx] ?? 0) + shares[wi]!
+          grids[w] = row
+        })
+        return { ...sheet, [field]: grids }
+      }),
+    }
+    msg += ` 月表「${gridLabel}」已於 ${iso} 入帳 ${otManual} 元（${workers.length} 人分攤）；公司損益表將依月表自動加總。`
+  }
+
   if (
     advPer !== 0 &&
     workers.length > 0 &&
@@ -402,13 +441,14 @@ export function applyFieldworkQuick(
     if (wantsOtAuto) {
       const sheet = newBook.months[mi]
       const line = otRateLineForQuick(isTsaiAdjustSite, isJunAdjustSite, payload.otRateLine)
-      const rates = line === 'tsai' ? sheet.rateTsai : sheet.rateJun
       const lineLabel = line === 'tsai' ? '蔡董日薪' : '鈞泩日薪'
-      otDelta = computeOvertimePayFromDailyRate(rates, workers, hours)
-      otDesc = `加班費 ${otDelta}（${lineLabel}÷8×${hours}時／人×${workers.length}人）`
-    } else if (wantsOtManual) {
-      otDelta = otManual
-      otDesc = `加班費手動 ${otDelta}`
+      otDelta = 0
+      for (const w of workers) {
+        const rate = staffRateOnDate(sheet, w, line, iso)
+        otDelta += (rate / 8) * hours
+      }
+      otDelta = Math.round(otDelta)
+      otDesc = `加班費 ${otDelta}（${lineLabel}÷8×${hours}時／人×${workers.length}人；依當日日薪）`
     }
 
     if (otDelta !== 0 && otDesc) {

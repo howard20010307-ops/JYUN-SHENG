@@ -13,7 +13,7 @@ import {
   blockGrandPay,
   computeGrandTotalSection,
   staffTotalDays,
-  staffTotalPay,
+  staffRowJunPay,
   mealTotalPay,
   emptyBlock,
   isPlaceholderMonthBlockSiteName,
@@ -38,6 +38,8 @@ import {
   tombstoneSalaryBookMonthId,
   tombstoneSalaryBookSiteBlockId,
   tombstoneSalaryBookSiteBlockIds,
+  upsertStaffRateChange,
+  removeStaffRateChange,
 } from '../domain/salaryExcelModel'
 import type { MonthLine } from '../domain/ledgerEngine'
 import type { WorkLogState } from '../domain/workLogModel'
@@ -198,6 +200,10 @@ export function PayrollPanel({
   /** 案場名只存本地，blur／Enter 才寫入月表並同步全書，避免每字觸發大狀態更新而卡頓 */
   const [siteNameDraftByBlockId, setSiteNameDraftByBlockId] = useState<Record<string, string>>({})
   const [newStaffName, setNewStaffName] = useState('')
+  const [rateChangeStaff, setRateChangeStaff] = useState('')
+  const [rateChangeLine, setRateChangeLine] = useState<'jun' | 'tsai'>('jun')
+  const [rateChangeFrom, setRateChangeFrom] = useState('')
+  const [rateChangeRate, setRateChangeRate] = useState('')
   /** 各案場區塊「臨時加人」輸入框，key 為案場區塊 id */
   const [siteBlockNewWorkerName, setSiteBlockNewWorkerName] = useState<Record<string, string>>(
     () => ({}),
@@ -438,6 +444,12 @@ export function PayrollPanel({
   )
   const staffTsaiOtRows = staffOrder.filter((n) =>
     rowHasAnyRecordedValue(month.tsaiOtHours[n], dateLen),
+  )
+  const staffJunOtManualRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.junOtManualPay?.[n], dateLen),
+  )
+  const staffTsaiOtManualRows = staffOrder.filter((n) =>
+    rowHasAnyRecordedValue(month.tsaiOtManualPay?.[n], dateLen),
   )
 
   return (
@@ -773,6 +785,129 @@ export function PayrollPanel({
                 新增人員（全書各月）
               </button>
             </div>
+            <div className="payrollRateChanges" style={{ marginTop: 16 }}>
+              <h4 style={{ margin: '0 0 8px' }}>月中調薪（自某日起）</h4>
+              <p className="hint" style={{ marginTop: 0 }}>
+                上方日薪為該月預設；下方紀錄自生效日起覆寫。生效日前仍用預設日薪。加班時薪亦依當日日薪÷8。
+              </p>
+              {(month.rateChanges ?? []).length > 0 && (
+                <div className="tableScroll" style={{ marginBottom: 12 }}>
+                  <table className="data tight">
+                    <thead>
+                      <tr>
+                        <th>姓名</th>
+                        <th>線別</th>
+                        <th>生效日</th>
+                        <th>新日薪</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(month.rateChanges ?? []).map((c) => (
+                        <tr key={c.id}>
+                          <td>{c.staffName}</td>
+                          <td>{c.line === 'jun' ? '鈞泩' : '蔡董'}</td>
+                          <td>{c.effectiveFrom}</td>
+                          <td className="num">{c.rate}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn danger ghost"
+                              onClick={() =>
+                                patchMonth(month.id, (m) => removeStaffRateChange(m, c.id))
+                              }
+                            >
+                              刪除
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="btnRow" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <label>
+                  <span className="muted">人員</span>{' '}
+                  <select
+                    value={rateChangeStaff || (staffOrder[0] ?? '')}
+                    onChange={(e) => setRateChangeStaff(e.target.value)}
+                    aria-label="調薪人員"
+                  >
+                    {staffOrder.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="muted">線別</span>{' '}
+                  <select
+                    value={rateChangeLine}
+                    onChange={(e) =>
+                      setRateChangeLine(e.target.value === 'tsai' ? 'tsai' : 'jun')
+                    }
+                    aria-label="調薪線別"
+                  >
+                    <option value="jun">鈞泩</option>
+                    <option value="tsai">蔡董</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="muted">生效日</span>{' '}
+                  <input
+                    type="date"
+                    value={rateChangeFrom}
+                    onChange={(e) => setRateChangeFrom(e.target.value)}
+                    aria-label="調薪生效日"
+                  />
+                </label>
+                <label>
+                  <span className="muted">新日薪</span>{' '}
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={rateChangeRate}
+                    onChange={(e) => setRateChangeRate(e.target.value)}
+                    style={{ width: 100 }}
+                    aria-label="調薪後日薪"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => {
+                    const staff = (rateChangeStaff || staffOrder[0] || '').trim()
+                    const from = rateChangeFrom.trim()
+                    const rate = Number(rateChangeRate)
+                    if (!staff) {
+                      alert('請選擇人員。')
+                      return
+                    }
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+                      alert('請填生效日。')
+                      return
+                    }
+                    if (!Number.isFinite(rate) || rate < 0) {
+                      alert('請填有效日薪。')
+                      return
+                    }
+                    patchMonth(month.id, (m) =>
+                      upsertStaffRateChange(m, {
+                        staffName: staff,
+                        line: rateChangeLine,
+                        effectiveFrom: from,
+                        rate,
+                      }),
+                    )
+                    setRateChangeRate('')
+                  }}
+                >
+                  新增／覆寫調薪
+                </button>
+              </div>
+            </div>
           </section>
 
           {month.blocks.map((block, bi) => {
@@ -889,7 +1024,7 @@ export function PayrollPanel({
               <p className="hint payrollBlockGrandPayHint">
                 區塊合計(P)：
                 <strong className="payrollBlockGrandPayValue">
-                  {Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
+                  {Math.round(blockGrandPay(block, staffOrder, month))}
                 </strong>
               </p>
               <div className="tableScroll tableScrollSticky">
@@ -923,7 +1058,7 @@ export function PayrollPanel({
                       .map((name) => {
                         const row = padArray(block.grid[name], month.dates.length)
                         const days = staffTotalDays(row)
-                        const pay = staffTotalPay(days, month.rateJun[name] ?? 0)
+                        const pay = staffRowJunPay(month, name, row)
                         return (
                           <tr key={name}>
                             <td>{name}</td>
@@ -1012,7 +1147,7 @@ export function PayrollPanel({
                         )}
                       </td>
                       <td className="num payrollGrandCell">
-                        {Math.round(blockGrandPay(block, staffOrder, month.rateJun))}
+                        {Math.round(blockGrandPay(block, staffOrder, month))}
                       </td>
                     </tr>
                   </tbody>
@@ -1054,7 +1189,7 @@ export function PayrollPanel({
                   {staffGrandRows.map((name) => {
                     const row = grand.staffRows[name] ?? []
                     const days = staffTotalDays(row)
-                    const pay = staffTotalPay(days, month.rateJun[name] ?? 0)
+                    const pay = grand.staffTotalsPay[name] ?? staffRowJunPay(month, name, row)
                     return (
                       <tr key={name}>
                         <td>{name}</td>
@@ -1528,6 +1663,118 @@ export function PayrollPanel({
               </table>
             </div>
           </section>
+
+          {staffJunOtManualRows.length > 0 ? (
+            <section className="card">
+              <h3>鈞泩手動加班費（元／日期欄）</h3>
+              <div className="tableScroll tableScrollSticky">
+                <table className="data tight payrollMonthEditableTable payrollJunOtManualTable">
+                  <thead>
+                    <tr>
+                      <th />
+                      {month.dates.map((d, j) => (
+                        <th
+                          key={d}
+                          className={`dtCol${colHasPositiveInGrid(staffJunOtManualRows, month.dates.length, j, (n) => month.junOtManualPay?.[n]) ? ' dtCol--hasWork' : ''}`}
+                        >
+                          {d.slice(5)}
+                        </th>
+                      ))}
+                      <th className="dtCol payrollGrandHead">合計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffJunOtManualRows.map((name) => (
+                      <tr key={name}>
+                        <td>{name}</td>
+                        {month.dates.map((dIso, j) => {
+                          const cell = month.junOtManualPay?.[name]?.[j] ?? 0
+                          const has = cellNeedsWorkHighlight(cell)
+                          return (
+                            <td key={j}>
+                              <PayrollNumberInput
+                                domId={stableDomId('pay', [month.id, 'junOtManual', name, dIso])}
+                                className={`cellIn${has ? ' cellIn--work' : ''}`}
+                                value={cell}
+                                onCommit={(nv) =>
+                                  patchMonth(month.id, (m) => {
+                                    const rec = { ...(m.junOtManualPay ?? {}) }
+                                    const row = [...padArray(rec[name], m.dates.length)]
+                                    row[j] = nv
+                                    rec[name] = row
+                                    return { ...m, junOtManualPay: rec }
+                                  })
+                                }
+                              />
+                            </td>
+                          )
+                        })}
+                        <td className="num payrollGrandCell">
+                          {fmtSum(sumRowCells(month.junOtManualPay?.[name], month.dates.length))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
+
+          {staffTsaiOtManualRows.length > 0 ? (
+            <section className="card">
+              <h3>蔡董手動加班費（元／日期欄）</h3>
+              <div className="tableScroll tableScrollSticky">
+                <table className="data tight payrollMonthEditableTable payrollTsaiOtManualTable">
+                  <thead>
+                    <tr>
+                      <th />
+                      {month.dates.map((d, j) => (
+                        <th
+                          key={d}
+                          className={`dtCol${colHasPositiveInGrid(staffTsaiOtManualRows, month.dates.length, j, (n) => month.tsaiOtManualPay?.[n]) ? ' dtCol--hasWork' : ''}`}
+                        >
+                          {d.slice(5)}
+                        </th>
+                      ))}
+                      <th className="dtCol payrollGrandHead">合計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffTsaiOtManualRows.map((name) => (
+                      <tr key={name}>
+                        <td>{name}</td>
+                        {month.dates.map((dIso, j) => {
+                          const cell = month.tsaiOtManualPay?.[name]?.[j] ?? 0
+                          const has = cellNeedsWorkHighlight(cell)
+                          return (
+                            <td key={j}>
+                              <PayrollNumberInput
+                                domId={stableDomId('pay', [month.id, 'tsaiOtManual', name, dIso])}
+                                className={`cellIn${has ? ' cellIn--work' : ''}`}
+                                value={cell}
+                                onCommit={(nv) =>
+                                  patchMonth(month.id, (m) => {
+                                    const rec = { ...(m.tsaiOtManualPay ?? {}) }
+                                    const row = [...padArray(rec[name], m.dates.length)]
+                                    row[j] = nv
+                                    rec[name] = row
+                                    return { ...m, tsaiOtManualPay: rec }
+                                  })
+                                }
+                              />
+                            </td>
+                          )
+                        })}
+                        <td className="num payrollGrandCell">
+                          {fmtSum(sumRowCells(month.tsaiOtManualPay?.[name], month.dates.length))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </>
       )}
     </div>

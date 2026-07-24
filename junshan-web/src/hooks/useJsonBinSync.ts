@@ -22,6 +22,7 @@ import { mergeWorkItemPresetLabelsPreferLocal } from '../domain/workItemPresets'
 import { mergeLedgerMonthLinesPreferLocal } from '../domain/ledgerEngine'
 import { mergeContractContentPreferLocal } from '../domain/contractContentModel'
 import { mergePricingWorkspacePreferLocal } from '../domain/pricingWorkspace'
+import { mergeContractWorkspacePreferLocal } from '../domain/contractWorkspace'
 
 export type JsonBinLine = { text: string; isError: boolean } | null
 
@@ -289,6 +290,10 @@ export function useJsonBinSync(
                 pricingWorkspace: mergePricingWorkspacePreferLocal(
                   prev.pricingWorkspace,
                   fromCloud.pricingWorkspace,
+                ),
+                contractWorkspace: mergeContractWorkspacePreferLocal(
+                  prev.contractWorkspace,
+                  fromCloud.contractWorkspace,
                 ),
                 workItemPresetLabels: presets.labels,
                 workItemPresetLabelsDeleted: presets.tombstones,

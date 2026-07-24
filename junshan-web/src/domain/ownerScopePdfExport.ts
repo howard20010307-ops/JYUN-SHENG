@@ -1,6 +1,8 @@
 /** 業主明細 PDF：檔名與下載（html2canvas + jsPDF；可印區內等比置中） */
 
 import { jsPDF } from 'jspdf'
+import { appendDebtConfirmationAttachmentsToPdf } from './debtConfirmationPdfAttachments'
+import type { DebtConfirmationAttachmentFile } from './debtConfirmationWorkspace'
 import {
   exportOwnerScopePdfBlobByWorkspaces,
   exportQuotationPdfBlobByWorkspaces,
@@ -31,6 +33,24 @@ export function buildWorkDetailPdfFilename(caseTitle: string): string {
   const day = String(d.getDate()).padStart(2, '0')
   const safe = caseTitle.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名案名'
   return `承攬供述明細_${safe}_${y}${m}${day}.pdf`
+}
+
+export function buildDebtConfirmationPdfFilename(projectName: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = projectName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名工程'
+  return `工程款延期付款暨債務確認書_${safe}_${y}${m}${day}.pdf`
+}
+
+export function buildContractPdfFilename(projectName: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = projectName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名工程'
+  return `工程合約書_${safe}_${y}${m}${day}.pdf`
 }
 
 function parseDateLikeInput(input: string): Date | null {
@@ -340,6 +360,12 @@ export async function buildOwnerScopePdfBlob(element: HTMLElement): Promise<Blob
   if (captureRoot.classList.contains('ownerScopePdfRoot')) {
     return buildWorkspacePdfBlob(captureRoot, exportOwnerScopePdfBlobByWorkspaces)
   }
+  if (captureRoot.classList.contains('debtConfirmationPdfRoot')) {
+    return buildDebtConfirmationPdfBlob(captureRoot)
+  }
+  if (captureRoot.classList.contains('contractPdfRoot')) {
+    return buildContractPdfBlob(captureRoot)
+  }
 
   if (pdfSourceIntersectsViewport(captureRoot)) {
     await waitNextPaint()
@@ -389,5 +415,117 @@ export async function buildOwnerScopePdfBlob(element: HTMLElement): Promise<Blob
 
 export async function downloadOwnerScopePdf(element: HTMLElement, filename: string): Promise<void> {
   const blob = await buildOwnerScopePdfBlob(element)
+  downloadBlob(blob, filename)
+}
+
+const DEBT_PDF_SCALE = 2
+
+/**
+ * 區塊分頁 PDF：整份以「同一比例」擷取一次，再依 `[data-pdf-block]` 分頁。
+ */
+async function buildBlockPagedPdfBlob(rootWrapper: HTMLElement, rootClass: string): Promise<Blob> {
+  const root = rootWrapper.querySelector<HTMLElement>(`.${rootClass}`) ?? rootWrapper
+  const blocks = [...root.querySelectorAll<HTMLElement>('[data-pdf-block]')]
+  const [{ default: html2canvas }] = await Promise.all([import('html2canvas')])
+
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+  const { innerW, innerH } = innerPrintableMm(pdf, PDF_MARGIN_MM)
+
+  await waitNextPaint()
+  const canvas = await html2canvas(root, {
+    ...buildHtml2CanvasOpts(root),
+    scale: DEBT_PDF_SCALE,
+  })
+
+  const cw = canvas.width
+  const ch = canvas.height
+  const mmPerPx = innerW / cw
+  // 每頁可容納之畫布高度（px）；留少量安全邊避免捨入溢出
+  const pageHeightPx = Math.max(1, Math.floor(innerH / mmPerPx) - 4)
+
+  const rootRect = root.getBoundingClientRect()
+  const segs = blocks
+    .map((b) => {
+      const r = b.getBoundingClientRect()
+      return {
+        top: Math.max(0, Math.round((r.top - rootRect.top) * DEBT_PDF_SCALE)),
+        bottom: Math.min(ch, Math.round((r.bottom - rootRect.top) * DEBT_PDF_SCALE)),
+      }
+    })
+    .filter((s) => s.bottom > s.top)
+
+  const pages: { start: number; end: number }[] = []
+  if (segs.length === 0) {
+    pages.push({ start: 0, end: ch })
+  } else {
+    let pageStart = segs[0]!.top
+    let lastBottom = pageStart
+    for (const s of segs) {
+      if (s.bottom - pageStart > pageHeightPx) {
+        if (s.top > pageStart) {
+          pages.push({ start: pageStart, end: s.top })
+          pageStart = s.top
+        }
+        // 單一區塊比整頁還高：退而切片，避免無限迴圈
+        while (s.bottom - pageStart > pageHeightPx) {
+          pages.push({ start: pageStart, end: pageStart + pageHeightPx })
+          pageStart += pageHeightPx
+        }
+      }
+      lastBottom = s.bottom
+    }
+    if (lastBottom > pageStart) pages.push({ start: pageStart, end: lastBottom })
+  }
+
+  const slice = document.createElement('canvas')
+  slice.width = cw
+  const sctx = slice.getContext('2d')
+  if (!sctx) return pdf.output('blob')
+
+  for (let i = 0; i < pages.length; i++) {
+    const { start, end } = pages[i]!
+    const h = Math.max(1, end - start)
+    slice.height = h
+    sctx.fillStyle = '#ffffff'
+    sctx.fillRect(0, 0, cw, h)
+    sctx.drawImage(canvas, 0, start, cw, h, 0, 0, cw, h)
+    const imgData = slice.toDataURL(`image/${PDF_IMAGE_TYPE}`, PDF_IMAGE_QUALITY)
+    if (i > 0) pdf.addPage()
+    // 同一 mmPerPx：圖寬固定 innerW，高度依切片比例，左上對齊邊距 → 各頁字級一致
+    const drawW = innerW
+    const drawH = h * mmPerPx
+    pdf.addImage(imgData, JPEG_FMT, PDF_MARGIN_MM[3], PDF_MARGIN_MM[0], drawW, drawH)
+  }
+
+  return pdf.output('blob')
+}
+
+/**
+ * 債務確認書：整份以「同一比例」擷取一次（各頁字級一致），再依 `[data-pdf-block]`
+ * 區塊邊界分頁——區塊放不下就整塊跳下一頁（不從中間切斷）。
+ */
+export async function buildDebtConfirmationPdfBlob(
+  rootWrapper: HTMLElement,
+  attachments: readonly DebtConfirmationAttachmentFile[] = [],
+): Promise<Blob> {
+  const mainBlob = await buildBlockPagedPdfBlob(rootWrapper, 'debtConfirmationPdfRoot')
+  return appendDebtConfirmationAttachmentsToPdf(mainBlob, attachments)
+}
+
+export async function buildContractPdfBlob(rootWrapper: HTMLElement): Promise<Blob> {
+  return buildBlockPagedPdfBlob(rootWrapper, 'contractPdfRoot')
+}
+
+export async function downloadContractPdf(root: HTMLElement, filename: string): Promise<void> {
+  const blob = await buildContractPdfBlob(root)
+  downloadBlob(blob, filename)
+}
+
+export async function downloadDebtConfirmationPdf(
+  root: HTMLElement,
+  filename: string,
+  attachments: readonly DebtConfirmationAttachmentFile[] = [],
+): Promise<void> {
+  const blob = await buildDebtConfirmationPdfBlob(root, attachments)
   downloadBlob(blob, filename)
 }

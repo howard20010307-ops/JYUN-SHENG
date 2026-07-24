@@ -7,6 +7,7 @@ import {
   isPlaceholderMonthBlockSiteName,
   padArray,
   siteBlockLabelForSummary,
+  staffRateOnDate,
   type MonthSheetData,
   type SalaryBook,
 } from './salaryExcelModel'
@@ -149,8 +150,8 @@ export function buildPayrollDaySnapshot(
     .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
     .map((name) => ({
       name,
-      rateJun: sheet.rateJun[name] ?? 0,
-      rateTsai: sheet.rateTsai[name] ?? 0,
+      rateJun: staffRateOnDate(sheet, name, 'jun', iso),
+      rateTsai: staffRateOnDate(sheet, name, 'tsai', iso),
     }))
 
   return {
