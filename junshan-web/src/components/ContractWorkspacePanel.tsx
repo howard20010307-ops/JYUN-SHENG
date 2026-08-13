@@ -401,49 +401,52 @@ export function ContractWorkspacePanel({ workspace, setWorkspace, quoteSite, lab
         </fieldset>
 
         <div className="btnRow">
-          <button type="button" className="btn" onClick={() => setPreviewOpen(true)}>
+          <button type="button" className="btn secondary" onClick={() => setPreviewOpen(true)}>
             預覽 PDF
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            disabled={pdfBusy}
-            onClick={async () => {
-              if (!pdfRef.current) return
-              setPdfBusy(true)
-              try {
-                await downloadContractPdf(pdfRef.current, buildContractPdfFilename(workspace.projectName))
-              } finally {
-                setPdfBusy(false)
-              }
-            }}
-          >
-            {pdfBusy ? '產生中…' : '下載 PDF'}
           </button>
         </div>
       </section>
 
-      <div ref={pdfRef} style={{ position: 'fixed', left: -9999, top: 0, pointerEvents: 'none' }} aria-hidden>
-        <ContractPdfSheet data={workspace} />
-      </div>
-
       {previewOpen ? (
         <div
-          className="modalBackdrop"
+          className="quoteDialogOverlay ownerScopePdfPreviewOverlay"
           role="dialog"
           aria-modal="true"
-          aria-label="工程合約書 PDF 預覽"
+          aria-labelledby="contractPdfPreviewTitle"
           onClick={() => setPreviewOpen(false)}
         >
-          <div className="modalPanel modalPanel--wide" onClick={(e) => e.stopPropagation()}>
-            <div className="modalPanel__head">
-              <h3 style={{ margin: 0 }}>PDF 預覽</h3>
+          <div className="quoteDialogPanel ownerScopePdfPreviewPanel" onClick={(e) => e.stopPropagation()}>
+            <div className="ownerScopePdfPreviewHead">
+              <h2 id="contractPdfPreviewTitle">工程合約書 PDF 預覽</h2>
+            </div>
+            <div className="ownerScopePdfPreviewScroll">
+              <div ref={pdfRef}>
+                <ContractPdfSheet data={workspace} />
+              </div>
+            </div>
+            <div className="quoteDialogActions">
               <button type="button" className="btn secondary" onClick={() => setPreviewOpen(false)}>
                 關閉
               </button>
-            </div>
-            <div className="modalPanel__body" style={{ overflow: 'auto', maxHeight: '80vh' }}>
-              <ContractPdfSheet data={workspace} />
+              <button
+                type="button"
+                className="btn"
+                disabled={pdfBusy}
+                onClick={async () => {
+                  const el = pdfRef.current
+                  if (!el) return
+                  setPdfBusy(true)
+                  try {
+                    await downloadContractPdf(el, buildContractPdfFilename(workspace.projectName))
+                  } catch (e) {
+                    window.alert(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setPdfBusy(false)
+                  }
+                }}
+              >
+                {pdfBusy ? '產生 PDF 中…' : '下載 PDF'}
+              </button>
             </div>
           </div>
         </div>

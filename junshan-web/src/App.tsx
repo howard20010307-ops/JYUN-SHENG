@@ -8,6 +8,7 @@ import { QuotationWorkspacePanel } from './components/QuotationWorkspacePanel'
 import { PricingWorkspacePanel } from './components/PricingWorkspacePanel'
 import { DebtConfirmationWorkspacePanel } from './components/DebtConfirmationWorkspacePanel'
 import { ContractWorkspacePanel } from './components/ContractWorkspacePanel'
+import { EmploymentCertificateWorkspacePanel } from './components/EmploymentCertificateWorkspacePanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
@@ -561,6 +562,15 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               <button
                 type="button"
                 role="tab"
+                aria-selected={state.clientDocsSheet === 'employmentCertificate'}
+                className={`tab ${state.clientDocsSheet === 'employmentCertificate' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'employmentCertificate' }))}
+              >
+                在職證明
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-selected={state.clientDocsSheet === 'debtConfirmation'}
                 className={`tab ${state.clientDocsSheet === 'debtConfirmation' ? 'on' : ''}`}
                 onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'debtConfirmation' }))}
@@ -616,7 +626,7 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                 quoteSite={state.site}
                 laborOwnerClient={state.customLaborWorkspace.ownerClient}
               />
-            ) : (
+            ) : state.clientDocsSheet === 'debtConfirmation' ? (
               <DebtConfirmationWorkspacePanel
                 workspace={state.debtConfirmationWorkspace}
                 setWorkspace={(fn) =>
@@ -627,6 +637,17 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   }))
                 }
                 laborOwnerClient={state.customLaborWorkspace.ownerClient}
+              />
+            ) : (
+              <EmploymentCertificateWorkspacePanel
+                workspace={state.employmentCertificateWorkspace}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    employmentCertificateWorkspace:
+                      typeof fn === 'function' ? fn(s.employmentCertificateWorkspace) : fn,
+                  }))
+                }
               />
             )}
           </fieldset>

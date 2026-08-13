@@ -18,7 +18,7 @@ const TABLE_PAGE_TOP_SAFETY_MM = 1
 /** yMm 在此範圍內視為新頁頂（與 {@link MARGIN} 上邊距對齊），接續切片應帶表頭 */
 const PAGE_TOP_Y_MM_EPS = 0.2
 
-export type PdfCaptureRootClass = 'quotationPdfRoot' | 'ownerScopePdfRoot'
+export type PdfCaptureRootClass = 'quotationPdfRoot' | 'ownerScopePdfRoot' | 'contractPdfRoot'
 
 export type WorkspacePdfSpec = {
   captureRootClass: PdfCaptureRootClass
@@ -26,6 +26,8 @@ export type WorkspacePdfSpec = {
   beforeTableWorkspaceKeys: readonly string[]
   /** 主表之後的 workspace key（依序） */
   afterTableWorkspaceKeys: readonly string[]
+  /** 合約書：每個 workspace 獨佔一頁，依內容高度縮放（不撐滿空白 min-height） */
+  forceNewPagePerBlock?: boolean
 }
 
 const QUOTATION_WORKSPACE_SPEC: WorkspacePdfSpec = {
@@ -38,6 +40,13 @@ const OWNER_SCOPE_WORKSPACE_SPEC: WorkspacePdfSpec = {
   captureRootClass: 'ownerScopePdfRoot',
   beforeTableWorkspaceKeys: ['head'],
   afterTableWorkspaceKeys: ['clauses', 'sign'],
+}
+
+const CONTRACT_WORKSPACE_SPEC: WorkspacePdfSpec = {
+  captureRootClass: 'contractPdfRoot',
+  beforeTableWorkspaceKeys: ['cover', 'page1', 'page2', 'page3'],
+  afterTableWorkspaceKeys: [],
+  forceNewPagePerBlock: true,
 }
 
 function waitPaint(): Promise<void> {
@@ -228,17 +237,34 @@ async function renderSheetPdfByWorkspaces(
       yMm += drawH
     }
 
-    const placeClone = async (el: HTMLElement) => {
+    let ownPageBlockCount = 0
+
+    const placeClone = async (el: HTMLElement, opts?: { ownPage?: boolean }) => {
       host.innerHTML = ''
       const wrap = wrapPdfFragmentForCapture(el.cloneNode(true) as HTMLElement, captureRootClass)
       host.appendChild(wrap)
       const canvas = await html2c(wrap, refW)
       host.innerHTML = ''
+
+      if (opts?.ownPage) {
+        if (ownPageBlockCount > 0) {
+          newPage()
+        }
+        ownPageBlockCount++
+        const kBlock = Math.min(innerW / canvas.width, innerH / canvas.height)
+        const drawW = canvas.width * kBlock
+        const drawH = canvas.height * kBlock
+        const x = MARGIN[1] + (innerW - drawW) / 2
+        pdf.addImage(canvas.toDataURL('image/jpeg', JPEG_Q), 'JPEG', x, MARGIN[0], drawW, drawH)
+        yMm = MARGIN[0] + drawH
+        return
+      }
+
       placeCanvas(canvas)
     }
 
     for (const el of collectWorkspaceBlocks(root, spec.beforeTableWorkspaceKeys)) {
-      await placeClone(el)
+      await placeClone(el, { ownPage: spec.forceNewPagePerBlock === true })
     }
 
     const tableEl = root.querySelector('[data-pdf-workspace="lines"]') as HTMLTableElement | null
@@ -366,4 +392,8 @@ export async function exportQuotationPdfBlobByWorkspaces(root: HTMLElement): Pro
 
 export async function exportOwnerScopePdfBlobByWorkspaces(root: HTMLElement): Promise<Blob> {
   return exportSheetPdfBlobByWorkspaces(root, OWNER_SCOPE_WORKSPACE_SPEC)
+}
+
+export async function exportContractPdfBlobByWorkspaces(root: HTMLElement): Promise<Blob> {
+  return exportSheetPdfBlobByWorkspaces(root, CONTRACT_WORKSPACE_SPEC)
 }

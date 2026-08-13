@@ -117,7 +117,7 @@ function slugForStableBlockIdSegment(rawKey: string): string {
   return o.slice(0, 160)
 }
 
-/** 新建區塊時寫入之穩定 `SiteBlock.id`（已定案之 id 不因案場更名而改寫）。 */
+/** 新建區塊時寫入之穩定 `SiteBlock.id`；placeholder／空白與具名案場分開編碼。 */
 export function buildStableSiteBlockId(
   monthSheetId: string,
   siteNameRaw: string,
@@ -130,6 +130,44 @@ export function buildStableSiteBlockId(
   const k = normalizePayrollSiteBlockMergeKey(siteNameRaw)
   const slug = slugForStableBlockIdSegment(k || 'x')
   return `blk--${mid}--${slug}`
+}
+
+function isPlaceholderOrEmptySiteBlockId(id: string): boolean {
+  return /--ph--/.test(id) || /--em--/.test(id)
+}
+
+/** 同月內具名案場 id；碰撞時加 `__2`、`__3`… */
+function allocateNamedSiteBlockId(
+  monthSheetId: string,
+  siteName: string,
+  used: Set<string>,
+): string {
+  let nid = buildStableSiteBlockId(monthSheetId, siteName, 'named', 0)
+  if (!used.has(nid)) {
+    used.add(nid)
+    return nid
+  }
+  let c = 2
+  while (used.has(`${nid}__${c}`)) c++
+  nid = `${nid}__${c}`
+  used.add(nid)
+  return nid
+}
+
+/**
+ * 「新案場」／空白案名改為正式案名後，將 placeholder／empty id 改為具名 id，
+ * 避免與後續新增的「新案場」共用 `ph--0` 而被墓碑或合併誤殺。
+ */
+function reassignNamedSiteBlockIdIfNeeded(
+  monthSheetId: string,
+  block: SiteBlock,
+  usedNamed: Set<string>,
+): SiteBlock {
+  const kind = siteBlockKindForStableId(block.siteName)
+  if (kind !== 'named' || !isPlaceholderOrEmptySiteBlockId(block.id)) return block
+  const newId = allocateNamedSiteBlockId(monthSheetId, block.siteName, usedNamed)
+  if (newId === block.id) return block
+  return { ...block, id: newId }
 }
 
 function isStableSiteBlockId(id: string): boolean {
@@ -148,8 +186,8 @@ export type PayrollIdsRemap = {
 }
 
 /**
- * 將舊版 `Date.now()`／`m-init-*` 等月表與 `blk-173…` 區塊 id 改為穩定鍵；已穩定之區塊 id 不因案名變更而重算（收帳綁定可沿用）。
- * 於 {@link migrateAppState} 載入時執行；可重複呼叫直至無需變更。
+ * 將舊版 `Date.now()`／`m-init-*` 等月表與 `blk-173…` 區塊 id 改為穩定鍵；
+ * 具名案場若仍留 placeholder／empty id 亦一併改寫（收帳綁定經 remap 同步）。
  */
 export function stabilizeSalaryBookPayrollIds(book: SalaryBook): {
   book: SalaryBook
@@ -198,10 +236,26 @@ export function stabilizeSalaryBookPayrollIds(book: SalaryBook): {
           `blk--${newMid}--`,
         )
         if (nid !== b.id) blockRemap.set(b.id, nid)
-        if (kind === 'named') usedNamed.add(nid)
+        if (kind === 'named') {
+          if (isPlaceholderOrEmptySiteBlockId(nid)) {
+            const reassigned = reassignNamedSiteBlockIdIfNeeded(newMid, { ...b, id: nid }, usedNamed)
+            if (reassigned.id !== nid) blockRemap.set(b.id, reassigned.id)
+            nid = reassigned.id
+          } else {
+            usedNamed.add(nid)
+          }
+        }
       } else {
         nid = b.id
-        if (kind === 'named') usedNamed.add(nid)
+        if (kind === 'named') {
+          if (isPlaceholderOrEmptySiteBlockId(nid)) {
+            const reassigned = reassignNamedSiteBlockIdIfNeeded(newMid, { ...b, id: nid }, usedNamed)
+            if (reassigned.id !== nid) blockRemap.set(nid, reassigned.id)
+            nid = reassigned.id
+          } else {
+            usedNamed.add(nid)
+          }
+        }
       }
 
       return { ...b, id: nid }
@@ -1054,42 +1108,74 @@ function monthLabelWithDuplicateSiteName(book: SalaryBook): string | null {
 /** 快速登記／估價選單等：編輯中區塊（blur 時一併套用新名） */
 export type SiteRenameEditedRef = { monthId: string; blockIndex: number }
 
+/** 「新案場」或空白案名：僅更名單一區塊，不同步全書各月之同名草稿。 */
+export function isSingleBlockSiteRenameOldName(oldExact: string): boolean {
+  const t = oldExact.trim()
+  return t === '' || isPlaceholderMonthBlockSiteName(oldExact)
+}
+
 /**
  * 全書案場更名：凡 `siteName` **字元完全等於**焦點時之 `oldExact` 的區塊改為 `newNameRaw` 去頭尾空白後的字串。
  * （不以 trim 視為等同：「甲」與「甲 」視為不同案名，應分別更名。）
- * 另會強制更新 `edited` 所指區塊。
+ * 「新案場」／空白案名僅更新 `edited` 所指區塊，不連動其他月份之草稿。
  */
 export function renameSiteAcrossBook(
   book: SalaryBook,
   oldExact: string,
   newNameRaw: string,
   edited?: SiteRenameEditedRef,
-): { book: SalaryBook; ok: boolean; message: string } {
+): { book: SalaryBook; ok: boolean; message: string; blockByOldId: Record<string, string> } {
+  const blockByOldId: Record<string, string> = {}
   const newT = newNameRaw.trim()
   if (!newT) {
-    return { book, ok: false, message: '案場名稱不可為空白。' }
+    return { book, ok: false, message: '案場名稱不可為空白。', blockByOldId }
   }
   if (RESERVED_SITE_NAMES_FOR_QUICK.has(newT)) {
     return {
       book,
       ok: false,
       message: `「${newT}」為快速登記保留案名，請改用其他名稱。`,
+      blockByOldId,
     }
   }
   if (oldExact === newT) {
-    return { book, ok: true, message: '名稱相同，無需變更。' }
+    return { book, ok: true, message: '名稱相同，無需變更。', blockByOldId }
   }
 
-  const nextMonths = book.months.map((m) => ({
-    ...m,
-    blocks: m.blocks.map((b, j) => {
-      const matchOld = oldExact !== '' && b.siteName === oldExact
-      const matchEdited =
-        edited !== undefined && m.id === edited.monthId && j === edited.blockIndex
-      if (matchOld || matchEdited) return { ...b, siteName: newT }
-      return b
-    }),
-  }))
+  const singleBlockOnly = isSingleBlockSiteRenameOldName(oldExact)
+  if (singleBlockOnly && !edited) {
+    return {
+      book,
+      ok: false,
+      message: '草稿案場更名需指定要更新的區塊。',
+      blockByOldId,
+    }
+  }
+
+  const nextMonths = book.months.map((m) => {
+    const usedNamed = new Set(
+      m.blocks
+        .filter(
+          (b) =>
+            siteBlockKindForStableId(b.siteName) === 'named' &&
+            !isPlaceholderOrEmptySiteBlockId(b.id),
+        )
+        .map((b) => b.id),
+    )
+    return {
+      ...m,
+      blocks: m.blocks.map((b, j) => {
+        const matchEdited =
+          edited !== undefined && m.id === edited.monthId && j === edited.blockIndex
+        const matchOld =
+          !singleBlockOnly && oldExact !== '' && b.siteName === oldExact
+        let nb = matchOld || matchEdited ? { ...b, siteName: newT } : b
+        const reassigned = reassignNamedSiteBlockIdIfNeeded(m.id, nb, usedNamed)
+        if (reassigned.id !== nb.id) blockByOldId[nb.id] = reassigned.id
+        return reassigned
+      }),
+    }
+  })
 
   let identical = true
   outer: for (let i = 0; i < book.months.length; i++) {
@@ -1103,7 +1189,7 @@ export function renameSiteAcrossBook(
     }
   }
   if (identical) {
-    return { book, ok: true, message: '無需變更。' }
+    return { book, ok: true, message: '無需變更。', blockByOldId }
   }
 
   const trial: SalaryBook = { ...book, months: nextMonths }
@@ -1113,6 +1199,7 @@ export function renameSiteAcrossBook(
       book,
       ok: false,
       message: `無法更名：在「${dupIn}」會與現有案場重複（同一月內案名不可重複）。`,
+      blockByOldId,
     }
   }
 
@@ -1135,9 +1222,15 @@ export function renameSiteAcrossBook(
   const msg =
     changedBlocks === 0
       ? '無需變更。'
-      : `已將與「${oldLabel}」完全相同的案名，同步為「${newT}」（${monthsTouched.size} 張月表、共 ${changedBlocks} 個區塊）。`
+      : singleBlockOnly && edited
+        ? (() => {
+            const touched = book.months.find((m) => m.id === edited.monthId)
+            const label = touched?.label ?? '月表'
+            return `已將「${label}」的案場更名為「${newT}」。`
+          })()
+        : `已將與「${oldLabel}」完全相同的案名，同步為「${newT}」（${monthsTouched.size} 張月表、共 ${changedBlocks} 個區塊）。`
 
-  return { book: trial, ok: true, message: msg }
+  return { book: trial, ok: true, message: msg, blockByOldId }
 }
 
 /**

@@ -29,6 +29,7 @@ export const WIRE_DATA_KEYS: (keyof AppState)[] = [
   'pricingWorkspace',
   'debtConfirmationWorkspace',
   'contractWorkspace',
+  'employmentCertificateWorkspace',
 ]
 
 /** 備份線路防呆：新增／刪除 AppState 欄位時，若未同步更新 WIRE_DATA_KEYS，編譯期直接報錯。 */
@@ -51,6 +52,7 @@ const WIRE_DATA_KEYS_GUARD: Record<keyof AppState, true> = {
   pricingWorkspace: true,
   debtConfirmationWorkspace: true,
   contractWorkspace: true,
+  employmentCertificateWorkspace: true,
 }
 void WIRE_DATA_KEYS_GUARD
 
@@ -204,6 +206,9 @@ export function assertJsonBinBackupWireStringComplete(raw: string): void {
   }
   if (!data.contractWorkspace || typeof data.contractWorkspace !== 'object') {
     throw new Error('上傳中止：contractWorkspace 必須為物件。')
+  }
+  if (!data.employmentCertificateWorkspace || typeof data.employmentCertificateWorkspace !== 'object') {
+    throw new Error('上傳中止：employmentCertificateWorkspace 必須為物件。')
   }
 }
 

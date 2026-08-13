@@ -53,6 +53,15 @@ export function buildContractPdfFilename(projectName: string): string {
   return `工程合約書_${safe}_${y}${m}${day}.pdf`
 }
 
+export function buildEmploymentCertificatePdfFilename(employeeName: string): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = employeeName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名員工'
+  return `在職證明書_${safe}_${y}${m}${day}.pdf`
+}
+
 function parseDateLikeInput(input: string): Date | null {
   const s = input.trim()
   if (!s) return null
@@ -99,7 +108,9 @@ function pdfSourceIntersectsViewport(el: HTMLElement): boolean {
 }
 
 function resolvePdfCaptureRoot(wrapper: HTMLElement): HTMLElement {
-  const inner = wrapper.querySelector<HTMLElement>('.quotationPdfRoot, .ownerScopePdfRoot')
+  const inner = wrapper.querySelector<HTMLElement>(
+    '.quotationPdfRoot, .ownerScopePdfRoot, .contractPdfRoot, .debtConfirmationPdfRoot',
+  )
   return inner ?? wrapper
 }
 
@@ -333,14 +344,7 @@ async function buildWorkspacePdfBlob(
     'align-items:flex-start',
   ].join(';')
   const clone = captureRoot.cloneNode(true) as HTMLElement
-  clone.style.cssText = [
-    'position:relative',
-    'width:210mm',
-    'max-width:100%',
-    'margin:0',
-    'background:#ffffff',
-    'box-sizing:border-box',
-  ].join(';')
+  applyPdfCaptureCloneLayout(clone, '210mm')
   shell.appendChild(clone)
   document.body.appendChild(shell)
   try {
@@ -362,6 +366,9 @@ export async function buildOwnerScopePdfBlob(element: HTMLElement): Promise<Blob
   }
   if (captureRoot.classList.contains('debtConfirmationPdfRoot')) {
     return buildDebtConfirmationPdfBlob(captureRoot)
+  }
+  if (captureRoot.classList.contains('employmentCertPdfRoot')) {
+    return buildEmploymentCertificatePdfBlob(captureRoot)
   }
   if (captureRoot.classList.contains('contractPdfRoot')) {
     return buildContractPdfBlob(captureRoot)
@@ -419,70 +426,192 @@ export async function downloadOwnerScopePdf(element: HTMLElement, filename: stri
 }
 
 const DEBT_PDF_SCALE = 2
+/** 分頁高度安全邊（canvas px），避免切片邊緣裁到文字 */
+const BLOCK_PAGE_SLICE_SLACK_PX = 8
+
+async function waitForCaptureAssets(el: HTMLElement): Promise<void> {
+  try {
+    await document.fonts.ready
+  } catch {
+    /* ignore */
+  }
+  const imgs = [...el.querySelectorAll('img')]
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          if (img.complete) {
+            resolve()
+            return
+          }
+          img.addEventListener('load', () => resolve(), { once: true })
+          img.addEventListener('error', () => resolve(), { once: true })
+        }),
+    ),
+  )
+  await waitNextPaint()
+}
+
+function createOffscreenPdfCaptureShell(): HTMLDivElement {
+  const shell = document.createElement('div')
+  shell.setAttribute('data-pdf-capture-shell', '1')
+  shell.style.cssText = [
+    'position:fixed',
+    'left:0',
+    'top:0',
+    'width:210mm',
+    'overflow:visible',
+    'z-index:2147483646',
+    'background:#fff',
+    'color:#111',
+    'color-scheme:light',
+    'pointer-events:none',
+    'transform:translateX(-120vw)',
+  ].join(';')
+  return shell
+}
+
+/** 僅追加擷取用排版；禁止 cssText 覆寫，否則會洗掉 React inline 的字色／字級。 */
+function applyPdfCaptureCloneLayout(clone: HTMLElement, width = '190mm'): void {
+  clone.style.setProperty('position', 'relative')
+  clone.style.setProperty('width', width)
+  clone.style.setProperty('max-width', 'none')
+  clone.style.setProperty('margin', '0')
+  clone.style.setProperty('box-sizing', 'border-box')
+}
+
+async function mountPdfCaptureClone(captureRoot: HTMLElement): Promise<{
+  clone: HTMLElement
+  cleanup: () => void
+}> {
+  const shell = createOffscreenPdfCaptureShell()
+  const clone = captureRoot.cloneNode(true) as HTMLElement
+  applyPdfCaptureCloneLayout(clone)
+
+  shell.appendChild(clone)
+  document.body.appendChild(shell)
+  await waitForCaptureAssets(clone)
+
+  return {
+    clone,
+    cleanup: () => shell.remove(),
+  }
+}
+
+type CanvasSegment = { top: number; bottom: number }
+
+function measureBlockSegmentsInCanvas(
+  captureEl: HTMLElement,
+  blocks: readonly HTMLElement[],
+  scale: number,
+  canvasHeight: number,
+): CanvasSegment[] {
+  const rootTop = captureEl.getBoundingClientRect().top
+  return blocks
+    .map((b) => {
+      const r = b.getBoundingClientRect()
+      const top = Math.max(0, Math.floor((r.top - rootTop) * scale))
+      const bottom = Math.min(canvasHeight, Math.ceil((r.bottom - rootTop) * scale))
+      return { top, bottom }
+    })
+    .filter((s) => s.bottom > s.top)
+}
 
 /**
- * 區塊分頁 PDF：整份以「同一比例」擷取一次，再依 `[data-pdf-block]` 分頁。
+ * 依區塊邊界分頁：同一條放不下時整條跳下一頁，禁止從區塊中間切片。
  */
-async function buildBlockPagedPdfBlob(rootWrapper: HTMLElement, rootClass: string): Promise<Blob> {
-  const root = rootWrapper.querySelector<HTMLElement>(`.${rootClass}`) ?? rootWrapper
-  const blocks = [...root.querySelectorAll<HTMLElement>('[data-pdf-block]')]
+function packBlockSegmentsIntoPages(
+  segs: readonly CanvasSegment[],
+  pageHeightPx: number,
+): { start: number; end: number }[] {
+  if (segs.length === 0) return []
+  if (pageHeightPx < 1) return []
+
+  const pages: { start: number; end: number }[] = []
+  let pageStart = segs[0]!.top
+  let pageEnd = segs[0]!.bottom
+
+  for (let i = 1; i < segs.length; i++) {
+    const s = segs[i]!
+    const blockH = s.bottom - s.top
+
+    if (blockH > pageHeightPx) {
+      if (pageEnd > pageStart) {
+        pages.push({ start: pageStart, end: pageEnd })
+      }
+      pages.push({ start: s.top, end: s.bottom })
+      pageStart = s.bottom
+      pageEnd = s.bottom
+      continue
+    }
+
+    if (s.bottom - pageStart > pageHeightPx) {
+      pages.push({ start: pageStart, end: pageEnd })
+      pageStart = s.top
+      pageEnd = s.bottom
+    } else {
+      pageEnd = s.bottom
+    }
+  }
+
+  if (pageEnd > pageStart) {
+    pages.push({ start: pageStart, end: pageEnd })
+  }
+
+  return pages
+}
+
+/**
+ * 區塊分頁：整份以「同一比例」擷取一次，再依 `[data-pdf-block]` 分頁。
+ * @returns 本段新增的 PDF 頁數
+ */
+async function appendBlockPagedPdf(
+  pdf: jsPDF,
+  captureEl: HTMLElement,
+  opts?: {
+    /** 第一片內容前先 addPage（例如封面已佔第 1 頁） */
+    addPageBeforeFirst?: boolean
+    pageNumberStart?: number
+    footerReserveMm?: number
+  },
+): Promise<number> {
+  const blocks = [...captureEl.querySelectorAll<HTMLElement>('[data-pdf-block]')]
   const [{ default: html2canvas }] = await Promise.all([import('html2canvas')])
 
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
   const { innerW, innerH } = innerPrintableMm(pdf, PDF_MARGIN_MM)
+  const footerMm = opts?.footerReserveMm ?? 0
+  const contentInnerH = Math.max(1, innerH - footerMm)
 
-  await waitNextPaint()
-  const canvas = await html2canvas(root, {
-    ...buildHtml2CanvasOpts(root),
+  await waitForCaptureAssets(captureEl)
+  const canvas = await html2canvas(captureEl, {
+    ...buildHtml2CanvasOpts(captureEl),
     scale: DEBT_PDF_SCALE,
   })
 
   const cw = canvas.width
   const ch = canvas.height
   const mmPerPx = innerW / cw
-  // 每頁可容納之畫布高度（px）；留少量安全邊避免捨入溢出
-  const pageHeightPx = Math.max(1, Math.floor(innerH / mmPerPx) - 4)
+  const pageHeightPx = Math.max(
+    1,
+    Math.floor(contentInnerH / mmPerPx) - BLOCK_PAGE_SLICE_SLACK_PX,
+  )
 
-  const rootRect = root.getBoundingClientRect()
-  const segs = blocks
-    .map((b) => {
-      const r = b.getBoundingClientRect()
-      return {
-        top: Math.max(0, Math.round((r.top - rootRect.top) * DEBT_PDF_SCALE)),
-        bottom: Math.min(ch, Math.round((r.bottom - rootRect.top) * DEBT_PDF_SCALE)),
-      }
-    })
-    .filter((s) => s.bottom > s.top)
-
-  const pages: { start: number; end: number }[] = []
-  if (segs.length === 0) {
-    pages.push({ start: 0, end: ch })
-  } else {
-    let pageStart = segs[0]!.top
-    let lastBottom = pageStart
-    for (const s of segs) {
-      if (s.bottom - pageStart > pageHeightPx) {
-        if (s.top > pageStart) {
-          pages.push({ start: pageStart, end: s.top })
-          pageStart = s.top
-        }
-        // 單一區塊比整頁還高：退而切片，避免無限迴圈
-        while (s.bottom - pageStart > pageHeightPx) {
-          pages.push({ start: pageStart, end: pageStart + pageHeightPx })
-          pageStart += pageHeightPx
-        }
-      }
-      lastBottom = s.bottom
-    }
-    if (lastBottom > pageStart) pages.push({ start: pageStart, end: lastBottom })
-  }
+  const segs = measureBlockSegmentsInCanvas(captureEl, blocks, DEBT_PDF_SCALE, ch)
+  const pages =
+    segs.length > 0 ? packBlockSegmentsIntoPages(segs, pageHeightPx) : [{ start: 0, end: ch }]
 
   const slice = document.createElement('canvas')
   slice.width = cw
   const sctx = slice.getContext('2d')
-  if (!sctx) return pdf.output('blob')
+  if (!sctx) return 0
+
+  let pageNum = opts?.pageNumberStart != null ? opts.pageNumberStart - 1 : null
 
   for (let i = 0; i < pages.length; i++) {
+    if (i > 0 || opts?.addPageBeforeFirst) {
+      pdf.addPage()
+    }
+
     const { start, end } = pages[i]!
     const h = Math.max(1, end - start)
     slice.height = h
@@ -490,13 +619,28 @@ async function buildBlockPagedPdfBlob(rootWrapper: HTMLElement, rootClass: strin
     sctx.fillRect(0, 0, cw, h)
     sctx.drawImage(canvas, 0, start, cw, h, 0, 0, cw, h)
     const imgData = slice.toDataURL(`image/${PDF_IMAGE_TYPE}`, PDF_IMAGE_QUALITY)
-    if (i > 0) pdf.addPage()
-    // 同一 mmPerPx：圖寬固定 innerW，高度依切片比例，左上對齊邊距 → 各頁字級一致
+
     const drawW = innerW
     const drawH = h * mmPerPx
     pdf.addImage(imgData, JPEG_FMT, PDF_MARGIN_MM[3], PDF_MARGIN_MM[0], drawW, drawH)
+
+    if (pageNum != null) {
+      pageNum += 1
+      const ph = pdf.internal.pageSize.getHeight()
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10)
+      pdf.setTextColor(51, 51, 51)
+      pdf.text(`第 ${pageNum} 頁`, ph / 2, ph - PDF_MARGIN_MM[2], { align: 'center' })
+    }
   }
 
+  return pages.length
+}
+
+async function buildBlockPagedPdfBlob(rootWrapper: HTMLElement, rootClass: string): Promise<Blob> {
+  const root = rootWrapper.querySelector<HTMLElement>(`.${rootClass}`) ?? rootWrapper
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+  await appendBlockPagedPdf(pdf, root)
   return pdf.output('blob')
 }
 
@@ -512,8 +656,60 @@ export async function buildDebtConfirmationPdfBlob(
   return appendDebtConfirmationAttachmentsToPdf(mainBlob, attachments)
 }
 
+export async function buildEmploymentCertificatePdfBlob(rootWrapper: HTMLElement): Promise<Blob> {
+  return buildBlockPagedPdfBlob(rootWrapper, 'employmentCertPdfRoot')
+}
+
+async function renderContractPdfFromDom(captureRoot: HTMLElement): Promise<Blob> {
+  const cover = captureRoot.querySelector<HTMLElement>('[data-pdf-workspace="cover"]')
+  const body = captureRoot.querySelector<HTMLElement>('[data-pdf-workspace="body"]')
+
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+  const [{ default: html2canvas }] = await Promise.all([import('html2canvas')])
+  const { innerW, innerH } = innerPrintableMm(pdf, PDF_MARGIN_MM)
+
+  if (cover) {
+    await waitForCaptureAssets(cover)
+    const coverCanvas = await html2canvas(cover, {
+      ...buildHtml2CanvasOpts(cover),
+      scale: DEBT_PDF_SCALE,
+    })
+    const k = Math.min(innerW / coverCanvas.width, innerH / coverCanvas.height)
+    const drawW = coverCanvas.width * k
+    const drawH = coverCanvas.height * k
+    const x = PDF_MARGIN_MM[3] + (innerW - drawW) / 2
+    const y = PDF_MARGIN_MM[0] + (innerH - drawH) / 2
+    pdf.addImage(
+      coverCanvas.toDataURL(`image/${PDF_IMAGE_TYPE}`, PDF_IMAGE_QUALITY),
+      JPEG_FMT,
+      x,
+      y,
+      drawW,
+      drawH,
+    )
+  }
+
+  if (body) {
+    await appendBlockPagedPdf(pdf, body, {
+      addPageBeforeFirst: Boolean(cover),
+      pageNumberStart: 1,
+      footerReserveMm: 10,
+    })
+  } else if (!cover) {
+    await appendBlockPagedPdf(pdf, captureRoot, { pageNumberStart: 1, footerReserveMm: 10 })
+  }
+
+  return pdf.output('blob')
+}
+
 export async function buildContractPdfBlob(rootWrapper: HTMLElement): Promise<Blob> {
-  return buildBlockPagedPdfBlob(rootWrapper, 'contractPdfRoot')
+  const captureRoot = resolvePdfCaptureRoot(rootWrapper)
+  const { clone, cleanup } = await mountPdfCaptureClone(captureRoot)
+  try {
+    return await renderContractPdfFromDom(clone)
+  } finally {
+    cleanup()
+  }
 }
 
 export async function downloadContractPdf(root: HTMLElement, filename: string): Promise<void> {
@@ -527,5 +723,10 @@ export async function downloadDebtConfirmationPdf(
   attachments: readonly DebtConfirmationAttachmentFile[] = [],
 ): Promise<void> {
   const blob = await buildDebtConfirmationPdfBlob(root, attachments)
+  downloadBlob(blob, filename)
+}
+
+export async function downloadEmploymentCertificatePdf(root: HTMLElement, filename: string): Promise<void> {
+  const blob = await buildEmploymentCertificatePdfBlob(root)
   downloadBlob(blob, filename)
 }
