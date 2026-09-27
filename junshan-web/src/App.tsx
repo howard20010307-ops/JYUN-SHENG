@@ -9,6 +9,7 @@ import { PricingWorkspacePanel } from './components/PricingWorkspacePanel'
 import { DebtConfirmationWorkspacePanel } from './components/DebtConfirmationWorkspacePanel'
 import { ContractWorkspacePanel } from './components/ContractWorkspacePanel'
 import { EmploymentCertificateWorkspacePanel } from './components/EmploymentCertificateWorkspacePanel'
+import { IncomeCertificateWorkspacePanel } from './components/IncomeCertificateWorkspacePanel'
 import { ReceivablesPanel } from './components/ReceivablesPanel'
 import { staffKeysAcrossBook } from './domain/salaryExcelModel'
 import { jobSitesFromSalaryBook } from './domain/jobSitesFromBook'
@@ -571,6 +572,15 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
               <button
                 type="button"
                 role="tab"
+                aria-selected={state.clientDocsSheet === 'incomeCertificate'}
+                className={`tab ${state.clientDocsSheet === 'incomeCertificate' ? 'on' : ''}`}
+                onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'incomeCertificate' }))}
+              >
+                收入證明
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-selected={state.clientDocsSheet === 'debtConfirmation'}
                 className={`tab ${state.clientDocsSheet === 'debtConfirmation' ? 'on' : ''}`}
                 onClick={() => setState((s) => ({ ...s, clientDocsSheet: 'debtConfirmation' }))}
@@ -637,6 +647,18 @@ function AppShell({ onLogout }: { onLogout?: () => void }) {
                   }))
                 }
                 laborOwnerClient={state.customLaborWorkspace.ownerClient}
+              />
+            ) : state.clientDocsSheet === 'incomeCertificate' ? (
+              <IncomeCertificateWorkspacePanel
+                workspace={state.incomeCertificateWorkspace}
+                salaryBook={state.salaryBook}
+                setWorkspace={(fn) =>
+                  setState((s) => ({
+                    ...s,
+                    incomeCertificateWorkspace:
+                      typeof fn === 'function' ? fn(s.incomeCertificateWorkspace) : fn,
+                  }))
+                }
               />
             ) : (
               <EmploymentCertificateWorkspacePanel

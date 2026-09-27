@@ -9,6 +9,7 @@ import {
   type ContractParty,
   type ContractWorkspaceState,
 } from '../domain/contractWorkspace'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 const PARTY_B_COMPANY_STAMP_SRC = `${import.meta.env.BASE_URL}debt-confirmation-company-stamp.png`
 const PARTY_B_PERSONAL_STAMP_SRC = `${import.meta.env.BASE_URL}debt-confirmation-personal-stamp.png`
@@ -31,6 +32,7 @@ const rootStyle: CSSProperties = {
   fontFamily: '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif',
   fontSize: BODY_FONT_SIZE,
   lineHeight: BODY_LINE_HEIGHT,
+  position: 'relative',
 }
 
 const bodyPad: CSSProperties = {
@@ -191,6 +193,7 @@ export function ContractPdfSheet({ data }: Props) {
 
   return (
     <div className="contractPdfRoot" style={rootStyle}>
+      <PdfPageWatermark />
       <div
         data-pdf-workspace="cover"
         style={{

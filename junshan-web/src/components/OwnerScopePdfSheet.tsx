@@ -7,6 +7,7 @@ import type {
 } from '../domain/quoteEngine'
 import type { OwnerWorkScopeLaborKind, OwnerWorkScopeSection } from '../domain/quoteOwnerScope'
 import { ownerWorkScopeLaborColumnLabel } from '../domain/quoteOwnerScope'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 function ownerFieldDisplay(v: string): string {
   const t = v.trim()
@@ -14,9 +15,6 @@ function ownerFieldDisplay(v: string): string {
 }
 
 export const OWNER_SCOPE_DOC_TITLE = '放樣工程(內外業)承攬供述明細'
-
-/** `public/owner-scope-company-stamp.png`：承攬供述明細 PDF 左上角公司標章／圖示 */
-const OWNER_SCOPE_COMPANY_STAMP_SRC = `${import.meta.env.BASE_URL}owner-scope-company-stamp.png`
 
 /** 由估價列產生之業主工作內容，或「工作明細」自填列 */
 export type OwnerScopePdfSheetProps =
@@ -166,66 +164,39 @@ export function OwnerScopePdfSheet(props: OwnerScopePdfSheetProps) {
         lineHeight: 1.45,
         color: '#1a1a1a',
         background: '#fff',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      <PdfPageWatermark />
       <div data-pdf-workspace="head">
       <div style={{ ...orangeBar, padding: '10px 12px', textAlign: 'center', marginBottom: 10 }}>
         <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '0.12em' }}>{OWNER_SCOPE_DOC_TITLE}</div>
       </div>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 10, alignItems: 'stretch' }}>
-        <div
-          style={{
-            width: 88,
-            minHeight: 88,
-            flexShrink: 0,
-            ...boxBorder,
-            background: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 4,
-            boxSizing: 'border-box',
-            overflow: 'hidden',
-          }}
-        >
-          <img
-            src={OWNER_SCOPE_COMPANY_STAMP_SRC}
-            alt={`${COMPANY_CONTRACTOR.name} 公司標章`}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              width: 'auto',
-              height: 'auto',
-              objectFit: 'contain',
-              display: 'block',
-            }}
-          />
-        </div>
-        <div style={{ flex: 1, ...boxBorder, padding: '8px 10px', fontSize: 10.5 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              <tr>
-                <td style={{ padding: '2px 6px 2px 0', width: '28%', color: '#444' }}>案名</td>
-                <td style={{ padding: '2px 0', fontWeight: 600 }}>{caseNameDisplay}</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>呈現方式</td>
-                <td style={{ padding: '2px 0' }}>{modeLabel}</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>產製日期</td>
-                <td style={{ padding: '2px 0' }}>{docDateLabel}</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>備註</td>
-                <td style={{ padding: '2px 0', fontSize: 10 }}>
-                  {laborFootnote}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div style={{ ...boxBorder, padding: '8px 10px', fontSize: 10.5, marginBottom: 10, width: '100%', boxSizing: 'border-box' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            <tr>
+              <td style={{ padding: '2px 6px 2px 0', width: '18%', color: '#444' }}>案名</td>
+              <td style={{ padding: '2px 0', fontWeight: 600 }}>{caseNameDisplay}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>呈現方式</td>
+              <td style={{ padding: '2px 0' }}>{modeLabel}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>產製日期</td>
+              <td style={{ padding: '2px 0' }}>{docDateLabel}</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '2px 6px 2px 0', color: '#444' }}>備註</td>
+              <td style={{ padding: '2px 0', fontSize: 10 }}>
+                {laborFootnote}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>

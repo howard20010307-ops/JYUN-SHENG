@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { COMPANY_CONTRACTOR } from '../domain/companyContact'
 import type { EmploymentCertificateWorkspaceState } from '../domain/employmentCertificateWorkspace'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 const COMPANY_STAMP_SRC = `${import.meta.env.BASE_URL}debt-confirmation-company-stamp.png`
 const PERSONAL_STAMP_SRC = `${import.meta.env.BASE_URL}debt-confirmation-personal-stamp.png`
@@ -18,6 +19,8 @@ const rootStyle: CSSProperties = {
   fontFamily: '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif',
   fontSize: 12,
   lineHeight: 1.6,
+  position: 'relative',
+  overflow: 'hidden',
 }
 
 const cellStyle: CSSProperties = {
@@ -66,6 +69,7 @@ export function EmploymentCertificatePdfSheet({ data }: Props) {
 
   return (
     <div className="employmentCertPdfRoot" style={rootStyle}>
+      <PdfPageWatermark />
       <Block>
         <h1
           style={{

@@ -1,5 +1,6 @@
 import { PageSizes, PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { DebtConfirmationAttachmentFile } from './debtConfirmationWorkspace'
+import { stampPdfLibPagesWithWatermark } from './pdfPageWatermark'
 
 const A4 = PageSizes.A4
 const PAGE_MARGIN = 40
@@ -86,6 +87,7 @@ export async function appendDebtConfirmationAttachmentsToPdf(
 
   const mainBytes = new Uint8Array(await mainPdfBlob.arrayBuffer())
   const pdfDoc = await PDFDocument.load(mainBytes)
+  const originalPageCount = pdfDoc.getPageCount()
 
   for (const att of attachments) {
     const bytes = dataUrlToBytes(att.dataUrl)
@@ -106,6 +108,8 @@ export async function appendDebtConfirmationAttachmentsToPdf(
     }
     await drawUnsupportedAttachmentPage(pdfDoc, att)
   }
+
+  await stampPdfLibPagesWithWatermark(pdfDoc, originalPageCount)
 
   const out = await pdfDoc.save()
   return new Blob([out as BlobPart], { type: 'application/pdf' })

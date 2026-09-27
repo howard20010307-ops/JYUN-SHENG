@@ -2,6 +2,7 @@ import type { ContractContentLine } from '../domain/contractContentModel'
 import { COMPANY_CONTRACTOR } from '../domain/companyContact'
 import { pricingLineSubtotalNet, type PricingRow } from '../domain/pricingWorkspace'
 import type { QuoteOwnerClient } from '../domain/quoteEngine'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 /** `public/pricing-company-logo.png`：計價單 PDF 抬頭公司 logo */
 const COMPANY_LOGO_SRC = `${import.meta.env.BASE_URL}pricing-company-logo.png`
@@ -152,8 +153,11 @@ export function PricingPdfSheet({
         fontFamily: '"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif',
         fontSize: 11,
         lineHeight: 1.45,
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      <PdfPageWatermark />
       <div
         data-pdf-workspace="head"
         style={{

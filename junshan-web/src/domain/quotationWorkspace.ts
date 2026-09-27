@@ -37,6 +37,10 @@ export type QuotationClauseLine = {
   text: string
 }
 
+/** 印在「本工程承攬工作範圍」條列之後的固定備註 */
+export const QUOTATION_WORK_SCOPE_FOOTNOTE =
+  '（以下工作內容依本工程相關契約條款及施工需求辦理，【】內編號為對應契約條款。）'
+
 function defaultSupplier(): QuotationSupplier {
   return {
     companyName: COMPANY_CONTRACTOR.name,
@@ -119,6 +123,54 @@ export function createPaymentTermLine(
   existing: readonly QuotationClauseLine[],
 ): QuotationClauseLine {
   const base = `qws-paytrm--${stableHash16(`new\0${seedTitle}\0${existing.map((c) => c.id).join('\n')}`)}`
+  const id = allocateWithSuffix(base, new Set(existing.map((c) => c.id)))
+  return { id, text: '' }
+}
+
+function migrateWorkScopeLines(raw: unknown): QuotationClauseLine[] {
+  if (raw === undefined || raw === null || !Array.isArray(raw)) return []
+  if (raw.length === 0) return []
+  const first = raw[0]
+  if (typeof first === 'string') {
+    const seen = new Set<string>()
+    return (raw as unknown[]).map((x, i) => {
+      const text = typeof x === 'string' ? x : ''
+      const base = `qws-scope--${stableHash16(`migrateStr\0${i}\0${text}`)}`
+      const id = allocateWithSuffix(base, seen)
+      seen.add(id)
+      return { id, text }
+    })
+  }
+  const tmp: QuotationClauseLine[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const e = raw[i]
+    if (!e || typeof e !== 'object') continue
+    const o = e as Record<string, unknown>
+    const text = typeof o.text === 'string' ? o.text : ''
+    const id =
+      typeof o.id === 'string' && o.id.trim() !== ''
+        ? o.id
+        : `qws-scope--${stableHash16(`migrateObj\0${i}\0${text}`)}`
+    tmp.push({ id, text })
+  }
+  const seen = new Set<string>()
+  return tmp.map((l, i) => {
+    if (!seen.has(l.id)) {
+      seen.add(l.id)
+      return l
+    }
+    const base = `qws-scope--${stableHash16(`dedupe\0${i}\0${l.id}\0${l.text}`)}`
+    const id = allocateWithSuffix(base, seen)
+    seen.add(id)
+    return { ...l, id }
+  })
+}
+
+export function createWorkScopeLine(
+  seedTitle: string,
+  existing: readonly QuotationClauseLine[],
+): QuotationClauseLine {
+  const base = `qws-scope--${stableHash16(`new\0${seedTitle}\0${existing.map((c) => c.id).join('\n')}`)}`
   const id = allocateWithSuffix(base, new Set(existing.map((c) => c.id)))
   return { id, text: '' }
 }
@@ -308,6 +360,8 @@ export type QuotationWorkspaceState = {
   lines: QuotationLine[]
   /** 營業稅率百分比，例如 5 表示 5% */
   vatPercent: number
+  /** 本工程承攬工作範圍（PDF 逐條；空白條略過） */
+  workScopeLines: QuotationClauseLine[]
   /** 付款條件（PDF 逐條；空白條略過） */
   paymentTermsLines: QuotationClauseLine[]
   clauseLines: QuotationClauseLine[]
@@ -331,6 +385,7 @@ export function initialQuotationWorkspace(): QuotationWorkspaceState {
     payer: migrateQuoteOwnerClient(undefined),
     lines: [],
     vatPercent: 5,
+    workScopeLines: [],
     paymentTermsLines: paymentTermsDefaults(),
     clauseLines: clauseDefaults(),
   }
@@ -353,6 +408,7 @@ export function migrateQuotationWorkspace(raw: unknown): QuotationWorkspaceState
     payer: migrateQuoteOwnerClient(o.payer),
     lines: migrateQuotationLines(o.lines),
     vatPercent,
+    workScopeLines: migrateWorkScopeLines(o.workScopeLines),
     paymentTermsLines: migratePaymentTermsLines(o.paymentTermsLines),
     clauseLines: migrateQuotationClauseLines(o.clauseLines),
   }

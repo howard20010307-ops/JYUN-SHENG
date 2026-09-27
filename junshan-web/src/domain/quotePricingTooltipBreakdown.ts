@@ -16,7 +16,9 @@ function contributionsForItem(
   rows: QuoteRow[],
   site: QuoteSite,
 ) {
-  return rows.map((r) => computeRow(r, site.fees)).filter((r) => r.item === item)
+  return rows
+    .map((r) => computeRow(r, site.fees))
+    .filter((r) => r.item.trim() === item)
 }
 
 /** 樓層名稱欄：面積與坪 */

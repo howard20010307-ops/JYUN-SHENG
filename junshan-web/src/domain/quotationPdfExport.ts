@@ -2,8 +2,10 @@
  * 依 data-pdf-workspace 分段輸出 PDF（html2canvas + jsPDF）：
  * 僅主表 (lines) 依 tbody 列拆頁；其餘工作區整段；全域固定 mm／canvas-px 比例 k。
  * 報價單 (quotationPdfRoot) 與工作明細／業主明細 (ownerScopePdfRoot) 共用此流程。
+ * 輸出完成後一律以透明底公司圖樣置中覆蓋每一頁。
  */
 import { jsPDF } from 'jspdf'
+import { addPdfPageWatermark, isPdfPageWatermarkElement } from './pdfPageWatermark'
 
 const MARGIN = [6, 8, 10, 8] as [number, number, number, number]
 const JPEG_Q = 0.93
@@ -33,7 +35,7 @@ export type WorkspacePdfSpec = {
 const QUOTATION_WORKSPACE_SPEC: WorkspacePdfSpec = {
   captureRootClass: 'quotationPdfRoot',
   beforeTableWorkspaceKeys: ['head', 'case'],
-  afterTableWorkspaceKeys: ['vat', 'payterms', 'clauses', 'sign'],
+  afterTableWorkspaceKeys: ['vat', 'payterms', 'scope', 'clauses', 'sign'],
 }
 
 const OWNER_SCOPE_WORKSPACE_SPEC: WorkspacePdfSpec = {
@@ -103,6 +105,7 @@ async function html2c(el: HTMLElement, refWidthCssPx: number): Promise<HTMLCanva
     windowHeight: h,
     scrollX: 0,
     scrollY: 0,
+    ignoreElements: isPdfPageWatermarkElement,
   })
 }
 
@@ -354,6 +357,8 @@ async function renderSheetPdfByWorkspaces(
     for (const el of collectWorkspaceBlocks(root, spec.afterTableWorkspaceKeys)) {
       await placeClone(el)
     }
+
+    await addPdfPageWatermark(pdf)
 
     return pdf
   } finally {

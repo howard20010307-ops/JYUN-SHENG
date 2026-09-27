@@ -14,10 +14,12 @@ import {
   createPaymentTermLine,
   createQuotationClauseLine,
   createQuotationLine,
+  createWorkScopeLine,
   initialQuotationWorkspace,
   quotationGrandTotals,
   quotationLineMoney,
   quotationVatRate,
+  QUOTATION_WORK_SCOPE_FOOTNOTE,
   type QuotationLine,
   type QuotationWorkspaceState,
 } from '../domain/quotationWorkspace'
@@ -164,10 +166,34 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
     }))
   }
 
+  function setWorkScopeLine(id: string, text: string) {
+    setWorkspace((w) => ({
+      ...w,
+      workScopeLines: w.workScopeLines.map((c) => (c.id === id ? { ...c, text } : c)),
+    }))
+  }
+
+  function addWorkScopeLine() {
+    setWorkspace((w) => {
+      const s = w.quoteTitle.trim() !== '' ? w.quoteTitle : '報價單'
+      return {
+        ...w,
+        workScopeLines: [...w.workScopeLines, createWorkScopeLine(s, w.workScopeLines)],
+      }
+    })
+  }
+
+  function removeWorkScopeLine(id: string) {
+    setWorkspace((w) => ({
+      ...w,
+      workScopeLines: w.workScopeLines.filter((c) => c.id !== id),
+    }))
+  }
+
   function confirmClearQuotation() {
     if (
       !window.confirm(
-        '確定要一鍵清除「報價單」？\n將還原為空白案名、預設報價資訊與供應商、空白明細與付款人，付款條件與條款恢復預設。',
+        '確定要一鍵清除「報價單」？\n將還原為空白案名、預設報價資訊與供應商、空白明細與付款人，承攬工作範圍清空，付款條件與條款恢復預設。',
       )
     ) {
       return
@@ -195,7 +221,7 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
           </button>
         </div>
         <p className="hint">
-          位於「對外文件」：本區為<strong>獨立報價單</strong>，與「放樣估價」案場無連動；可自填報價資訊、供應商／付款人、明細、<strong>付款條件</strong>與備註條款，並預覽或匯出 PDF。
+          位於「對外文件」：本區為<strong>獨立報價單</strong>，與「放樣估價」案場無連動；可自填報價資訊、供應商／付款人、<strong>本工程承攬工作範圍</strong>、明細、付款條件與備註條款，並預覽或匯出 PDF。
         </p>
 
         <div
@@ -604,6 +630,51 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
         </fieldset>
 
         <fieldset className="ownerClientFieldset" style={{ marginTop: 16 }}>
+          <legend>
+            本工程承攬工作範圍（PDF）
+            <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+              {QUOTATION_WORK_SCOPE_FOOTNOTE}
+            </span>
+          </legend>
+          <p className="muted ownerClientFieldset__hint">
+            會印在 PDF 備註與條款上方；可增刪條列。完全空白的條列印時會略過。
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {workspace.workScopeLines.map((line, i) => (
+              <div
+                key={line.id}
+                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}
+              >
+                <span className="muted" style={{ minWidth: 28, paddingTop: 8 }}>
+                  {i + 1}.
+                </span>
+                <textarea
+                  className="quoteStickyItemText"
+                  style={{ flex: '1 1 280px', minHeight: 52, resize: 'vertical' }}
+                  rows={2}
+                  value={line.text}
+                  onChange={(e) => setWorkScopeLine(line.id, e.target.value)}
+                  aria-label={`承攬工作範圍第 ${i + 1} 條`}
+                />
+                <button
+                  type="button"
+                  className="btn secondary receivablesTable__miniBtn"
+                  style={{ marginTop: 4 }}
+                  onClick={() => removeWorkScopeLine(line.id)}
+                >
+                  刪除
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="btnRow" style={{ marginTop: 12 }}>
+            <button type="button" className="btn secondary" onClick={addWorkScopeLine}>
+              新增一條
+            </button>
+          </div>
+        </fieldset>
+
+        <fieldset className="ownerClientFieldset" style={{ marginTop: 16 }}>
           <legend>備註與條款（PDF）</legend>
           <p className="muted ownerClientFieldset__hint">
             會印在 PDF 下方；可增刪條列。完全空白的條列印時會略過。
@@ -668,6 +739,7 @@ export function QuotationWorkspacePanel({ workspace, setWorkspace }: Props) {
                   payer={workspace.payer}
                   lines={workspace.lines}
                   vatPercent={workspace.vatPercent}
+                  workScopeLines={workspace.workScopeLines}
                   paymentTermsLines={workspace.paymentTermsLines}
                   clauseLines={workspace.clauseLines}
                 />

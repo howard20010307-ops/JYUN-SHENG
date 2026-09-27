@@ -69,6 +69,11 @@ import {
   migrateEmploymentCertificateWorkspace,
   type EmploymentCertificateWorkspaceState,
 } from './employmentCertificateWorkspace'
+import {
+  initialIncomeCertificateWorkspace,
+  migrateIncomeCertificateWorkspace,
+  type IncomeCertificateWorkspaceState,
+} from './incomeCertificateWorkspace'
 
 export type { CustomLaborWorkspaceState } from './customLaborWorkspace'
 export type { QuotationWorkspaceState } from './quotationWorkspace'
@@ -77,6 +82,7 @@ export type { PricingWorkspaceState } from './pricingWorkspace'
 export type { DebtConfirmationWorkspaceState } from './debtConfirmationWorkspace'
 export type { ContractWorkspaceState } from './contractWorkspace'
 export type { EmploymentCertificateWorkspaceState } from './employmentCertificateWorkspace'
+export type { IncomeCertificateWorkspaceState } from './incomeCertificateWorkspace'
 
 /** 與 {@link buildQuoteRowsFromLayout} 結構綁定；變更估價細項或展開規則時遞增，以觸發舊本機／備份資料重建列 */
 export const QUOTE_ROWS_SCHEMA_VERSION = 3
@@ -100,6 +106,7 @@ export type ClientDocsSheet =
   | 'debtConfirmation'
   | 'contract'
   | 'employmentCertificate'
+  | 'incomeCertificate'
 
 export type AppState = {
   tab: Tab
@@ -137,6 +144,8 @@ export type AppState = {
   contractWorkspace: ContractWorkspaceState
   /** 在職證明書（對外文件） */
   employmentCertificateWorkspace: EmploymentCertificateWorkspaceState
+  /** 服務與收入證明書（對外文件；與在職證明分開） */
+  incomeCertificateWorkspace: IncomeCertificateWorkspaceState
 }
 
 /**
@@ -163,6 +172,7 @@ const APP_STATE_FIELD_GUARD: Record<keyof AppState, true> = {
   debtConfirmationWorkspace: true,
   contractWorkspace: true,
   employmentCertificateWorkspace: true,
+  incomeCertificateWorkspace: true,
 }
 void APP_STATE_FIELD_GUARD
 
@@ -242,6 +252,7 @@ export function initialAppState(): AppState {
     debtConfirmationWorkspace: initialDebtConfirmationWorkspace(),
     contractWorkspace: initialContractWorkspace(),
     employmentCertificateWorkspace: initialEmploymentCertificateWorkspace(),
+    incomeCertificateWorkspace: initialIncomeCertificateWorkspace(),
   }
 }
 
@@ -277,7 +288,8 @@ export function migrateAppState(loaded: unknown): AppState {
       d.clientDocsSheet === 'pricing' ||
       d.clientDocsSheet === 'debtConfirmation' ||
       d.clientDocsSheet === 'contract' ||
-      d.clientDocsSheet === 'employmentCertificate'
+      d.clientDocsSheet === 'employmentCertificate' ||
+      d.clientDocsSheet === 'incomeCertificate'
     ) {
       clientDocsSheet = d.clientDocsSheet
     }
@@ -317,6 +329,9 @@ export function migrateAppState(loaded: unknown): AppState {
   const contractWorkspace = migrateContractWorkspace(d.contractWorkspace)
   const employmentCertificateWorkspace = migrateEmploymentCertificateWorkspace(
     d.employmentCertificateWorkspace,
+  )
+  const incomeCertificateWorkspace = migrateIncomeCertificateWorkspace(
+    d.incomeCertificateWorkspace,
   )
 
   const quoteM = migrateQuotePersistSlice({
@@ -371,6 +386,7 @@ export function migrateAppState(loaded: unknown): AppState {
     debtConfirmationWorkspace,
     contractWorkspace,
     employmentCertificateWorkspace,
+    incomeCertificateWorkspace,
   }
   return out
 }

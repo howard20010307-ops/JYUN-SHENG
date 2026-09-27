@@ -1087,7 +1087,7 @@ export function QuotePanel({
                         row,
                         rows,
                         site,
-                        result.totalRegion,
+                        itemPricingTotals.cost,
                       )}
                       showValueFooter={false}
                     />
@@ -1101,7 +1101,7 @@ export function QuotePanel({
                         row,
                         rows,
                         site,
-                        result.totalRegion,
+                        itemPricingTotals.cost,
                       )}
                     />
                     <PayrollSummaryPopoverCell
@@ -1114,7 +1114,7 @@ export function QuotePanel({
                         row,
                         rows,
                         site,
-                        result.totalRegion,
+                        itemPricingTotals.cost,
                       )}
                     />
                     <PayrollSummaryPopoverCell
@@ -1127,7 +1127,7 @@ export function QuotePanel({
                         row,
                         rows,
                         site,
-                        result.totalRegion,
+                        itemPricingTotals.cost,
                       )}
                     />
                   </tr>
@@ -1138,11 +1138,7 @@ export function QuotePanel({
                   <td className="quoteStickyItemCol">合計</td>
                   <td className="num">{itemPricingTotals.totalBaseLabor.toFixed(2)}</td>
                   <td className="num">{Math.round(itemPricingTotals.cost).toLocaleString()}</td>
-                  <td className="num">
-                    {result.totalRegion > 0
-                      ? ((itemPricingTotals.cost / result.totalRegion) * 100).toFixed(2)
-                      : '0.00'}
-                  </td>
+                  <td className="num">{itemPricingTotals.cost > 0 ? '100.00' : '0.00'}</td>
                 </tr>
               </tfoot>
             </table>

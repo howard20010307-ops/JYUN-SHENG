@@ -1,6 +1,6 @@
 /** 放樣估價：對應《鈞泩估價表》成本估算列的計算邏輯 */
 
-import { canonicalQuoteItemOrder, EXCEL_STAGE } from './quoteExcelCanonical'
+import { EXCEL_STAGE } from './quoteExcelCanonical'
 export type { CustomLaborReportLine } from './quoteCustomLaborReport'
 
 export type SiteFees = {
@@ -523,7 +523,10 @@ export function computeFloorPricingTable(site: QuoteSite, rows: QuoteRow[]): Flo
   })
 }
 
-/** 每項工程細項計價：依細項名稱加總各列區域合計（元）、基礎總工數；占總為該細項占「細項計價總額」之百分比（表內合計 100%） */
+/**
+ * 每項工程細項計價：只依目前成本估算列產生，按細項首次出現順序呈列。
+ * 細項名稱會去除前後空白；空白名稱不呈列，同名細項跨模組合併。
+ */
 export type ItemPricingRow = {
   item: string
   /** 加總各列 E 欄「基礎總工數」 */
@@ -534,37 +537,25 @@ export type ItemPricingRow = {
 }
 
 export function computeItemPricingTable(site: QuoteSite, rows: QuoteRow[]): ItemPricingRow[] {
-  const { computed, totalRegion } = computeQuote(site, rows)
+  const { computed } = computeQuote(site, rows)
   const byItem = new Map<string, number>()
   const byItemBase = new Map<string, number>()
   for (const r of computed) {
-    byItem.set(r.item, (byItem.get(r.item) ?? 0) + r.regionCost)
-    byItemBase.set(r.item, (byItemBase.get(r.item) ?? 0) + r.baseTotal)
+    const item = r.item.trim()
+    if (!item) continue
+    byItem.set(item, (byItem.get(item) ?? 0) + r.regionCost)
+    byItemBase.set(item, (byItemBase.get(item) ?? 0) + r.baseTotal)
   }
-  const order = canonicalQuoteItemOrder()
-  const used = new Set<string>()
-  const out: ItemPricingRow[] = []
-  const pushRow = (item: string) => {
-    used.add(item)
-    const cost = byItem.get(item) ?? 0
+  const totalItemRegionCost = [...byItem.values()].reduce((sum, cost) => sum + cost, 0)
+  return [...byItem.entries()].map(([item, cost]) => {
     const totalBaseLabor = byItemBase.get(item) ?? 0
-    out.push({
+    return {
       item,
       totalBaseLabor,
       cost,
-      pctOfTotal: totalRegion > 0 ? (cost / totalRegion) * 100 : 0,
-    })
-  }
-  for (const item of order) {
-    pushRow(item)
-  }
-  const extras = [...byItem.keys()]
-    .filter((k) => !used.has(k))
-    .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-  for (const item of extras) {
-    pushRow(item)
-  }
-  return out
+      pctOfTotal: totalItemRegionCost > 0 ? (cost / totalItemRegionCost) * 100 : 0,
+    }
+  })
 }
 
 export function defaultSiteFees(): SiteFees {

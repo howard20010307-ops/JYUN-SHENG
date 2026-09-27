@@ -3,6 +3,7 @@
 import { jsPDF } from 'jspdf'
 import { appendDebtConfirmationAttachmentsToPdf } from './debtConfirmationPdfAttachments'
 import type { DebtConfirmationAttachmentFile } from './debtConfirmationWorkspace'
+import { addPdfPageWatermark, isPdfPageWatermarkElement } from './pdfPageWatermark'
 import {
   exportOwnerScopePdfBlobByWorkspaces,
   exportQuotationPdfBlobByWorkspaces,
@@ -60,6 +61,21 @@ export function buildEmploymentCertificatePdfFilename(employeeName: string): str
   const day = String(d.getDate()).padStart(2, '0')
   const safe = employeeName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名員工'
   return `在職證明書_${safe}_${y}${m}${day}.pdf`
+}
+
+export function buildIncomeCertificatePdfFilename(
+  employeeName: string,
+  payRocYear: string,
+  payRocMonth: string,
+): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const safe = employeeName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '未命名員工'
+  const payY = payRocYear.trim() || '未填'
+  const payM = payRocMonth.trim() || '未填'
+  return `服務與收入證明書_${safe}_民國${payY}年${payM}月薪資證明_${y}${m}${day}.pdf`
 }
 
 function parseDateLikeInput(input: string): Date | null {
@@ -128,6 +144,7 @@ function buildHtml2CanvasOpts(captureEl: HTMLElement) {
     windowHeight: h,
     scrollX: 0,
     scrollY: 0,
+    ignoreElements: isPdfPageWatermarkElement,
   }
 }
 
@@ -302,6 +319,7 @@ async function captureToPdfBlob(captureEl: HTMLElement): Promise<Blob> {
     addCanvasAsSlicedPagesCentered(pdf, canvas, PDF_MARGIN_MM, innerW, innerH, innerRatio)
   }
 
+  await addPdfPageWatermark(pdf)
   return pdf.output('blob')
 }
 
@@ -369,6 +387,9 @@ export async function buildOwnerScopePdfBlob(element: HTMLElement): Promise<Blob
   }
   if (captureRoot.classList.contains('employmentCertPdfRoot')) {
     return buildEmploymentCertificatePdfBlob(captureRoot)
+  }
+  if (captureRoot.classList.contains('incomeCertPdfRoot')) {
+    return buildIncomeCertificatePdfBlob(captureRoot)
   }
   if (captureRoot.classList.contains('contractPdfRoot')) {
     return buildContractPdfBlob(captureRoot)
@@ -641,6 +662,7 @@ async function buildBlockPagedPdfBlob(rootWrapper: HTMLElement, rootClass: strin
   const root = rootWrapper.querySelector<HTMLElement>(`.${rootClass}`) ?? rootWrapper
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
   await appendBlockPagedPdf(pdf, root)
+  await addPdfPageWatermark(pdf)
   return pdf.output('blob')
 }
 
@@ -658,6 +680,10 @@ export async function buildDebtConfirmationPdfBlob(
 
 export async function buildEmploymentCertificatePdfBlob(rootWrapper: HTMLElement): Promise<Blob> {
   return buildBlockPagedPdfBlob(rootWrapper, 'employmentCertPdfRoot')
+}
+
+export async function buildIncomeCertificatePdfBlob(rootWrapper: HTMLElement): Promise<Blob> {
+  return buildBlockPagedPdfBlob(rootWrapper, 'incomeCertPdfRoot')
 }
 
 async function renderContractPdfFromDom(captureRoot: HTMLElement): Promise<Blob> {
@@ -699,6 +725,7 @@ async function renderContractPdfFromDom(captureRoot: HTMLElement): Promise<Blob>
     await appendBlockPagedPdf(pdf, captureRoot, { pageNumberStart: 1, footerReserveMm: 10 })
   }
 
+  await addPdfPageWatermark(pdf)
   return pdf.output('blob')
 }
 
@@ -728,5 +755,10 @@ export async function downloadDebtConfirmationPdf(
 
 export async function downloadEmploymentCertificatePdf(root: HTMLElement, filename: string): Promise<void> {
   const blob = await buildEmploymentCertificatePdfBlob(root)
+  downloadBlob(blob, filename)
+}
+
+export async function downloadIncomeCertificatePdf(root: HTMLElement, filename: string): Promise<void> {
+  const blob = await buildIncomeCertificatePdfBlob(root)
   downloadBlob(blob, filename)
 }

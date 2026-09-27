@@ -4,11 +4,13 @@ import {
   quotationGrandTotals,
   quotationLineMoney,
   quotationVatRate,
+  QUOTATION_WORK_SCOPE_FOOTNOTE,
   type QuotationClauseLine,
   type QuotationLine,
   type QuotationMeta,
   type QuotationSupplier,
 } from '../domain/quotationWorkspace'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 /** `public/quotation-stamp.png`：報價單 PDF 用「報價專用章」圖檔 */
 const STAMP_SRC = `${import.meta.env.BASE_URL}quotation-stamp.png`
@@ -29,15 +31,18 @@ export type QuotationPdfSheetProps = {
   payer: QuoteOwnerClient
   lines: readonly QuotationLine[]
   vatPercent: number
+  workScopeLines: readonly QuotationClauseLine[]
   paymentTermsLines: readonly QuotationClauseLine[]
   clauseLines: readonly QuotationClauseLine[]
 }
 
 /** 供 PDF 匯出截圖用之報價單版面（橘色系、與試算表風格相近） */
 export function QuotationPdfSheet(props: QuotationPdfSheetProps) {
-  const { quoteTitle, meta, supplier, payer, lines, vatPercent, paymentTermsLines, clauseLines } = props
+  const { quoteTitle, meta, supplier, payer, lines, vatPercent, workScopeLines, paymentTermsLines, clauseLines } =
+    props
   const vatRate = quotationVatRate(vatPercent)
   const grand = quotationGrandTotals(lines, vatRate)
+  const workScopePdf = workScopeLines.map((c) => c.text.trim()).filter((t) => t !== '')
   const paymentTermsPdf = paymentTermsLines.map((c) => c.text.trim()).filter((t) => t !== '')
   const clausesPdf = clauseLines.map((c) => c.text.trim()).filter((t) => t !== '')
 
@@ -117,8 +122,11 @@ export function QuotationPdfSheet(props: QuotationPdfSheetProps) {
         lineHeight: 1.45,
         color: '#1a1a1a',
         background: '#fff',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      <PdfPageWatermark />
       <div data-pdf-workspace="head">
         <div style={{ ...bar, padding: '12px 14px', textAlign: 'center', marginBottom: 12 }}>
           <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '0.08em' }}>報價單</span>
@@ -408,6 +416,26 @@ export function QuotationPdfSheet(props: QuotationPdfSheetProps) {
             ))
           ) : (
             <li style={{ color: '#888' }}>（無付款條件文字）</li>
+          )}
+        </ol>
+      </div>
+
+      <div data-pdf-workspace="scope" style={{ marginTop: 14, ...box, padding: '8px 10px', fontSize: 9.5 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>本工程承攬工作範圍</span>
+          <span style={{ color: '#444', fontWeight: 400, fontSize: 8.5, lineHeight: 1.45 }}>
+            {QUOTATION_WORK_SCOPE_FOOTNOTE}
+          </span>
+        </div>
+        <ol style={{ margin: 0, paddingLeft: 18, color: '#333' }}>
+          {workScopePdf.length > 0 ? (
+            workScopePdf.map((text, i) => (
+              <li key={`ws-${i}`} style={{ marginBottom: 4 }}>
+                {text}
+              </li>
+            ))
+          ) : (
+            <li style={{ color: '#888' }}>（尚未填寫）</li>
           )}
         </ol>
       </div>

@@ -334,6 +334,7 @@ function isUsableAppPayload(loaded: unknown): boolean {
   if (!d.debtConfirmationWorkspace || typeof d.debtConfirmationWorkspace !== 'object') return false
   if (!d.contractWorkspace || typeof d.contractWorkspace !== 'object') return false
   if (!d.employmentCertificateWorkspace || typeof d.employmentCertificateWorkspace !== 'object') return false
+  if (!d.incomeCertificateWorkspace || typeof d.incomeCertificateWorkspace !== 'object') return false
   return true
 }
 

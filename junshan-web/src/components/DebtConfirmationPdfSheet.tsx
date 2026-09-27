@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { COMPANY_CONTRACTOR } from '../domain/companyContact'
 import type { DebtConfirmationWorkspaceState } from '../domain/debtConfirmationWorkspace'
+import { PdfPageWatermark } from './PdfPageWatermark'
 
 /** `public/debt-confirmation-company-logo.png`：PDF 抬頭公司 logo */
 const COMPANY_LOGO_SRC = `${import.meta.env.BASE_URL}debt-confirmation-company-logo.png`
@@ -22,6 +23,8 @@ const rootStyle: CSSProperties = {
   fontFamily: '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif',
   fontSize: 11,
   lineHeight: 1.8,
+  position: 'relative',
+  overflow: 'hidden',
 }
 
 /** 分頁單位：放不下時整塊跳下一頁（不從中間切斷） */
@@ -94,6 +97,7 @@ export function DebtConfirmationPdfSheet({ data }: Props) {
 
   return (
     <div className="debtConfirmationPdfRoot" style={rootStyle}>
+      <PdfPageWatermark />
       <Block>
         <div style={{ position: 'relative', marginBottom: 0 }}>
           <p style={{ textAlign: 'center', margin: '0 0 4px', fontSize: 13, fontWeight: 700 }}>鈞泩放樣工程</p>
